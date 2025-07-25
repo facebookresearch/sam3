@@ -59,7 +59,7 @@ from PIL import Image
 import numpy as np
 
 # Load the model
-model = build_sam3_image_model(bpe_path="path/to/bpe/vocabulary.txt")
+model = build_sam3_image_model(bpe_path="path/to/bpe/vocabulary.txt", checkpoint_path="path/to/checkpoint.pth")
 
 # Load the image into model
 inference_state = model.init_state("path/to/image.jpg")
@@ -69,7 +69,6 @@ outputs = model.predict(
     inference_state,
     text_str="your_text_query",
     output_prob_thresh=0.5,
-    checkpoint_path="path/to/checkpoint.pth"
 )
 
 # Get the masks, bounding boxes, and scores
