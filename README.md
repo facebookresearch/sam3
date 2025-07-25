@@ -1,6 +1,6 @@
-# SAM3: Segment Anything Model 3
+# SAM3
 
-SAM3 (Segment Anything Model 3) is a powerful segmentation model developed by Meta AI Research that can segment anything in images based on various prompts including points, boxes, masks, and text.
+SAM3 is a powerful segmentation model developed by Meta AI Research that can segment anything in images based on various prompts including points, boxes and text.
 
 
 ## Installation
