@@ -1,7 +1,8 @@
 # SAM3
 
-SAM3 is a powerful segmentation model developed by Meta AI Research that can segment anything in images based on various prompts including points, boxes and text.
+SAM3 is a foundational visual grounding model that detects, segments and tracks objects in images and videos. SAM3 supports object category detection and instance segmentation using text and visual example prompts, as well as vocabulary-free promptable segmentation using point, mask or box prompts as in SAM2. SAM3 can detect objects based on open-vocabulary noun phrases1, and allows the user to interactively refine the output with additional points or boxes.
 
+**Note**: The current model definition only supports images for now. Video is comming soon.
 
 ## Installation
 
@@ -77,7 +78,7 @@ masks, boxes, scores = outputs["out_binary_masks"], outputs["out_boxes_xywh"], o
 # Reset state
 model.reset_state(inference_state)
 
-# For point-to-mask and box-to-mask inference, please check out the examples directory
+# For point-to-mask and box-to-mask inference, please checkout the examples directory
 ```
 
 ### Interactive Segmentation
