@@ -1,3 +1,4 @@
+# Copyright (c) Meta, Inc. and its affiliates. All Rights Reserved
 # Based on https://github.com/IDEA-Research/GroundingDINO
 
 from typing import Any, Dict, List, Optional, Tuple

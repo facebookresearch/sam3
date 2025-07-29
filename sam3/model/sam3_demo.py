@@ -378,13 +378,6 @@ class Sam3ImageInteractiveDemo(Sam3Image):
             and inference_state["previous_stages_out"][frame_idx] is None
         )
         if is_new_visual_prompt:
-            if boxes_cxcywh.size(0) != 1:
-                raise RuntimeError(
-                    "visual prompts (box as an initial prompt) should only have one box, "
-                    f"but got {boxes_cxcywh.shape=}"
-                )
-            if not box_labels.item():
-                logging.warning("A negative box is added as a visual prompt.")
             # take the first box prompt as a visual prompt
             device = inference_state["device"]
             new_visual_prompt = Prompt(

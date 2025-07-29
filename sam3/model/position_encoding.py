@@ -1,6 +1,5 @@
 # Copyright (c) Meta, Inc. and its affiliates. All Rights Reserved
 
-
 import math
 from typing import Optional
 
