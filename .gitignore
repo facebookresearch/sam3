@@ -136,7 +136,6 @@ checkpoints/
 *.pickle
 *.npy
 *.npz
-data/
 
 # Logs
 logs/
