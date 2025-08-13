@@ -1,11 +1,27 @@
+#!/usr/bin/env python3
+"""
+Script to extract and analyze training results from Roboflow VL100 experiments.
+
+This script processes training logs and configuration files to extract model performance
+metrics and training parameters for analysis and comparison.
+"""
+
 import argparse
 import json
 import os
+from typing import Any, Dict, List, Optional
 
 import pandas as pd
 import yaml
 
-all_keys = {
+
+# Constants
+CONFIG_FILENAME = "config_resolved.yaml"
+RESULTS_FILENAME = "val_stats.json"
+BBOX_AP_METRIC = "Meters_train/val_roboflow100/detection/coco_eval_bbox_AP"
+
+# Roboflow dataset categories organized by domain
+ROBOFLOW_CATEGORIES = {
     "sports": [
         "actions",
         "aerial-pool",
@@ -123,22 +139,21 @@ all_keys = {
 }
 
 
-def load_json_and_get_keys_from_last_row(file_path, keys):
+def load_jsonl_last_row(file_path: str, keys: List[str]) -> Optional[Dict[str, Any]]:
     """
-    Load JSON data from a file and return specific keys from the last row.
-    :param file_path: Path to the JSON file.
-    :param keys: List of keys to extract from the last row.
-    :return: Dictionary with the specified keys and their values from the last row.
+    Load the last row from a JSONL file and extract specific keys.
+
+    Args:
+        file_path: Path to the JSONL file
+        keys: List of keys to extract from the last row
+
+    Returns:
+        Dictionary with extracted key-value pairs, or None if file not found/empty
     """
-    with open(file_path, "r") as file:
-        data = json.load(file)
-    if not isinstance(data, list) or not data:
-        raise ValueError("JSON data is not a non-empty list.")
-    last_row = data[-1]
-    return {key: last_row.get(key) for key in keys}
+    if not os.path.exists(file_path):
+        print(f"Warning: File not found: {file_path}")
+        return None
 
-
-def load_jsonl_and_get_last_row_keys(file_path, keys):
     last_row = None
     try:
         with open(file_path, "r") as file:
@@ -146,113 +161,218 @@ def load_jsonl_and_get_last_row_keys(file_path, keys):
                 last_row = json.loads(line.strip())
 
         if last_row is None:
-            print("The JSONL file is empty.")
+            print(f"Warning: Empty JSONL file: {file_path}")
             return None
 
-        result = {key: last_row.get(key) for key in keys}
-        return result
-    except FileNotFoundError:
-        print(f"The file {file_path} was not found.")
-    except json.JSONDecodeError:
-        print(f"Failed to parse JSON in {file_path}.")
+        return {key: last_row.get(key) for key in keys}
+
+    except json.JSONDecodeError as e:
+        print(f"Error: Failed to parse JSON in {file_path}: {e}")
+        return None
     except Exception as e:
-        print(f"An error occurred: {e}")
+        print(f"Error: Failed to read {file_path}: {e}")
+        return None
 
 
-def find_yaml_files_recursively(directory, filename):
-    """Recursively find YAML files with a specific filename."""
+def find_config_files(directory: str, filename: str = CONFIG_FILENAME) -> List[str]:
+    """
+    Recursively find configuration files with a specific filename.
+
+    Args:
+        directory: Root directory to search
+        filename: Target filename to search for
+
+    Returns:
+        List of full paths to matching files
+    """
     matching_files = []
     for root, _, files in os.walk(directory):
+        # Skip code directories
         if "/code/" in root:
             continue
-        for file in files:
-            if file == filename:
-                matching_files.append(os.path.join(root, file))
+        if filename in files:
+            matching_files.append(os.path.join(root, filename))
     return matching_files
 
 
-def sample_keys_from_yaml(file_path, keys):
-    """Extract specific keys from a YAML file."""
-    with open(file_path, "r") as file:
-        data = yaml.safe_load(file)
-        out_dict = {key: data["scratch"].get(key) for key in keys}
-        out_dict["batch_size"] = int(data["launcher"]["gpus_per_node"]) * int(
-            data["launcher"]["num_nodes"]
+def extract_config_parameters(config_path: str, keys: List[str]) -> Dict[str, Any]:
+    """
+    Extract specific parameters from a YAML configuration file.
+
+    Args:
+        config_path: Path to the YAML configuration file
+        keys: List of keys to extract from the 'scratch' section
+
+    Returns:
+        Dictionary containing extracted parameters
+    """
+    try:
+        with open(config_path, "r") as file:
+            data = yaml.safe_load(file)
+
+        # Extract parameters from scratch section
+        scratch_params = {key: data["scratch"].get(key) for key in keys}
+
+        # Add computed parameters
+        launcher = data.get("launcher", {})
+        scratch_params["batch_size"] = int(launcher.get("gpus_per_node", 1)) * int(
+            launcher.get("num_nodes", 1)
         )
-        out_dict["lr_scale"] = data["scratch"].get("lr_scale", None)
-        out_dict["roboflow_num_images"] = data["roboflow_train"].get("num_images", None)
-        return out_dict
+        scratch_params["lr_scale"] = data["scratch"].get("lr_scale")
+
+        roboflow_train = data.get("roboflow_train", {})
+        scratch_params["roboflow_num_images"] = roboflow_train.get("num_images")
+
+        return scratch_params
+
+    except Exception as e:
+        print(f"Error: Failed to parse config file {config_path}: {e}")
+        return {}
 
 
-def average_values_of_dict(dict):
-    total = 0
-    count = 0
-    for value in dict.values():
-        total += value
-        count += 1
-    return total / count
+def calculate_average(values_dict: Dict[str, float]) -> float:
+    """
+    Calculate the average of values in a dictionary.
+
+    Args:
+        values_dict: Dictionary with numeric values
+
+    Returns:
+        Average of all values, or 0 if empty
+    """
+    if not values_dict:
+        return 0.0
+    return sum(values_dict.values()) / len(values_dict)
 
 
-def main():
+def extract_category_results(log_dir: str, categories: List[str]) -> Dict[str, float]:
+    """
+    Extract bbox AP results for specific categories from log files.
 
-    parser = argparse.ArgumentParser(description="A simple example of argparse")
-    # Add arguments
-    parser.add_argument("-p", "--path", type=str, help="directory path", required=True)
-    args = parser.parse_args()
+    Args:
+        log_dir: Directory containing category log subdirectories
+        categories: List of category names to extract results for
 
-    directory = args.path
-    filename = "config_resolved.yaml"  # Replace with your specific filename
+    Returns:
+        Dictionary mapping category names to bbox AP scores
+    """
+    results = {}
+    metric_keys = [BBOX_AP_METRIC]
 
-    keys_to_sample = [
+    for category in categories:
+        result_file = os.path.join(log_dir, f"logs/{category}/{RESULTS_FILENAME}")
+        category_result = load_jsonl_last_row(result_file, metric_keys)
+
+        if category_result is not None and category_result[BBOX_AP_METRIC] is not None:
+            results[category] = category_result[BBOX_AP_METRIC]
+
+    return results
+
+
+def analyze_experiment_results(config_path: str) -> None:
+    """
+    Analyze results from a single experiment configuration.
+
+    Args:
+        config_path: Path to the experiment configuration file
+    """
+    print("=" * 80)
+    print(f"Analyzing experiment: {config_path}")
+    print("=" * 80)
+
+    # Extract configuration parameters
+    config_keys = [
         "lr_transformer",
         "lr_vision_backbone",
         "lr_language_backbone",
         "max_data_epochs",
-    ]  # Replace with your specific keys
+    ]
 
-    yaml_files = find_yaml_files_recursively(directory, filename)
+    config_params = extract_config_parameters(config_path, config_keys)
+    print("Configuration Parameters:")
+    for key, value in config_params.items():
+        print(f"  {key}: {value}")
+    print()
 
-    for yaml_file in yaml_files:
-        sampled_data = sample_keys_from_yaml(yaml_file, keys_to_sample)
+    # Extract results for each category
+    experiment_dir = os.path.dirname(config_path)
+    category_results = {}
+    category_averages = {}
+    all_scores = []
 
-        print("####################")
-        print(f"File: {yaml_file}")
-        print("Sampled Data:", sampled_data)
+    for super_category, categories in ROBOFLOW_CATEGORIES.items():
+        category_results[super_category] = extract_category_results(
+            experiment_dir, categories
+        )
 
-        # get results
-        res_file = os.path.dirname(yaml_file)
-        res_file = os.path.join(res_file, "logs/val_stats.json")
+        if category_results[super_category]:
+            category_averages[super_category] = calculate_average(
+                category_results[super_category]
+            )
+            all_scores.extend(category_results[super_category].values())
 
-        extract_keys = {}
-        for super_cat, cats in all_keys.items():
-            extract_keys[super_cat] = [
-                f"Meters_train/val_roboflow100_*/detection/roboflow100_{cat}/coco_eval_bbox_AP"
-                for cat in cats
-            ]
+    # Print results summary
+    print("Results by Category:")
+    for super_category, avg_score in category_averages.items():
+        num_categories = len(category_results[super_category])
+        print(f"  {super_category}: {avg_score:.4f} (n={num_categories})")
 
-        results = {}
-        results_average = {}
-        all_results = []
-        for super_cat, keys in extract_keys.items():
-            results[super_cat] = load_jsonl_and_get_last_row_keys(res_file, keys)
-            results_average[super_cat] = average_values_of_dict(results[super_cat])
-            all_results.extend(results[super_cat].values())
-
-        print("Average Results:", results_average)
-        print("All category average:", average_values_of_dict(results_average))
-        print("Total categories", len(all_results))
-        print("True average:", sum(all_results) / len(all_results))
+    print(f"\nOverall Results:")
+    print(f"  Weighted average: {calculate_average(category_averages):.4f}")
+    print(f"  Total categories: {len(all_scores)}")
+    print(f"  True average: {sum(all_scores) / len(all_scores):.4f}")
+    print()
 
 
-def print_table(data):
+def print_results_table(results_data: List[Dict[str, Any]]) -> None:
     """
-    Prints a list of dictionaries as a table with keys as columns.
-    :param data: List of dictionaries
+    Print results in a formatted table.
+
+    Args:
+        results_data: List of dictionaries containing results data
     """
-    # Create a DataFrame from the list of dictionaries
-    df = pd.DataFrame(data)
-    # Print the DataFrame as a table
+    if not results_data:
+        print("No results data to display.")
+        return
+
+    df = pd.DataFrame(results_data)
+    print("\nResults Summary Table:")
+    print("=" * 60)
     print(df.to_string(index=False))
+
+
+def main() -> None:
+    """Main function to orchestrate the results extraction and analysis."""
+    parser = argparse.ArgumentParser(
+        description="Extract and analyze Roboflow VL100 training results"
+    )
+    parser.add_argument(
+        "-p",
+        "--path",
+        type=str,
+        required=True,
+        help="Root directory path containing experiment results",
+    )
+
+    args = parser.parse_args()
+
+    # Find all configuration files
+    config_files = find_config_files(args.path, CONFIG_FILENAME)
+
+    if not config_files:
+        print(f"No configuration files found in {args.path}")
+        return
+
+    print(f"Found {len(config_files)} experiment configurations")
+    print()
+
+    # Analyze each experiment
+    for config_file in config_files:
+        try:
+            analyze_experiment_results(config_file)
+        except Exception as e:
+            print(f"Error analyzing {config_file}: {e}")
+            continue
 
 
 if __name__ == "__main__":

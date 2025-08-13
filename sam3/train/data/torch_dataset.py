@@ -3,7 +3,6 @@ from typing import Callable, Iterable, Optional
 from torch.utils.data import DataLoader, Dataset, DistributedSampler, IterableDataset
 
 
-
 class TorchDataset:
     def __init__(
         self,
