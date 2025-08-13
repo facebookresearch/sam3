@@ -3,11 +3,9 @@ defaults:
   - _self_
 
 # ============================================================================
-# Dataset Configuration
+# Paths Configuration (Chage this to your own paths)
 # ============================================================================
-
 paths:
-
   checkpoint_path: /checkpoint/onevision/kalyanv/sam3_roboflow_ckpts/sam3_prod_v12_interactive_5box_image_only.pt
   roboflow_vl_100_root: /checkpoint/onevision/datasets/all_rf100/rf100-vl
   experiment_log_dir: /checkpoint/onevision/kalyanv/sam3_oss_train_dump
@@ -16,22 +14,6 @@ paths:
 roboflow_train:
   num_images: 100
   supercategory: ${all_roboflow_supercategories.${string:${submitit.job_array.task_index}}}
-
-  dataset:
-    _target_: sam3.train.data.modulated_detection_api_v2.ModulatedDetectionAPI
-    limit_ids: ${roboflow_train.num_images}
-    transforms: ${roboflow_train.train_transforms}
-    load_segmentation: false
-    max_ann_per_img: 500000
-    multiplier: 1
-    max_train_queries: 50000
-    max_train_get_queries: 50000
-    max_val_queries: 50000
-    max_val_get_queries: 50000
-    training: true
-    use_caching: False
-    img_folder: ${paths.roboflow_vl_100_root}/${roboflow_train.supercategory}/train/
-    ann_file: ${paths.roboflow_vl_100_root}/${roboflow_train.supercategory}/train/_annotations.coco.json
 
   # Training transforms pipeline
   train_transforms:
@@ -99,7 +81,7 @@ roboflow_train:
     - _target_: sam3.train.transforms.mdetr.ApplyPosEmbedToBoxesAPI
       pos_embed: ${scratch.pos_embed}
 
-  # Loss configuration
+  # loss config (no mask loss)
   roboflow_loss:
     _target_: sam3.train.loss.sam3_loss.Sam3LossWrapper
     matcher: ${scratch.matcher}
@@ -169,9 +151,8 @@ roboflow_train:
   #     scale_by_find_batch_size: ${scratch.scale_by_find_batch_size}
 
 # ============================================================================
-# Model and Training Parameters
+# Different helper parameters and functions
 # ============================================================================
-
 scratch:
   # Model parameters
   d_model: 256
@@ -245,23 +226,16 @@ scratch:
 # ============================================================================
 
 trainer:
-  # _target_: onevision.trainer.trainer_api.MdetrTrainerAPI
-  # prevent_saving_ckpts: true
 
   _target_: sam3.train.trainer.Trainer
   skip_saving_ckpts: true
-
   empty_gpu_mem_cache_after_eval: True
   skip_first_val: True
-
   max_epochs: 20
   accelerator: cuda
   seed_value: 123
   val_epoch_freq: 10
-  # val_sparse_epoch_freq: 10
   mode: train
-
-
 
   distributed:
     backend: nccl
@@ -274,11 +248,23 @@ trainer:
       _target_: sam3.train.loss.sam3_loss.DummyLoss
 
   data:
-
     train:
-
       _target_: sam3.train.data.torch_dataset.TorchDataset
-      dataset: ${roboflow_train.dataset}
+      dataset:
+        _target_: sam3.train.data.sam3_image_dataset.Sam3ImageDataset
+        limit_ids: ${roboflow_train.num_images}
+        transforms: ${roboflow_train.train_transforms}
+        load_segmentation: false
+        max_ann_per_img: 500000
+        multiplier: 1
+        max_train_queries: 50000
+        max_train_get_queries: 50000
+        max_val_queries: 50000
+        max_val_get_queries: 50000
+        training: true
+        use_caching: False
+        img_folder: ${paths.roboflow_vl_100_root}/${roboflow_train.supercategory}/train/
+        ann_file: ${paths.roboflow_vl_100_root}/${roboflow_train.supercategory}/train/_annotations.coco.json
 
       shuffle: True
       batch_size: ${scratch.train_batch_size}
@@ -294,12 +280,11 @@ trainer:
         with_seg_masks: true
 
     val:
-
       _target_: sam3.train.data.torch_dataset.TorchDataset
       dataset:
-        _target_: sam3.train.data.modulated_detection_api_v2.ModulatedDetectionAPI
-        db_loader:
-          _target_: sam3.train.data.coco_db_api_json.COCO_DB_API_FROM_JSON_EVAL
+        _target_: sam3.train.data.sam3_image_dataset.Sam3ImageDataset
+        coco_json_loader:
+          _target_: sam3.train.data.coco_json_loaders.COCO_EVAL_API_FROM_JSON_BOX_ONLY
           _partial_: true
         img_folder: ${paths.roboflow_vl_100_root}/${roboflow_train.supercategory}/test/
         ann_file: ${paths.roboflow_vl_100_root}/${roboflow_train.supercategory}/test/_annotations.coco.json
@@ -321,7 +306,7 @@ trainer:
         dict_key: roboflow100
 
   # TODO (Kalyan): Expose more model parameters, droppath rate, dropout, etc
-  # TODO (Kalyan): Add support for presence token
+  # TODO (Kalyan): Add support for presence token.
   model:
     _target_: sam3.model_builder.build_sam3_image_model
     bpe_path: /checkpoint/onevision/kalyanv/bpe_simple_vocab_16e6.txt.gz
@@ -345,7 +330,7 @@ trainer:
   optim:
     amp:
       enabled: True
-      amp_dtype: bfloat16  # performance regression w/ fp16
+      amp_dtype: bfloat16
 
     optimizer:
       _target_: torch.optim.AdamW

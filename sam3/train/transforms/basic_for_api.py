@@ -20,7 +20,7 @@ from PIL import Image as PILImage
 from torchvision.transforms import InterpolationMode
 
 from sam3.model.box_ops import box_xyxy_to_cxcywh, masks_to_boxes
-from sam3.train.data.modulated_detection_api_v2 import Datapoint
+from sam3.train.data.sam3_image_dataset import Datapoint
 
 
 def crop(

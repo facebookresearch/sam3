@@ -7,7 +7,7 @@ from PIL import Image as PILImage
 
 from sam3.model.box_ops import masks_to_boxes
 
-from sam3.train.data.modulated_detection_api_v2 import Datapoint
+from sam3.train.data.sam3_image_dataset import Datapoint
 
 
 class InstanceToSemantic(object):

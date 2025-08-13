@@ -114,7 +114,6 @@ jupyter notebook examples/sam3_image_multiway_prompting.ipynb
 - Fast inference
 - Support for interactive segmentation workflows
 
-
 ## Development
 
 To set up the development environment:

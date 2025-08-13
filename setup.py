@@ -42,7 +42,7 @@ setup(
     python_requires=">=3.8",
     install_requires=[
         "timm>=1.0.17",
-        "numpy<2",
+        "numpy",
         "tqdm",
         "ftfy==6.1.1",
         "regex",
@@ -64,6 +64,18 @@ setup(
             "jupyter",
             "notebook",
             "ipywidgets",
+        ],
+        "train": [
+            "hydra-core",
+            "submitit",
+            "tensorboard",
+            "pycocotools",
+            "decord",
+            "zstandard",
+            "scipy",
+            "torchmetrics",
+            "fvcore",
+            "opencv-python",
         ],
     },
 )

@@ -5,7 +5,7 @@ from PIL import Image as PILImage
 from pycocotools import mask as mask_util
 from torchvision.ops import masks_to_boxes
 
-from sam3.train.data.modulated_detection_api_v2 import Datapoint
+from sam3.train.data.sam3_image_dataset import Datapoint
 
 
 def sample_points_from_rle(rle, n_points, mode, box=None, normalize=True):

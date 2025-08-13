@@ -8,7 +8,7 @@ from typing import List, MutableSequence, Optional, Union
 
 import torch
 
-from sam3.train.data.modulated_detection_api_v2 import (
+from sam3.train.data.sam3_image_dataset import (
     Datapoint,
     FindQuery,
     GetQuery,
