@@ -17,6 +17,7 @@ from typing import Callable, List, Optional, Tuple, Union
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import torch.utils.checkpoint as checkpoint
 from timm.models.layers import DropPath, Mlp, trunc_normal_
 from torch import Tensor
 
@@ -647,6 +648,7 @@ class ViT(nn.Module):
         ln_post: bool = False,
         bias_patch_embed: bool = True,
         compile_mode: Optional[str] = None,
+        use_act_checkpoint: bool = True,
     ):
         """
         Args:
@@ -769,6 +771,8 @@ class ViT(nn.Module):
             if i not in window_block_indexes:
                 cur_stage += 1
 
+            self.use_act_checkpoint = use_act_checkpoint
+
             self.blocks.append(block)
 
         self.return_interm_layers = return_interm_layers
@@ -790,6 +794,8 @@ class ViT(nn.Module):
             self.forward = torch.compile(
                 self.forward, mode=compile_mode, fullgraph=True
             )
+            if self.use_act_checkpoint and self.training:
+                torch._dynamo.config.optimize_ddp = False
 
     def _init_weights(self, m: nn.Module) -> None:
         if isinstance(m, nn.Linear):
@@ -827,7 +833,10 @@ class ViT(nn.Module):
         outputs = []
         masks = None
         for i, blk in enumerate(self.blocks):
-            x = blk(x)
+            if self.use_act_checkpoint and self.training:
+                x = checkpoint.checkpoint(blk, x, use_reentrant=False)
+            else:
+                x = blk(x)
             if (i == self.full_attn_ids[-1]) or (
                 self.return_interm_layers and i in self.full_attn_ids
             ):

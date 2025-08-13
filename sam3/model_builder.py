@@ -1,7 +1,11 @@
 # Copyright (c) Meta, Inc. and its affiliates. All Rights Reserved
 
+from re import match
+
 import torch
 import torch.nn as nn
+
+from onevision.models.detr.matcher import BinaryHungarianMatcherV2
 
 from torch.nn import MultiheadAttention
 
@@ -13,7 +17,8 @@ from .model.memory import CXBlock, SimpleFuser, SimpleMaskDownSampler
 from .model.model_misc import DotProductScoring, MLP, TransformerWrapper
 from .model.necks import OriginalViTDetNeck
 from .model.position_encoding import PositionEmbeddingSine
-from .model.sam3_demo import Sam3ImageInteractiveDemo
+
+from .model.sam3_image import Sam3Image
 from .model.text_encoder_ve import VETextEncoder
 from .model.tokenizer_ve import SimpleTokenizer
 from .model.vitdet import ViT
@@ -25,6 +30,7 @@ def build_sam3_image_model(
     device="cuda" if torch.cuda.is_available() else "cpu",
     eval_mode=True,
     checkpoint_path=None,
+    enable_segmentation=True,
 ):
     """
     This function replaces the Hydra-based configuration in sam3_image_v1.4.yaml
@@ -147,7 +153,7 @@ def build_sam3_image_model(
         cross_attention=MultiheadAttention(
             num_heads=8,
             dropout=0.1,
-            embed_dim=256,  #  attn_type=AttentionType.Vanilla,
+            embed_dim=256,  # attn_type=AttentionType.Vanilla,
         ),
         n_heads=8,
         use_text_cross_attention=True,
@@ -189,44 +195,47 @@ def build_sam3_image_model(
     # Create dot product scorer
     dot_prod_scoring = DotProductScoring(d_model=256, d_proj=256, prompt_mlp=prompt_mlp)
 
-    # Create pixel decoder for segmentation head
-    pixel_decoder = PixelDecoder(
-        num_upsampling_stages=3,
-        interpolation_mode="nearest",
-        hidden_dim=256,
-        compile_mode="default",
-    )
+    if enable_segmentation:
+        # Create pixel decoder for segmentation head
+        pixel_decoder = PixelDecoder(
+            num_upsampling_stages=3,
+            interpolation_mode="nearest",
+            hidden_dim=256,
+            compile_mode="default",
+        )
 
-    # Create cross attention for segmentation head
-    cross_attend_prompt = MultiheadAttention(
-        num_heads=8,
-        dropout=0,
-        embed_dim=256,  # attn_type=AttentionType.Vanilla,
-    )
+        # Create cross attention for segmentation head
+        cross_attend_prompt = MultiheadAttention(
+            num_heads=8,
+            dropout=0,
+            embed_dim=256,  # attn_type=AttentionType.Vanilla,
+        )
 
-    # Create segmentation head
-    segmentation_head = UniversalSegmentationHead(
-        hidden_dim=256,
-        upsampling_stages=3,
-        aux_masks=False,
-        presence_head=True,
-        dot_product_scorer=DotProductScoring(
-            d_model=256,
-            d_proj=256,
-            prompt_mlp=MLP(
-                input_dim=256,
-                hidden_dim=2048,
-                output_dim=256,
-                num_layers=2,
-                dropout=0.1,
-                residual=True,
-                out_norm=nn.LayerNorm(256),
+        # Create segmentation head
+        segmentation_head = UniversalSegmentationHead(
+            hidden_dim=256,
+            upsampling_stages=3,
+            aux_masks=False,
+            presence_head=True,
+            dot_product_scorer=DotProductScoring(
+                d_model=256,
+                d_proj=256,
+                prompt_mlp=MLP(
+                    input_dim=256,
+                    hidden_dim=2048,
+                    output_dim=256,
+                    num_layers=2,
+                    dropout=0.1,
+                    residual=True,
+                    out_norm=nn.LayerNorm(256),
+                ),
             ),
-        ),
-        act_ckpt=True,
-        cross_attend_prompt=cross_attend_prompt,
-        pixel_decoder=pixel_decoder,
-    )
+            act_ckpt=True,
+            cross_attend_prompt=cross_attend_prompt,
+            pixel_decoder=pixel_decoder,
+        )
+    else:
+        segmentation_head = None
 
     # Create position encoding for geometry encoder
     geo_pos_enc = PositionEmbeddingSine(
@@ -309,23 +318,45 @@ def build_sam3_image_model(
         mask_encoder=mask_encoder,
     )
 
-    # Create the SAM3 model
-    model = Sam3ImageInteractiveDemo(
-        backbone=backbone,
-        transformer=transformer,
-        input_geometry_encoder=input_geometry_encoder,
-        segmentation_head=segmentation_head,
-        num_feature_levels=1,
-        o2m_mask_predict=True,
-        dot_prod_scoring=dot_prod_scoring,
-        use_instance_query=True,
-        multimask_output=True,
-    )
+    if eval_mode:
+        from .model.sam3_demo import Sam3ImageInteractiveDemo
 
+        model = Sam3ImageInteractiveDemo(
+            backbone=backbone,
+            transformer=transformer,
+            input_geometry_encoder=input_geometry_encoder,
+            segmentation_head=segmentation_head,
+            num_feature_levels=1,
+            o2m_mask_predict=True,
+            dot_prod_scoring=dot_prod_scoring,
+            use_instance_query=True,
+            multimask_output=True,
+        )
+    else:
+        model = Sam3Image(
+            backbone=backbone,
+            transformer=transformer,
+            input_geometry_encoder=input_geometry_encoder,
+            segmentation_head=segmentation_head,
+            num_feature_levels=1,
+            o2m_mask_predict=True,
+            dot_prod_scoring=dot_prod_scoring,
+            use_instance_query=True,
+            multimask_output=True,
+            matcher=BinaryHungarianMatcherV2(
+                focal=True,
+                cost_class=2.0,
+                cost_bbox=5.0,
+                cost_giou=2.0,
+                alpha=0.25,
+                gamma=2,
+                stable=False,
+            ),
+        )
     # move to eval mode
     if checkpoint_path is not None:
         ckpt = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
-        model.load_state_dict(ckpt, strict=True)
+        model.load_state_dict(ckpt, strict=False)
 
     if device == "cuda":
         model = model.cuda()

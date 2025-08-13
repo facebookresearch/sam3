@@ -5,6 +5,7 @@ from typing import Callable, List, Optional, Tuple, Union
 
 import torch
 import torch.nn as nn
+from torch.utils.checkpoint import checkpoint
 
 from .model_misc import LayerScale
 
@@ -97,10 +98,12 @@ class Transformer(nn.Module):
         act_layer: Callable[[], nn.Module] = nn.GELU,
         norm_layer: Callable[[int], nn.Module] = nn.LayerNorm,
         compile_mode: Optional[str] = None,
+        use_act_checkpoint: bool = False,
     ):
         super().__init__()
         self.width = width
         self.layers = layers
+        self.grad_checkpointing = use_act_checkpoint
         self.resblocks = nn.ModuleList(
             [
                 ResidualAttentionBlock(
@@ -119,6 +122,8 @@ class Transformer(nn.Module):
             self.forward = torch.compile(
                 self.forward, mode=compile_mode, fullgraph=True
             )
+            if self.grad_checkpointing:
+                torch._dynamo.config.optimize_ddp = False
 
     def forward(
         self,
@@ -126,10 +131,17 @@ class Transformer(nn.Module):
         attn_mask: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         for _, r in enumerate(self.resblocks):
-            x = r(
-                x,
-                attn_mask=attn_mask,
-            )
+            if (
+                self.grad_checkpointing
+                and not torch.jit.is_scripting()
+                and self.training
+            ):
+                x = checkpoint(r, x, None, None, attn_mask, use_reentrant=False)
+            else:
+                x = r(
+                    x,
+                    attn_mask=attn_mask,
+                )
         return x
 
 
@@ -169,6 +181,7 @@ class TextTransformer(nn.Module):
         output_tokens: bool = False,
         use_ln_post: bool = True,
         compile_mode: Optional[str] = None,
+        use_act_checkpoint: bool = False,
     ):
         super().__init__()
         assert pool_type in ("first", "last", "argmax", "none")
@@ -191,6 +204,7 @@ class TextTransformer(nn.Module):
             act_layer=act_layer,
             norm_layer=norm_layer,
             compile_mode=compile_mode,
+            use_act_checkpoint=use_act_checkpoint,
         )
         self.ln_final = norm_layer(width) if use_ln_post else nn.Identity()
         if no_causal_mask:
@@ -249,6 +263,7 @@ class VETextEncoder(nn.Module):
         vocab_size: int = 49408,
         use_ln_post: bool = True,
         compile_mode: Optional[str] = None,
+        use_act_checkpoint: bool = True,
     ):
         super().__init__()
         self.context_length = context_length
@@ -265,6 +280,7 @@ class VETextEncoder(nn.Module):
             output_tokens=True,
             use_ln_post=use_ln_post,
             compile_mode=compile_mode,
+            use_act_checkpoint=use_act_checkpoint,
         )
         self.resizer = nn.Linear(self.encoder.width, d_model)
 

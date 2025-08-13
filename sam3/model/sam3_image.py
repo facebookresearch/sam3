@@ -4,6 +4,11 @@ from typing import Dict, Optional
 
 import torch
 
+from sam3.model.model_misc import SAM3Output
+
+# TODO: Kalyan, imports to be fixed!
+from sam3.train.data.collator import BatchedDatapoint, FindStage
+
 from .act_ckpt_utils import activation_ckpt_wrapper
 
 from .box_ops import box_cxcywh_to_xyxy
@@ -33,7 +38,12 @@ class Sam3Image(torch.nn.Module):
         o2m_mask_predict=True,
         dot_prod_scoring=None,
         use_instance_query: bool = True,
-        multimask_output: bool = False,
+        multimask_output: bool = True,
+        use_act_checkpoint_seg_head: bool = True,
+        apply_dac_on_initial_frame: bool = True,
+        interactivity_in_encoder: bool = True,
+        matcher=None,
+        **kwargs,  # TODO: Kalyan, Remove this!
     ):
         super().__init__()
         self.backbone = backbone
@@ -46,6 +56,10 @@ class Sam3Image(torch.nn.Module):
         self.o2m_mask_predict = o2m_mask_predict
 
         self.dot_prod_scoring = dot_prod_scoring
+        self.use_act_checkpoint_seg_head = use_act_checkpoint_seg_head
+        self.apply_dac_on_initial_frame = apply_dac_on_initial_frame
+        self.interactivity_in_encoder = interactivity_in_encoder
+        self.matcher = matcher
 
         # verify the number of queries for O2O and O2M
         num_o2o_static = self.transformer.decoder.num_queries
@@ -270,7 +284,7 @@ class Sam3Image(torch.nn.Module):
                 obj_queries=obj_queries,
                 image_ids=img_ids,
                 encoder_hidden_states=encoder_hidden_states,
-                act_ckpt_enable=False,
+                act_ckpt_enable=self.training and self.use_act_checkpoint_seg_head,
                 prompt=prompt,
                 prompt_mask=prompt_mask,
             )
@@ -327,6 +341,14 @@ class Sam3Image(torch.nn.Module):
             B=num_prompts,
             is_instance_prompt=is_instance_prompt,
             multimask_output=multimask_output,
+        )
+
+        # apply DAC on the current frame if specified. If using instance query, the matching is Dummy and we don't need dac.
+        apply_dac = (
+            self.training  # DAC is only applied during training
+            and self.apply_dac_on_initial_frame
+            and (frame_idx == 0)
+            and not (is_instance_prompt and self.use_instance_query)
         )
 
         prompt, prompt_mask, backbone_out = self._encode_prompt(
@@ -390,7 +412,7 @@ class Sam3Image(torch.nn.Module):
             tracking_queries=prev_tracking_queries,
             is_instance_prompt=is_instance_prompt,
             is_multimask_output=multimask_output,
-            apply_dac=False,
+            apply_dac=apply_dac,
         )
 
         # Run segmentation heads
@@ -403,20 +425,24 @@ class Sam3Image(torch.nn.Module):
             prompt=prompt,
             prompt_mask=prompt_mask,
             hs=hs,
-            apply_dac=False,
+            apply_dac=apply_dac,
         )
+
+        if self.training:
+            self._compute_matching_for_tracking(out, self.back_convert(find_target))
 
         out = self._postprocess_out(out, multimask_output=multimask_output)
         return out, backbone_out
 
     def _postprocess_out(self, out: Dict, multimask_output: bool = False):
         # TODO: Drop some keys to save memory
-        # For multimask output, during eval we return the single best mask with the
-        # dict keys expected by the evaluators, but also return the multimasks output with new keys.
-        num_mask_preds = out["pred_masks"].size(1)
-        if not self.training and multimask_output and num_mask_preds > 1:
+
+        # For multimask output, during eval we return the single best mask with the dict keys expected by the evaluators, but also return the multimasks output with new keys.
+        num_mask_boxes = out["pred_boxes"].size(1)
+        if not self.training and multimask_output and num_mask_boxes > 1:
             out["multi_pred_logits"] = out["pred_logits"]
-            out["multi_pred_masks"] = out["pred_masks"]
+            if "pred_masks" in out:
+                out["multi_pred_masks"] = out["pred_masks"]
             out["multi_pred_boxes"] = out["pred_boxes"]
             out["multi_pred_boxes_xyxy"] = out["pred_boxes_xyxy"]
 
@@ -426,7 +452,10 @@ class Sam3Image(torch.nn.Module):
             out["pred_logits"] = out["pred_logits"][batch_idx, best_mask_idx].unsqueeze(
                 1
             )
-            out["pred_masks"] = out["pred_masks"][batch_idx, best_mask_idx].unsqueeze(1)
+            if "pred_masks" in out:
+                out["pred_masks"] = out["pred_masks"][
+                    batch_idx, best_mask_idx
+                ].unsqueeze(1)
             out["pred_boxes"] = out["pred_boxes"][batch_idx, best_mask_idx].unsqueeze(1)
             out["pred_boxes_xyxy"] = out["pred_boxes_xyxy"][
                 batch_idx, best_mask_idx
@@ -512,3 +541,334 @@ class Sam3Image(torch.nn.Module):
             "max_object_id": torch.zeros(B, 1, dtype=torch.long, device=device),
         }
         return tracking_queries
+
+    # Methods / objects to import BatchedDatapoint, SAM3Output, FindStage
+    # Methods to add to the class: _get_geo_prompt_from_find_input, _get_dummy_prompt
+
+    def _get_geo_prompt_from_find_input(self, find_input: FindStage):
+        """Construct an initial geometric prompt from the find input."""
+        point_embeddings, point_mask, point_labels = None, None, None
+        if find_input.input_points_before_embed is not None:
+            # Point embeddings are batch first, switch to seq first
+            point_embeddings = find_input.input_points_before_embed.transpose(0, 1)
+
+            # they are stored as (x,y,label), so we unpack
+            point_labels = point_embeddings[..., -1]
+            point_embeddings = point_embeddings[..., :-1]
+            point_mask = find_input.input_points_mask
+
+        geometric_prompt = Prompt(
+            box_embeddings=find_input.input_boxes_before_embed,
+            box_mask=find_input.input_boxes_mask,
+            box_labels=find_input.input_boxes_label,
+            point_embeddings=point_embeddings,
+            point_mask=point_mask,
+            point_labels=point_labels,
+        )
+        return geometric_prompt
+
+    def _get_dummy_prompt(self, find_input: FindStage):
+        num_prompts = find_input.img_ids.size(0)
+        device = self.device
+        geometric_prompt = Prompt(
+            box_embeddings=torch.zeros(0, num_prompts, 4, device=device),
+            box_mask=torch.zeros(num_prompts, 0, device=device, dtype=torch.bool),
+        )
+        return geometric_prompt
+
+    def forward(self, input: BatchedDatapoint, is_inference=False):
+        device = self.device
+        backbone_out = {"img_batch_all_stages": input.img_batch}
+        # if self.training or not self.forward_backbone_per_frame_for_eval:
+        backbone_out.update(self.backbone.forward_image(input.img_batch))
+        num_frames = len(input.find_inputs)
+        assert num_frames == 1
+        # NOTE: This sampler can change the input. In case we sample a visual prompt on the fly.
+        # initial_prompt, initial_sampler_meta = self.initial_prompt_sampler.sample(
+        #     geo_prompt=None,
+        #     find_target=None,
+        #     previous_out=None,
+        #     batch=input,
+        #     strategy="targets",  # sample an input from the targets
+        # )
+        # initial_prompt_type = initial_sampler_meta.sampled_prompt_type
+        # is_instance_prompt = initial_prompt_type.is_instance_prompt()
+        # if is_instance_prompt and self.use_instance_query:
+        #     assert (
+        #         self.transformer.decoder.instance_query_embed is not None
+        #     ), "If use_instance_query is True, the transformer decoder should have an extra object query, consider setting `instance_query=True` in the transformer decoder"
+        # NOTE: text input can be modified on the fly in the initial prompt sampler. We run the text backbone after sampling the first prompt.
+        text_outputs = self.backbone.forward_text(input.find_text_batch, device=device)
+        backbone_out.update(text_outputs)
+
+        # Store visual prompt to be used in all frames
+        visual_prompt, visual_prompt_mask = None, None
+        # if initial_prompt_type is not SampledPromptType.TEXT:
+        #     visual_prompt, visual_prompt_mask, _ = self._encode_prompt(
+        #         backbone_out=backbone_out,
+        #         find_input=input.find_inputs[initial_sampler_meta.frame_idx],
+        #         geometric_prompt=initial_prompt,
+        #         encode_text=False,
+        #     )
+        # Sample frames to add correction geometric prompts
+        # frames_to_correct = self._get_frames_to_correct(num_frames)
+        # In the model, we always want to access the final output of the previous stage
+        # NOTE: In the loss computation, we still use all steps per stage
+        previous_stages_out = SAM3Output(
+            iter_mode=SAM3Output.IterMode.LAST_STEP_PER_STAGE
+        )
+        # loop over all frames in the video
+        for frame_idx in range(num_frames):
+            find_input = input.find_inputs[frame_idx]
+            find_target = input.find_targets[frame_idx]
+
+            num_interactive_steps = 0
+            is_instance_prompt = False
+            # num_interactive_steps = 0 self._get_num_interactive_steps(
+            #     initial_prompt_type, frames_to_correct, frame_idx
+            # )
+            # Each frame starts with an initial geometric prompt
+            if visual_prompt is None:
+                # Load initial geometric prompt from the batch only if we didn't sample one in the model.
+                geometric_prompt = self._get_geo_prompt_from_find_input(find_input)
+            else:
+                # Init the geometric prompt to an empty sequence
+                geometric_prompt = self._get_dummy_prompt(find_input)
+            # Init vars that are shared across the loop.
+            prev_encoder_out, stage_outs, is_multimask_out, prev_mask_pred = (
+                None,
+                [],
+                False,
+                None,
+            )
+            for cur_step in range(num_interactive_steps + 1):
+                # if cur_step > 0:
+                #     # We sample interactive geometric prompts (boxes, points)
+                #     geometric_prompt, _ = self.interactive_prompt_sampler.sample(
+                #         geo_prompt=geometric_prompt,
+                #         find_target=find_target,
+                #         previous_out=stage_outs[-1],
+                #         is_multimask_out=is_multimask_out,
+                #     )
+                # is_multimask_out = (
+                #     self.multimask_output
+                #     and is_instance_prompt
+                #     and initial_prompt_type == SampledPromptType.INSTANCE_POINT
+                #     and self.use_instance_query
+                #     and (
+                #         frame_idx == 0 and cur_step == 0
+                #     )  # For now, limit to frame 0, TODO: allow cond. frames
+                # )
+                vis_prompt_with_mem = visual_prompt
+                vis_prompt_with_mem_mask = visual_prompt_mask
+                # Don't encode first frame spatial memory for instance mask prompts (as its added separately as a visual prompt)
+                # We can encode its object pointers though.
+                # skip_spatial_mem_frames = (
+                #     {0}
+                #     if initial_prompt_type is SampledPromptType.INSTANCE_MASK
+                #     else set()
+                # )
+                # memory, memory_mask = self.memory_bank.get_memories(
+                #     frame_idx, skip_spatial_frames=skip_spatial_mem_frames
+                # )
+                # if memory is not None and not self.image_only:
+                #     vis_prompt_with_mem = torch.cat(
+                #         (visual_prompt, memory)
+                #         if visual_prompt is not None
+                #         else (memory,),
+                #         dim=0,
+                #     )
+                #     vis_prompt_with_mem_mask = torch.cat(
+                #         (visual_prompt_mask, memory_mask)
+                #         if visual_prompt_mask is not None
+                #         else (memory_mask,),
+                #         dim=1,
+                #     )
+                out, backbone_out_with_frame_feats = self.forward_video_grounding(
+                    backbone_out=backbone_out,
+                    find_input=find_input,
+                    find_target=find_target,
+                    frame_idx=frame_idx,
+                    previous_stages_out=previous_stages_out,
+                    geometric_prompt=geometric_prompt.clone(),
+                    run_encoder=self.interactivity_in_encoder or cur_step == 0,
+                    prev_encoder_out=prev_encoder_out,
+                    visual_prompt=vis_prompt_with_mem,
+                    visual_prompt_mask=vis_prompt_with_mem_mask,
+                    is_instance_prompt=is_instance_prompt,
+                    multimask_output=is_multimask_out,
+                    prev_mask_pred=prev_mask_pred,
+                )
+                # save additional metadata for loss computation
+                is_instance_processing = is_instance_prompt and self.use_instance_query
+                is_video_grounding_batch = num_frames > 1 and not is_instance_processing
+                for o in [out] + out["aux_outputs"]:
+                    # video grounding batch (more than 1 frames; not VOS)
+                    o["is_video_grounding_batch"] = is_video_grounding_batch
+                    o["is_video_grounding_batch_o2m"] = is_video_grounding_batch
+                prev_encoder_out = out.pop("prev_encoder_out")
+                # Using previous mask in the next interactivity step is currently only supported for instance tasks.
+                # if self.use_prev_mask and (
+                #     is_instance_prompt and self.use_instance_query
+                # ):
+                #     prev_mask_pred = self._get_best_mask(out)
+                stage_outs.append(out)
+
+            # HACK: Recompute mask visual prompt for box/point instance prompts, to act as init conditioning frame in VOS
+            # TODO: Remove this part once we have a proper memory bank
+            # if (
+            #     frame_idx == 0
+            #     and num_frames > 1
+            #     and initial_sampler_meta.sampled_prompt_type
+            #     in [SampledPromptType.INSTANCE_POINT, SampledPromptType.INSTANCE_BOX]
+            # ):
+            #     visual_prompt, visual_prompt_mask = self._get_mask_vis_prompt(
+            #         input, backbone_out_with_frame_feats, initial_prompt, frame_idx, out
+            #     )
+
+            if self.training:
+                previous_stages_out.append(stage_outs)
+            else:
+                if num_frames == 1:
+                    # Keep all steps for image evals
+                    previous_stages_out.append(stage_outs)
+                else:
+                    # For videos, we save memory by only keeping the final out per stage
+                    previous_stages_out.append([stage_outs[-1]])
+            # Optionally trim outputs or offload to CPU during eval to save GPU memory
+            # if self.trim_outputs_for_eval and not self.training:
+            #     self._trim_outputs(previous_stages_out, frame_idx)
+            # if self.offload_outputs_to_cpu_for_eval and not self.training:
+            #     self._offload_outputs_to_cpu(previous_stages_out, frame_idx)
+        # if DEBUG:
+        #     previous_stages_out[0]["initial_prompt"] = initial_prompt
+        get_queries = None
+        # self.memory_bank.reset()
+        return previous_stages_out, get_queries
+
+    def back_convert(self, targets):
+        batched_targets = {
+            "boxes": targets.boxes.view(-1, 4),
+            "boxes_xyxy": box_cxcywh_to_xyxy(targets.boxes.view(-1, 4)),
+            "boxes_padded": targets.boxes_padded,
+            "positive_map": targets.boxes.new_ones(len(targets.boxes), 1),
+            "num_boxes": targets.num_boxes,
+            "masks": targets.segments,
+            "semantic_masks": targets.semantic_segments,
+            "is_valid_mask": targets.is_valid_segment,
+            "is_exhaustive": targets.is_exhaustive,
+            "object_ids_packed": targets.object_ids,
+            "object_ids_padded": targets.object_ids_padded,
+        }
+        return batched_targets
+
+    def _compute_matching_for_tracking(self, out, converted_targets):
+        """
+        Compute matching between the decoder outputs and the ground-truth objects for tracking.
+
+        Note that to avoid confusion, we use the term "prompt" to refer to the text (or any
+        other input) prompts in the batch dimension, and the term "query" to refer to the DETR-
+        style "query embedding" (decoder input or output hidden states) of each text prompt.
+
+        We assume we have B text prompts (i.e. the decoder batch size is B) and Q queries for
+        each text prompt (i.e. the decoder hidden state has shape B x Q x dim, some of which
+        might be already tracking an object in the previous frame), and also the ground-truth
+        objects (including those invisible in the current frame) for the B text prompts in
+        padded format (see comments in the code below).
+
+        During training, we split the predictions and GT objects in two groups (locked vs free)
+        and match them separately:
+        - locked queries and GTs: for a query that is already tracking an object in previous
+          frames (i.e. those with tracking_queries["object_ids"] >= 0), it will be matched with
+          the same object if it's still visible in the current frame; otherwise (if the tracked
+          object is no longer visible in the current frame), it will not be matched to any GTs.
+        - free queries and GTs: for a free query not tracking a existing object (i.e. those with
+          tracking_queries["object_ids"] < 0), it will just be matched with the free GTs (i.e.
+          GTs not already matched to a locked query in the step above) via bipartie matching.
+        """
+        # Step A: prepare the GT boxes and object ids for matching.
+        # We first figure out those GT boxes that are actually visible in the current frame
+        # (note that for easy model implementation, in the video dataset we assume the same
+        # list of objects on all frames regardless of whether they are visible or not; so
+        # we need to filter out those invisible objects).
+        pred_old_obj_ids = out["pred_old_obj_ids"]  # (B, Q) shape
+        pred_is_valid = out["pred_is_valid"]  # (B, Q) shape
+        B, Q = pred_old_obj_ids.shape
+        # Here `num_boxes` contains the number of GT boxes for each of the B text prompts.
+        num_boxes = converted_targets["num_boxes"]  # (B,) shape
+        device = num_boxes.device
+        # *padded* GT boxes, with target boxes for each of the B text prompt's padded into
+        # (B, H, 4) shape in (cx, cy, w, h) format, where H is the maximum number of GT boxes
+        # among all B text prompts (including invisible ones). It's generated via `packed_to_padded_naive`
+        # in projects/onevision/utils/misc.py)
+        gt_padded_boxes = converted_targets["boxes_padded"]  # (B, H, 4) shape, CxCyWH
+        _, H, _ = gt_padded_boxes.shape
+        # The object ids for the find targets in padded format.
+        gt_padded_object_ids = converted_targets["object_ids_padded"]  # (B, H) shape
+        # *packed* GT object ids, where G is the *total* number of GT boxes (including
+        # invisible ones) for all B text prompts.
+        gt_packed_object_ids = converted_targets["object_ids_packed"]  # (G,) shape
+
+        # Step B: first, match those locked queries and GTs based on tracking query index
+        pred_is_locked = pred_is_valid & (pred_old_obj_ids >= 0)  # (B, Q) shape
+        # Find the visilble ground-truth boxes based on their width and height
+        gt_padded_is_visible = (
+            (gt_padded_object_ids >= 0)
+            & (gt_padded_boxes[..., 2] > 0)  # width > 0
+            & (gt_padded_boxes[..., 3] > 0)  # height > 0
+        )  # (B, H) shape
+        # Match all the queries with GTs based on the previously tracked object ids
+        locked_match_padded = (
+            pred_is_locked[:, :, None]
+            & (pred_old_obj_ids[:, :, None] == gt_padded_object_ids[:, None, :])
+            & gt_padded_is_visible[:, None, :]
+        )  # (B, Q, H) shape
+        locked_batch_idx, locked_src_idx, locked_tgt_idx_padded = torch.nonzero(
+            locked_match_padded, as_tuple=True
+        )
+        # Convert target box index from padded format to packed format `locked_tgt_idx`
+        # (`all_tgt_inds` has shape (B, H) and contains a target box's packed index, computed as
+        # GT index within each prompt + packed offset of the prompt)
+        all_tgt_inds = torch.arange(H, device=device)[None, :].repeat(B, 1)
+        all_tgt_inds[1:] += num_boxes.cumsum(dim=0)[:-1][:, None]
+        locked_tgt_idx = all_tgt_inds[locked_batch_idx, locked_tgt_idx_padded]
+
+        # Step C: then, match the remaining free queries and free GTs via bipartite matching
+        # note that we don't match those with `pred_old_obj_ids == -2` (which are false positives
+        # added to the tracking queries during training in the `Sam3TrackFormer` model class)
+        pred_is_free = pred_is_valid & (pred_old_obj_ids == -1)  # (B, Q) shape
+        gt_padded_is_free = gt_padded_is_visible & torch.logical_not(
+            torch.any(locked_match_padded, dim=1)
+        )  # (B, H) shape
+        # Match the top-layer free queries to the free GTs
+        matcher_inds = self.matcher(
+            out,
+            converted_targets,
+            out_is_valid=pred_is_free,
+            target_is_valid_padded=gt_padded_is_free,
+        )
+        # save the output and target validity (for potential o2m matcher in DAC)
+        out["o2m_out_is_valid"] = pred_is_valid
+        out["o2m_target_is_valid_padded"] = gt_padded_is_visible
+
+        batch_idx = torch.cat([locked_batch_idx, matcher_inds[0]])
+        src_idx = torch.cat([locked_src_idx, matcher_inds[1]])
+        tgt_idx = torch.cat([locked_tgt_idx, matcher_inds[2]])
+        out["indices"] = batch_idx, src_idx, tgt_idx
+        # Match the aux-layer free queries to the free GTs
+        for aux_out in out.get("aux_outputs", []):
+            aux_matcher_inds = self.matcher(
+                aux_out,
+                converted_targets,
+                out_is_valid=pred_is_free,
+                target_is_valid_padded=gt_padded_is_free,
+            )
+            aux_batch_idx = torch.cat([locked_batch_idx, aux_matcher_inds[0]])
+            aux_src_idx = torch.cat([locked_src_idx, aux_matcher_inds[1]])
+            aux_tgt_idx = torch.cat([locked_tgt_idx, aux_matcher_inds[2]])
+            aux_out["indices"] = aux_batch_idx, aux_src_idx, aux_tgt_idx
+
+        # Step D: assign new object ids to the queries based on the matching results
+        pred_matched_object_ids = -torch.ones_like(pred_old_obj_ids)
+        pred_matched_object_ids[batch_idx, src_idx] = gt_packed_object_ids[tgt_idx]
+        out["matched_object_ids"] = pred_matched_object_ids
