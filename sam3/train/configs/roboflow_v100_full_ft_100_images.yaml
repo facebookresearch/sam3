@@ -8,7 +8,7 @@ defaults:
 paths:
   checkpoint_path: /checkpoint/onevision/kalyanv/sam3_roboflow_ckpts/sam3_prod_v12_interactive_5box_image_only.pt
   roboflow_vl_100_root: /checkpoint/onevision/datasets/all_rf100/rf100-vl
-  experiment_log_dir: /checkpoint/onevision/kalyanv/sam3_oss_train_dump
+  experiment_log_dir: /checkpoint/onevision/kalyanv/sam3_oss_train_dump_after_cleanup_lr_0_1
 
 # Roboflow dataset configuration
 roboflow_train:

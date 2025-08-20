@@ -16,7 +16,7 @@ from sam3.model.data_misc import (
 
 from sam3.model.model_misc import NestedTensor
 
-from .modulated_detection_api_v2 import Datapoint, QueryType
+from .sam3_image_dataset import Datapoint, QueryType
 
 
 class PtrType(Enum):

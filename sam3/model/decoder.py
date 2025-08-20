@@ -328,6 +328,9 @@ class TransformerDecoder(nn.Module):
                 deltas_x = torch.cat([deltas_x, deltas_x_log], dim=-1)
                 deltas_y = torch.cat([deltas_y, deltas_y_log], dim=-1)
 
+        assert (
+            self.training and self.use_act_checkpoint
+        ), "activation ckpt not enabled in decoder"
         deltas_x = activation_ckpt_wrapper(self.boxRPB_embed_x)(
             x=deltas_x,
             act_ckpt_enable=self.training and self.use_act_checkpoint,
@@ -453,7 +456,9 @@ class TransformerDecoder(nn.Module):
                     (spatial_shapes[0, 0], spatial_shapes[0, 1]),
                 )
                 memory_mask = memory_mask.flatten(0, 1)  # (bs*n_heads, nq, H*W)
-
+            assert (
+                self.training and self.use_act_checkpoint
+            ), "Activation checkpointing not enabled in the decoder"
             output = activation_ckpt_wrapper(layer)(
                 tgt=output,
                 tgt_query_pos=query_pos,

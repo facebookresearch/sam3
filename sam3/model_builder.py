@@ -7,7 +7,7 @@ import torch.nn as nn
 
 from onevision.models.detr.matcher import BinaryHungarianMatcherV2
 
-from torch.nn import MultiheadAttention
+from .model.attention import MultiheadAttention
 
 from .model.decoder import TransformerDecoder, TransformerDecoderLayer
 from .model.encoder import TransformerEncoderFusion, TransformerEncoderLayer
