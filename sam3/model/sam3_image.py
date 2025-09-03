@@ -1,5 +1,6 @@
 # Copyright (c) Meta, Inc. and its affiliates. All Rights Reserved
 
+from copy import deepcopy
 from typing import Dict, Optional
 
 import torch
@@ -43,6 +44,10 @@ class Sam3Image(torch.nn.Module):
         apply_dac_on_initial_frame: bool = True,
         interactivity_in_encoder: bool = True,
         matcher=None,
+        use_dot_prod_scoring=True,
+        supervise_joint_box_scores: bool = False,  # only relevant if using presence token/score
+        detach_presence_in_joint_score: bool = False,  # only relevant if using presence token/score
+        separate_scorer_for_instance: bool = False,
         **kwargs,  # TODO: Kalyan, Remove this!
     ):
         super().__init__()
@@ -60,6 +65,22 @@ class Sam3Image(torch.nn.Module):
         self.apply_dac_on_initial_frame = apply_dac_on_initial_frame
         self.interactivity_in_encoder = interactivity_in_encoder
         self.matcher = matcher
+        self.use_dot_prod_scoring = use_dot_prod_scoring
+
+        if self.use_dot_prod_scoring:
+            assert dot_prod_scoring is not None
+            self.dot_prod_scoring = dot_prod_scoring
+            self.instance_dot_prod_scoring = None
+            if separate_scorer_for_instance:
+                self.instance_dot_prod_scoring = deepcopy(dot_prod_scoring)
+        else:
+            self.class_embed = torch.nn.Linear(self.hidden_dim, 1)
+            self.instance_class_embed = None
+            if separate_scorer_for_instance:
+                self.instance_class_embed = deepcopy(self.class_embed)
+
+        self.supervise_joint_box_scores = supervise_joint_box_scores
+        self.detach_presence_in_joint_score = detach_presence_in_joint_score
 
         # verify the number of queries for O2O and O2M
         num_o2o_static = self.transformer.decoder.num_queries
@@ -235,7 +256,15 @@ class Sam3Image(torch.nn.Module):
         return backbone_out, encoder_out, feat_tuple
 
     def _update_scores_and_boxes(
-        self, out, hs, reference_boxes, prompt, prompt_mask, apply_dac=None
+        self,
+        out,
+        hs,
+        reference_boxes,
+        prompt,
+        prompt_mask,
+        apply_dac=None,
+        dec_presence_out=None,
+        is_instance_prompt=False,
     ):
         apply_dac = apply_dac if apply_dac is not None else self.transformer.decoder.dac
         num_o2o = (hs.size(2) // 2) if apply_dac else hs.size(2)
@@ -243,15 +272,41 @@ class Sam3Image(torch.nn.Module):
         assert num_o2m == (num_o2o if apply_dac else 0)
         out["queries"] = hs[-1][:, :num_o2o]  # remove o2m queries if there are any
         # score prediction
-        # if self.use_dot_prod_scoring:
-        outputs_class = self.dot_prod_scoring(hs, prompt, prompt_mask)
-        # else:
-        #     outputs_class = self.class_embed(hs)
+        if self.use_dot_prod_scoring:
+            dot_prod_scoring_head = self.dot_prod_scoring
+            if is_instance_prompt and self.instance_dot_prod_scoring is not None:
+                dot_prod_scoring_head = self.instance_dot_prod_scoring
+            outputs_class = dot_prod_scoring_head(hs, prompt, prompt_mask)
+        else:
+            class_embed_head = self.class_embed
+            if is_instance_prompt and self.instance_class_embed is not None:
+                class_embed_head = self.instance_class_embed
+            outputs_class = class_embed_head(hs)
+
         # box prediction
-        anchor_box_offsets = self.transformer.decoder.bbox_embed(hs)
+        box_head = self.transformer.decoder.bbox_embed
+        if (
+            is_instance_prompt
+            and self.transformer.decoder.instance_bbox_embed is not None
+        ):
+            box_head = self.transformer.decoder.instance_bbox_embed
+        anchor_box_offsets = box_head(hs)
         reference_boxes_inv_sig = inverse_sigmoid(reference_boxes)
         outputs_coord = (reference_boxes_inv_sig + anchor_box_offsets).sigmoid()
         outputs_boxes_xyxy = box_cxcywh_to_xyxy(outputs_coord)
+
+        if dec_presence_out is not None:
+            _update_out(out, "presence_logit_dec", dec_presence_out)
+
+        if self.supervise_joint_box_scores:
+            assert dec_presence_out is not None
+            prob_dec_presence_out = dec_presence_out.clone().sigmoid()
+            if self.detach_presence_in_joint_score:
+                prob_dec_presence_out = prob_dec_presence_out.detach()
+
+            outputs_class = inverse_sigmoid(
+                outputs_class.sigmoid() * prob_dec_presence_out.unsqueeze(2)
+            ).clamp(min=-10.0, max=10.0)
 
         _update_out(out, "pred_logits", outputs_class[:, :, :num_o2o])
         _update_out(out, "pred_boxes", outputs_coord[:, :, :num_o2o])
@@ -474,6 +529,7 @@ class Sam3Image(torch.nn.Module):
         encoder_out,
         tracking_queries,
         apply_dac=None,
+        is_instance_prompt=False,
         **kwargs,
     ):
         # In Video OWL-ViT style tracking, we directly feed previous frame's decoder
@@ -481,24 +537,44 @@ class Sam3Image(torch.nn.Module):
         tgt = tracking_queries["embed"]
         reference_boxes = tracking_queries["reference_boxes"]
 
-        hs, reference_boxes = self.transformer.decoder(
-            tgt=tgt,
-            memory=memory,
-            memory_key_padding_mask=src_mask,
-            pos=pos_embed,
-            reference_boxes=reference_boxes,
-            level_start_index=encoder_out["level_start_index"],
-            spatial_shapes=encoder_out["spatial_shapes"],
-            valid_ratios=encoder_out["valid_ratios"],
-            tgt_mask=None,
-            memory_text=prompt,
-            text_attention_mask=prompt_mask,
-            apply_dac=apply_dac,
+        hs, reference_boxes, dec_presence_out, dec_presence_feats = (
+            self.transformer.decoder(
+                tgt=tgt,
+                memory=memory,
+                memory_key_padding_mask=src_mask,
+                pos=pos_embed,
+                reference_boxes=reference_boxes,
+                level_start_index=encoder_out["level_start_index"],
+                spatial_shapes=encoder_out["spatial_shapes"],
+                valid_ratios=encoder_out["valid_ratios"],
+                tgt_mask=None,
+                memory_text=prompt,
+                text_attention_mask=prompt_mask,
+                apply_dac=apply_dac,
+                is_instance_prompt=is_instance_prompt,
+            )
         )
         hs = hs.transpose(1, 2)  # seq-first to batch-first
         reference_boxes = reference_boxes.transpose(1, 2)  # seq-first to batch-first
+        if dec_presence_out is not None:
+            dec_presence_out = dec_presence_out.transpose(
+                1, 2
+            )  # seq-first to batch-first
+        elif self.transformer.decoder.presence_token is not None and is_instance_prompt:
+            dec_presence_out = 10 * torch.ones(
+                hs.shape[0], hs.shape[1], 1, device=tgt.device
+            )
+        out["presence_feats"] = dec_presence_feats
+
         self._update_scores_and_boxes(
-            out, hs, reference_boxes, prompt, prompt_mask, apply_dac
+            out,
+            hs,
+            reference_boxes,
+            prompt,
+            prompt_mask,
+            apply_dac,
+            dec_presence_out=dec_presence_out,
+            is_instance_prompt=is_instance_prompt,
         )
         # in Video OWL-ViT style tracking, all output queries are valid
         scores = out["pred_logits"].squeeze(-1)

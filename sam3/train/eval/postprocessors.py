@@ -26,6 +26,18 @@ from sam3.train.masks_ops import (
 from sam3.train.transforms.basic_for_api import get_size_with_aspect_ratio
 
 
+class PostProcessNullOp(nn.Module):
+    def __init__(self, **kwargs):
+        super(PostProcessNullOp).__init__()
+        pass
+
+    def forward(self, input):
+        pass
+
+    def process_results(self, **kwargs):
+        return kwargs["out"]
+
+
 class PostProcessFlickr(nn.Module):
     """This module converts the model's output for Flickr30k entities evaluation.
 
@@ -158,6 +170,9 @@ class PostProcess(nn.Module):
         convert_mask_to_rle: bool = False,
         always_interpolate_masks_on_gpu: bool = True,
         compute_boundaries: bool = False,
+        use_presence: bool = False,
+        use_presence_semgseg: bool = False,
+        detection_threshold: float = -1.0,
     ) -> None:
         super().__init__()
         self.focal_loss = focal_loss
@@ -168,6 +183,14 @@ class PostProcess(nn.Module):
         self.convert_mask_to_rle = convert_mask_to_rle
         self.always_interpolate_masks_on_gpu = always_interpolate_masks_on_gpu
         self.compute_boundaries = compute_boundaries
+
+        self.use_presence = use_presence
+        self.use_presence_semgseg = use_presence_semgseg
+        if self.use_presence_semgseg:
+            assert self.use_presence
+        if self.use_presence:
+            assert self.soft_token
+        self.detection_threshold = detection_threshold
 
     @torch.no_grad()
     def forward(
@@ -195,6 +218,7 @@ class PostProcess(nn.Module):
             assert (
                 consistent is True
             ), "We don't support returning TensorDict if the outputs have different shapes"  # NOTE: It's possible but we don't support it.
+            assert self.detection_threshold <= 0.0, "TODO: implement?"
             try:
                 from tensordict import TensorDict
             except ImportError:
@@ -208,21 +232,41 @@ class PostProcess(nn.Module):
         pred_masks = outputs["pred_masks"] if self.iou_type == "segm" else None
 
         assert target_sizes.shape[1] == 2
+        batch_size = target_sizes.shape[0]
 
-        boxes, scores, labels = self._process_boxes_and_labels(
+        boxes, scores, labels, keep = self._process_boxes_and_labels(
             target_sizes, forced_labels, out_bbox, out_logits
         )
+        assert boxes is None or len(boxes) == batch_size
         out_masks, boundaries, dilated_boundaries = self._process_masks(
-            target_sizes, pred_masks, consistent=consistent
+            target_sizes, pred_masks, consistent=consistent, keep=keep
         )
         del pred_masks
 
+        if self.use_presence:
+            if self.use_presence_semgseg:
+                presence_score = outputs["presence_logit"].sigmoid()
+            else:
+                presence_score = outputs["presence_logit_dec"].sigmoid()
+                # print("presence_score", presence_score.shape)
+            # presence_score = outputs["presence_logit"].sigmoid()  # [B]
+            if presence_score.ndim == 1:
+                presence_score = presence_score.unsqueeze(1)  # [B, 1]
+            if isinstance(scores, list):
+                assert len(presence_score) == len(scores)
+                scores = [s * p for s, p in zip(scores, presence_score)]
+            else:
+                scores = scores * presence_score  # [B, N]
+
         if boxes is None:
             assert out_masks is not None
+            assert (
+                not ret_tensordict
+            ), "We don't support returning TensorDict if the output does not contain boxes"
             B = len(out_masks)
-            boxes = torch.empty(B)
-            scores = torch.empty(B)
-            labels = torch.empty(B)
+            boxes = [None] * B
+            scores = [None] * B
+            labels = [None] * B
 
         results = {
             "scores": scores,
@@ -251,7 +295,7 @@ class PostProcess(nn.Module):
 
         return results
 
-    def _process_masks(self, target_sizes, pred_masks, consistent=True):
+    def _process_masks(self, target_sizes, pred_masks, consistent=True, keep=None):
         boundaries, dilated_boundaries = None, None
         if pred_masks is None:
             return None, boundaries, dilated_boundaries
@@ -260,6 +304,7 @@ class PostProcess(nn.Module):
             assert gpu_device.type == "cuda"
             pred_masks = pred_masks.to(device=gpu_device)
         if consistent:
+            assert keep is None, "TODO: implement?"
             # All masks should have the same shape, expected when processing a batch of size 1
             target_size = target_sizes.unique(dim=0)
             assert target_size.size(0) == 1, "Expecting all target sizes to be equal"
@@ -281,8 +326,11 @@ class PostProcess(nn.Module):
                 boundaries = [[]] * len(pred_masks)
                 dilated_boundaries = [[]] * len(pred_masks)
 
+            assert keep is None or len(keep) == len(pred_masks)
             for i, mask in enumerate(pred_masks):
                 h, w = target_sizes[i]
+                if keep is not None:
+                    mask = mask[keep[i]]
                 # Uses the gpu version fist, moves masks to cpu if it fails"""
                 try:
                     interpolated = (
@@ -329,7 +377,7 @@ class PostProcess(nn.Module):
         self, target_sizes, forced_labels, out_bbox, out_logits
     ):
         if out_bbox is None:
-            return None, None, None
+            return None, None, None, None
         assert len(out_logits) == len(target_sizes)
         if self.soft_token:
             if self.focal_loss:
@@ -389,7 +437,18 @@ class PostProcess(nn.Module):
         if self.to_cpu:
             scale_fct = scale_fct.cpu()
         boxes = boxes * scale_fct[:, None, :]
-        return boxes, scores, labels
+
+        keep = None
+        if self.detection_threshold > 0:
+            # Filter out the boxes with scores below the detection threshold
+            keep = scores > self.detection_threshold
+            assert len(keep) == len(boxes) == len(scores) == len(labels)
+
+            boxes = [b[k.to(b.device)] for b, k in zip(boxes, keep)]
+            scores = [s[k.to(s.device)] for s, k in zip(scores, keep)]
+            labels = [l[k.to(l.device)] for l, k in zip(labels, keep)]
+
+        return boxes, scores, labels, keep
 
     def process_results(
         self,
@@ -434,6 +493,9 @@ class PostProcessAPI(PostProcess):
         convert_mask_to_rle: bool = False,
         always_interpolate_masks_on_gpu: bool = True,
         compute_boundaries: bool = False,
+        use_presence: bool = False,
+        use_presence_semgseg: bool = False,
+        detection_threshold: float = -1.0,
     ) -> None:
         """
         Args:
@@ -454,6 +516,9 @@ class PostProcessAPI(PostProcess):
             convert_mask_to_rle=convert_mask_to_rle,
             always_interpolate_masks_on_gpu=always_interpolate_masks_on_gpu,
             compute_boundaries=compute_boundaries,
+            use_presence=use_presence,
+            use_presence_semgseg=use_presence_semgseg,
+            detection_threshold=detection_threshold,
         )
         self.use_original_ids = use_original_ids
         self.use_original_sizes = use_original_sizes
@@ -531,6 +596,8 @@ class PostProcessAPIVideo(PostProcessAPI):
         convert_mask_to_rle: bool = False,
         always_interpolate_masks_on_gpu: bool = True,
         prob_thresh: float = 0.5,
+        use_presence: bool = False,
+        use_presence_semgseg: bool = False,
         **kwargs,
     ):
         super().__init__(
@@ -544,6 +611,8 @@ class PostProcessAPIVideo(PostProcessAPI):
             # it in this `PostProcessAPIVideo` class instead.
             to_cpu=False,
             always_interpolate_masks_on_gpu=always_interpolate_masks_on_gpu,
+            use_presence=use_presence,
+            use_presence_semgseg=use_presence_semgseg,
             **kwargs,
         )
         # Expected keys in the output dict to postprocess
@@ -1113,6 +1182,8 @@ class PostProcessCounting(nn.Module):
         self,
         use_original_ids: bool = False,
         threshold: float = 0.5,
+        use_presence: bool = False,
+        use_presence_semgseg: bool = False,
     ) -> None:
         """
         Args:
@@ -1122,6 +1193,8 @@ class PostProcessCounting(nn.Module):
         super().__init__()
         self.use_original_ids = use_original_ids
         self.threshold = threshold
+        self.use_presence = use_presence
+        self.use_presence_semgseg = use_presence_semgseg
 
     def forward(self, outputs, target_sizes):
         """Perform the computation
@@ -1130,7 +1203,15 @@ class PostProcessCounting(nn.Module):
             target_sizes: tensor of dimension [batch_size x 2] containing the size of each images of the batch
         """
         # Extract scores from model outputs and apply sigmoid
-        scores = torch.sigmoid(outputs["pred_logits"])
+        scores = torch.sigmoid(outputs["pred_logits"]).squeeze(-1)  # [B, N]
+        if self.use_presence:
+            if self.use_presence_semgseg:
+                presence_score = outputs["presence_logit"].sigmoid()
+            else:
+                presence_score = outputs["presence_logit_dec"].sigmoid()
+            if presence_score.ndim == 1:
+                presence_score = presence_score.unsqueeze(1)  # [B, 1]
+            scores = scores * presence_score  # [B, N]
 
         # Calculate counts by summing values above threshold
         counts = (scores > self.threshold).float().sum(dim=1)

@@ -97,6 +97,7 @@ class TransformerDecoderLayer(nn.Module):
         # dac
         dac=False,
         dac_use_selfatt_ln=True,
+        presence_token=None,
         # skip inside deformable attn
         identity=0.0,
         **kwargs,  # additional kwargs for compatibility
@@ -118,6 +119,15 @@ class TransformerDecoderLayer(nn.Module):
             else:
                 tgt_o2o = tgt
                 tgt_query_pos_o2o = tgt_query_pos
+
+            if presence_token is not None:
+                tgt_o2o = torch.cat([presence_token, tgt_o2o], dim=0)
+                tgt_query_pos_o2o = torch.cat(
+                    [torch.zeros_like(presence_token), tgt_query_pos_o2o], dim=0
+                )
+                tgt_query_pos = torch.cat(
+                    [torch.zeros_like(presence_token), tgt_query_pos], dim=0
+                )
 
             q = k = self.with_pos_embed(tgt_o2o, tgt_query_pos_o2o)
             tgt2 = self.self_attn(q, k, tgt_o2o, attn_mask=self_attn_mask)[0]
@@ -142,6 +152,12 @@ class TransformerDecoderLayer(nn.Module):
             tgt = tgt + self.catext_dropout(tgt2)
             tgt = self.catext_norm(tgt)
 
+        if presence_token is not None:
+            presence_token_mask = torch.zeros_like(cross_attn_mask[:, :1, :])
+            cross_attn_mask = torch.cat(
+                [presence_token_mask, cross_attn_mask], dim=1
+            )  # (bs*nheads, 1+nq, hw)
+
         # Cross attention to image
         tgt2 = self.cross_attn(
             query=self.with_pos_embed(tgt, tgt_query_pos),
@@ -161,7 +177,12 @@ class TransformerDecoderLayer(nn.Module):
         # ffn
         tgt = self.forward_ffn(tgt)
 
-        return tgt
+        presence_token_out = None
+        if presence_token is not None:
+            presence_token_out = tgt[:1]
+            tgt = tgt[1:]
+
+        return tgt, presence_token_out
 
 
 class TransformerDecoder(nn.Module):
@@ -186,6 +207,12 @@ class TransformerDecoder(nn.Module):
         dac_use_selfatt_ln: bool = True,
         use_act_checkpoint: bool = False,
         compile_mode=None,
+        presence_token: bool = False,
+        clamp_presence_logits: bool = True,
+        clamp_presence_logit_max_val: float = 10.0,
+        use_normed_output_consistently: bool = False,
+        separate_box_head_instance: bool = False,
+        separate_norm_instance: bool = False,
     ):
         super().__init__()
         self.d_model = d_model
@@ -212,6 +239,12 @@ class TransformerDecoder(nn.Module):
         self.instance_query_reference_points = None
         self.use_instance_query = instance_query
         self.num_instances = num_instances
+        self.use_normed_output_consistently = use_normed_output_consistently
+
+        self.instance_norm = nn.LayerNorm(d_model) if separate_norm_instance else None
+        self.instance_bbox_embed = None
+        if separate_box_head_instance:
+            self.instance_bbox_embed = MLP(d_model, d_model, 4, 3)
         if instance_query:
             self.instance_query_embed = nn.Embedding(num_instances, d_model)
         self.box_refine = box_refine
@@ -246,6 +279,14 @@ class TransformerDecoder(nn.Module):
         if frozen:
             for p in self.parameters():
                 p.requires_grad_(False)
+
+        self.presence_token = None
+        self.clamp_presence_logits = clamp_presence_logits
+        self.clamp_presence_logit_max_val = clamp_presence_logit_max_val
+        if presence_token:
+            self.presence_token = nn.Embedding(1, d_model)
+            self.presence_token_head = MLP(d_model, d_model, 1, 3)
+            self.presence_token_out_norm = nn.LayerNorm(d_model)
 
         self.ref_point_head = MLP(2 * self.d_model, self.d_model, self.d_model, 2)
         self.dac_use_selfatt_ln = dac_use_selfatt_ln
@@ -374,6 +415,7 @@ class TransformerDecoder(nn.Module):
         text_attention_mask: Optional[Tensor] = None,
         # if `apply_dac` is None, it will default to `self.dac`
         apply_dac: Optional[bool] = None,
+        is_instance_prompt=False,
         decoder_extra_kwargs: Optional[Dict] = None,
         # ROI memory bank
         obj_roi_memory_feat=None,
@@ -415,6 +457,8 @@ class TransformerDecoder(nn.Module):
 
         bs = tgt.shape[1]
         intermediate = []
+        intermediate_presence_logits = []
+        presence_feats = None
 
         if self.box_refine:
             if reference_boxes is None:
@@ -432,6 +476,18 @@ class TransformerDecoder(nn.Module):
             intermediate_ref_boxes = None
 
         output = tgt
+        presence_out = None
+        if self.presence_token is not None and is_instance_prompt is False:
+            # expand to batch dim
+            presence_out = self.presence_token.weight[None].expand(1, bs, -1)
+
+        box_head = self.bbox_embed
+        if is_instance_prompt and self.instance_bbox_embed is not None:
+            box_head = self.instance_bbox_embed
+
+        out_norm = self.norm
+        if is_instance_prompt and self.instance_norm is not None:
+            out_norm = self.instance_norm
 
         for layer_idx, layer in enumerate(self.layers):
             reference_points_input = (
@@ -459,7 +515,7 @@ class TransformerDecoder(nn.Module):
                 assert (
                     self.use_act_checkpoint
                 ), "Activation checkpointing not enabled in the decoder"
-            output = activation_ckpt_wrapper(layer)(
+            output, presence_out = activation_ckpt_wrapper(layer)(
                 tgt=output,
                 tgt_query_pos=query_pos,
                 tgt_query_sine_embed=query_sine_embed,
@@ -476,6 +532,7 @@ class TransformerDecoder(nn.Module):
                 cross_attn_mask=memory_mask,
                 dac=apply_dac,
                 dac_use_selfatt_ln=self.dac_use_selfatt_ln,
+                presence_token=presence_out,
                 **(decoder_extra_kwargs or {}),
                 act_ckpt_enable=self.training and self.use_act_checkpoint,
                 # ROI memory bank
@@ -487,7 +544,11 @@ class TransformerDecoder(nn.Module):
             if self.box_refine:
                 reference_before_sigmoid = inverse_sigmoid(reference_boxes)
                 if box_head_trk is None:
-                    delta_unsig = self.bbox_embed(output)
+                    # delta_unsig = self.bbox_embed(output)
+                    if not self.use_normed_output_consistently:
+                        delta_unsig = box_head(output)
+                    else:
+                        delta_unsig = box_head(out_norm(output))
                 else:
                     # box_head_trk use a separate box head for tracking queries
                     Q_det = decoder_extra_kwargs["Q_det"]
@@ -504,7 +565,22 @@ class TransformerDecoder(nn.Module):
             else:
                 raise NotImplementedError("not implemented yet")
 
-            intermediate.append(self.norm(output))
+            intermediate.append(out_norm(output))
+            if self.presence_token is not None and is_instance_prompt is False:
+                # norm, mlp head
+                intermediate_layer_presence_logits = self.presence_token_head(
+                    self.presence_token_out_norm(presence_out)
+                ).squeeze(-1)
+
+                # clamp to mitigate numerical issues
+                if self.clamp_presence_logits:
+                    intermediate_layer_presence_logits.clamp(
+                        min=-self.clamp_presence_logit_max_val,
+                        max=self.clamp_presence_logit_max_val,
+                    )
+
+                intermediate_presence_logits.append(intermediate_layer_presence_logits)
+                presence_feats = presence_out.clone()
 
         if not self.compiled and self.compile_mode is not None:
             self.forward = torch.compile(
@@ -512,4 +588,13 @@ class TransformerDecoder(nn.Module):
             )
             self.compiled = True
 
-        return torch.stack(intermediate), torch.stack(intermediate_ref_boxes)
+        return (
+            torch.stack(intermediate),
+            torch.stack(intermediate_ref_boxes),
+            (
+                torch.stack(intermediate_presence_logits)
+                if self.presence_token is not None and is_instance_prompt is False
+                else None
+            ),
+            presence_feats,
+        )

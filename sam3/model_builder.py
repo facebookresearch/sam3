@@ -31,6 +31,7 @@ def build_sam3_image_model(
     eval_mode=True,
     checkpoint_path=None,
     enable_segmentation=True,
+    has_presence_token=False,
 ):
     """
     This function replaces the Hydra-based configuration in sam3_image_v1.4.yaml
@@ -176,6 +177,7 @@ def build_sam3_image_model(
         use_act_checkpoint=True,
         instance_query=True,
         num_instances=4,
+        presence_token=has_presence_token,
     )
 
     # Create transformer
@@ -210,14 +212,8 @@ def build_sam3_image_model(
             dropout=0,
             embed_dim=256,  # attn_type=AttentionType.Vanilla,
         )
-
-        # Create segmentation head
-        segmentation_head = UniversalSegmentationHead(
-            hidden_dim=256,
-            upsampling_stages=3,
-            aux_masks=False,
-            presence_head=True,
-            dot_product_scorer=DotProductScoring(
+        if not has_presence_token:
+            dp_scoring = DotProductScoring(
                 d_model=256,
                 d_proj=256,
                 prompt_mlp=MLP(
@@ -229,7 +225,16 @@ def build_sam3_image_model(
                     residual=True,
                     out_norm=nn.LayerNorm(256),
                 ),
-            ),
+            )
+        else:
+            dp_scoring = None
+        # Create segmentation head
+        segmentation_head = UniversalSegmentationHead(
+            hidden_dim=256,
+            upsampling_stages=3,
+            aux_masks=False,
+            presence_head=not has_presence_token,
+            dot_product_scorer=dp_scoring,
             act_ckpt=True,
             cross_attend_prompt=cross_attend_prompt,
             pixel_decoder=pixel_decoder,
@@ -356,7 +361,12 @@ def build_sam3_image_model(
     # move to eval mode
     if checkpoint_path is not None:
         ckpt = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
-        model.load_state_dict(ckpt, strict=False)
+        missing_keys, unexpected_keys = model.load_state_dict(ckpt, strict=False)
+        if len(missing_keys) > 0 or len(unexpected_keys) > 0:
+            print(
+                f"loaded {checkpoint_path} and found "
+                f"missing and/or unexpected keys:\n{missing_keys=}\n{unexpected_keys=}"
+            )
 
     if device == "cuda":
         model = model.cuda()
