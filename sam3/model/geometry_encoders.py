@@ -10,7 +10,7 @@ from typing_extensions import override
 from .act_ckpt_utils import activation_ckpt_wrapper
 from .box_ops import box_cxcywh_to_xyxy
 
-from .encoder import TransformerEncoderLayer
+from .encoder import TransformerEncoderLayer, TransformerEncoderLayerSimple
 
 from .model_misc import get_clones, NestedTensor
 
@@ -635,9 +635,9 @@ class SequenceGeometryEncoder(nn.Module):
             # boxes are [Num_boxes, bs, 4], normalized in [0, 1]
             # We need to denormalize, and convert to [x, y, x, y]
             boxes_xyxy = box_cxcywh_to_xyxy(boxes)
-            scale = torch.tensor(
-                [W, H, W, H], dtype=boxes_xyxy.dtype, device=boxes_xyxy.device
-            ).view(1, 1, 4)
+            scale = torch.tensor([W, H, W, H], dtype=boxes_xyxy.dtype)
+            scale = scale.pin_memory().to(device=boxes_xyxy.device, non_blocking=True)
+            scale = scale.view(1, 1, 4)
             boxes_xyxy = boxes_xyxy * scale
             sampled = torchvision.ops.roi_align(
                 img_feats, boxes_xyxy.float().transpose(0, 1).unbind(0), self.roi_size
@@ -692,9 +692,7 @@ class SequenceGeometryEncoder(nn.Module):
         )
         H, W = masks.shape[-2:]
         n_tokens_per_mask = H * W
-        # NOTE: We directly add pos enc here as we usually don't keep track of pos encoding
-        # for the concatenated prompt (text, other geometric prompts).
-        # Might need to do some refactoring for more flexibility.
+        # NOTE: We directly add pos enc here as we usually don't keep track of pos encoding for the concatenated prompt (text, other geometric prompts). Might need to do some refactoring for more flexibility.
         masks = masks + pos
         masks = masks.view(n_masks, bs, *masks.shape[1:]).flatten(
             -2
@@ -813,9 +811,15 @@ class SequenceGeometryEncoder(nn.Module):
 
         if self.encode is not None:
             for lay in self.encode:
-                if isinstance(
-                    lay, TransformerEncoderLayer
-                ):  # Note: TransformerDecoderLayer renamed for code release
+                # Hard-coded checks to pass correct args
+                # TODO: Explore having a two-way fusion encoder and remove this part from prompt encoder.
+                if isinstance(lay, TransformerEncoderLayerSimple):
+                    final_embeds = activation_ckpt_wrapper(lay)(
+                        src=final_embeds,
+                        src_key_padding_mask=final_mask,
+                        act_ckpt_enable=self.training and self.use_act_ckpt,
+                    )
+                elif isinstance(lay, TransformerEncoderLayer):
                     final_embeds = activation_ckpt_wrapper(lay)(
                         tgt=final_embeds,
                         memory=seq_first_img_feats,

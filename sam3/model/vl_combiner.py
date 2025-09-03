@@ -148,3 +148,59 @@ class NonFusionVLBackbone(nn.Module):
         )
 
         return output
+
+
+class SAM3VLBackbone(NonFusionVLBackbone):
+    """A vision-language backbone that does not fuse the vision and language. It assumes two necks, one for SAM2 heads and another for SAM3 heads"""
+
+    def __init__(
+        self,
+        visual,
+        text,
+        compile_visual: bool = False,
+        scalp=0,
+    ):
+        """Initialize the backbone combiner.
+
+        :param visual: The vision backbone to use
+        :param text: The text encoder to use
+        """
+        super().__init__(
+            visual=visual, text=text, compile_visual=compile_visual, scalp=scalp
+        )
+        # assert isinstance(
+        #     self.vision_backbone, Sam3DualViTDetNeck
+        # ), f"Expected vision backbone to be of type Sam3DualViTDetNeck, got {type(self.vision_backbone)}"
+
+    def forward_image(self, samples):
+        # Forward through backbone
+        sam3_features, sam3_pos, sam2_features, sam2_pos = self.vision_backbone(samples)
+        if self.scalp > 0:
+            # Discard the lowest resolution features
+            sam3_features, sam3_pos = (
+                sam3_features[: -self.scalp],
+                sam3_pos[: -self.scalp],
+            )
+            sam2_features, sam2_pos = (
+                sam2_features[: -self.scalp],
+                sam2_pos[: -self.scalp],
+            )
+
+        sam3_src, sam3_mask = sam3_features[-1].decompose()
+        sam2_src, sam2_mask = sam2_features[-1].decompose()
+
+        sam2_output = {
+            "vision_features": sam2_src,
+            "vision_mask": sam2_mask,
+            "vision_pos_enc": sam2_pos,
+            "backbone_fpn": sam2_features,
+        }
+
+        output = {
+            "vision_features": sam3_src,
+            "vision_mask": sam3_mask,
+            "vision_pos_enc": sam3_pos,
+            "backbone_fpn": sam3_features,
+            "sam2_backbone_out": sam2_output,
+        }
+        return output

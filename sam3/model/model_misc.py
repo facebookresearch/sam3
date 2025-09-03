@@ -124,12 +124,14 @@ class TransformerWrapper(nn.Module):
         decoder,
         d_model: int,
         two_stage_type="none",  # ["none"] only for now
+        pos_enc_at_input_dec=True,
     ):
         super().__init__()
 
         self.encoder = encoder
         self.decoder = decoder
-        self.num_queries = decoder.num_queries
+        self.num_queries = decoder.num_queries if decoder is not None else None
+        self.pos_enc_at_input_dec = pos_enc_at_input_dec
 
         # for two stage
         assert two_stage_type in ["none"], "unknown param {} of two_stage_type".format(
