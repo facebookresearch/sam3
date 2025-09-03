@@ -76,6 +76,11 @@ setup(
             "torchmetrics",
             "fvcore",
             "opencv-python",
+            "einops",
+            "fairscale",
+            "scikit-image",
+            "scikit-learn",
+            # install git@github.com:ronghanghu/cc_torch.git
         ],
     },
 )

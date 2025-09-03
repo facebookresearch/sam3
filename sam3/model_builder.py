@@ -5,8 +5,6 @@ from re import match
 import torch
 import torch.nn as nn
 
-from onevision.models.detr.matcher import BinaryHungarianMatcherV2
-
 from .model.attention import MultiheadAttention
 
 from .model.decoder import TransformerDecoder, TransformerDecoderLayer
@@ -333,6 +331,8 @@ def build_sam3_image_model(
             multimask_output=True,
         )
     else:
+        from sam3.train.matcher import BinaryHungarianMatcherV2
+
         model = Sam3Image(
             backbone=backbone,
             transformer=transformer,
