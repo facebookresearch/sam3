@@ -560,9 +560,7 @@ def build_sam3_dense_tracking_model(
 
     # Load checkpoint if provided
     if checkpoint_path is not None:
-        ckpt = torch.load(checkpoint_path, map_location="cpu", weights_only=True)[
-            "model"
-        ]
+        ckpt = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
         missing_keys, unexpected_keys = model.load_state_dict(ckpt, strict=False)
         if missing_keys:
             print(f"Missing keys: {missing_keys}")
