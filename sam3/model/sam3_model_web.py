@@ -13,77 +13,31 @@ import torch
 
 logger = logging.getLogger(__name__)
 
+from sam3.sam3_dense_tracking_builder import build_sam3_dense_tracking_model
+
 
 class Sam3Model:
     def __init__(
         self,
-        # config_file,
-        # checkpoint_file,
-        # hydra_overrides,
-        model,
+        bpe_path,
+        checkpoint_path,
         session_expiration_sec=1200,  # the time (sec) for a session to expire after no activities
         strict_state_dict_loading=True,
         default_output_prob_thresh=0.5,
         async_loading_frames=True,
     ):
-        # self.config_file = config_file
-        # self.checkpoint_file = checkpoint_file
-        # self.hydra_overrides = hydra_overrides
+
         self.session_expiration_sec = session_expiration_sec
         self.default_output_prob_thresh = default_output_prob_thresh
         self.async_loading_frames = async_loading_frames
 
-        #######################################
-        # Load model from config and checkpoint
-        #######################################
-
-        # from hydra import compose, initialize_config_module
-        # from hydra.utils import instantiate
-        # from omnivore.train_utils import (
-        #     handle_custom_hydra_commands,
-        #     register_omegaconf_resolvers,
-        # )
-
-        # # the hydra components should only be initialized once for the entire process
-        # global HYDRA_INITIALIZED
-        # if not HYDRA_INITIALIZED:
-        #     register_omegaconf_resolvers()
-        #     initialize_config_module("onevision.config", version_base="1.2")
-        #     HYDRA_INITIALIZED = True
-
-        # default_hydra_overrides = [
-        #     "launcher.experiment_log_dir=''",
-        #     "++trainer.model.num_interactive_steps_val=0",
-        #     "++model_weight_initializer=null",
-        # ]
-        # hydra_overrides = default_hydra_overrides + hydra_overrides
-        # cfg = compose(config_name=config_file, overrides=hydra_overrides)
-        # handle_custom_hydra_commands(cfg)
-        # self.model = instantiate(cfg.trainer.model, _recursive_=True).cuda().eval()
-        # ckpt = torch.load(checkpoint_file, map_location="cpu", weights_only=True)
-        # missing_keys, unexpected_keys = self.model.load_state_dict(
-        #     ckpt["model"], strict=strict_state_dict_loading
-        # )
-        # if len(missing_keys) > 0 or len(unexpected_keys) > 0:
-        #     logger.warning(
-        #         f"loaded {checkpoint_file=} with {strict_state_dict_loading=} and found "
-        #         f"missing and/or unexpected keys:\n{missing_keys=}\n{unexpected_keys=}"
-        #     )
-
-        # # turn on tfloat32 for Ampere GPUs
-        # # https://pytorch.org/docs/stable/notes/cuda.html#tensorfloat-32-tf32-on-ampere-devices
-        # torch.backends.cuda.matmul.allow_tf32 = True
-        # torch.backends.cudnn.allow_tf32 = True
-        # # use bfloat16 inference for Flash Attention kernel
-        # self.bf16_context = torch.autocast(device_type="cuda", dtype=torch.bfloat16)
-        # self.bf16_context.__enter__()  # keep using for the entire model process
-
-        # # Warm up the model to avoid torch.compile overhead in the first inference call.
-        # # self.model.is_warmup_complete = False
-        # self.model.warm_up_compilation()
-        # self.model.is_warmup_complete = True
-        # self.cfg = cfg
-        self.model = model
+        self.model = (
+            build_sam3_dense_tracking_model(
+                bpe_path=bpe_path, checkpoint_path=checkpoint_path
+            )
+            .cuda()
+            .eval()
+        )
 
     @torch.inference_mode()
     def handle_request(self, request):
