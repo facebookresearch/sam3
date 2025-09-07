@@ -80,7 +80,7 @@ setup(
             "fairscale",
             "scikit-image",
             "scikit-learn",
-            "git+https://github.com/ronghanghu/cc_torch.git",
+            "cc_torch @ git+https://github.com/ronghanghu/cc_torch.git",
         ],
     },
 )
