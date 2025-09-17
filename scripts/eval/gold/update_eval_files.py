@@ -1,3 +1,8 @@
+"""Script to update the groundtruth annotations. This will filter annotations related to missing images after downloading from public URLs.
+
+   Usage: python update_eval_files.py --image-folder <folder_with_downloaded_images> --gt-folder <folder_with_initial_gts> --gt-updated-folder <folder_with_updated_gts>
+"""
+
 import json
 import os
 
@@ -47,45 +52,78 @@ gt_files_subset = {
 
 annotators = ["a", "b", "c"]
 
-gt_image_path = "/fsx-onevision/shoubhikdn/urls_stats/metaclip/gold_test/images/"
-gt_annotations = "/fsx-onevision/shoubhikdn/release/gold_test_set/original/"
-gt_annotations_updated = "/fsx-onevision/shoubhikdn/release/gold_test_set/updated/"
 
-for subset_name in gt_files_subset.keys():
-    print("Processing subset: ", subset_name)
-    gt_files = gt_files_subset[subset_name]
-    for annotator, gt_rel_file in zip(annotators, gt_files):
-        print("Processing annotator ", annotator)
-        gt_file = os.path.join(gt_annotations, gt_rel_file)
-        with open(gt_file, "r") as fr:
-            data = json.load(fr)
-        print("Before")
-        print(len(data["images"]))
-        print(len(data["annotations"]))
+def main():
+    """
+    Script that validates image urls
 
-        new_data_images = []
-        filtered_image_ids = set()
-        for data_img in tqdm(data["images"]):
-            rel_path = data_img["file_name"]
-            image_path = f"{gt_image_path}/{rel_path}"
-            if not os.path.exists(image_path):
-                filtered_image_ids.add(data_img["id"])
-                continue
-            new_data_images.append(data_img)
-        data["images"] = new_data_images
+    """
+    import argparse
 
-        new_data_annotations = []
-        for data_annotation in tqdm(data["annotations"]):
-            if data_annotation["image_id"] in filtered_image_ids:
-                continue
-            new_data_annotations.append(data_annotation)
-        data["annotations"] = new_data_annotations
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "-i",
+        "--image-folder",
+        type=str,
+        default="/fsx-onevision/shoubhikdn/urls_stats/metaclip/gold_test/images/",
+    )
+    parser.add_argument(
+        "-g",
+        "--gt-folder",
+        type=str,
+        default="/fsx-onevision/shoubhikdn/release/gold_test_set/original/",
+    )
+    parser.add_argument(
+        "-gu",
+        "--gt-updated-folder",
+        type=str,
+        default="/fsx-onevision/shoubhikdn/release/gold_test_set/updated/",
+    )
+    args = parser.parse_args()
 
-        print("After")
-        print(len(data["images"]))
-        print(len(data["annotations"]))
+    gt_image_path = args.image_folder
+    gt_annotations = args.gt_folder
+    gt_annotations_updated = args.gt_updated_folder
 
-        new_gt_path = f"{gt_annotations_updated}/{gt_rel_file}"
-        Path(new_gt_path).parent.mkdir(parents=True, exist_ok=True)
-        with open(new_gt_path, "w") as fw:
-            json.dump(data, fw)
+    for subset_name in gt_files_subset.keys():
+        print("Processing subset: ", subset_name)
+        gt_files = gt_files_subset[subset_name]
+        for annotator, gt_rel_file in zip(annotators, gt_files):
+            print("Processing annotator ", annotator)
+            gt_file = os.path.join(gt_annotations, gt_rel_file)
+            with open(gt_file, "r") as fr:
+                data = json.load(fr)
+            print("Before")
+            print(len(data["images"]))
+            print(len(data["annotations"]))
+
+            new_data_images = []
+            filtered_image_ids = set()
+            for data_img in tqdm(data["images"]):
+                rel_path = data_img["file_name"]
+                image_path = f"{gt_image_path}/{rel_path}"
+                if not os.path.exists(image_path):
+                    filtered_image_ids.add(data_img["id"])
+                    continue
+                new_data_images.append(data_img)
+            data["images"] = new_data_images
+
+            new_data_annotations = []
+            for data_annotation in tqdm(data["annotations"]):
+                if data_annotation["image_id"] in filtered_image_ids:
+                    continue
+                new_data_annotations.append(data_annotation)
+            data["annotations"] = new_data_annotations
+
+            print("After")
+            print(len(data["images"]))
+            print(len(data["annotations"]))
+
+            new_gt_path = f"{gt_annotations_updated}/{gt_rel_file}"
+            Path(new_gt_path).parent.mkdir(parents=True, exist_ok=True)
+            with open(new_gt_path, "w") as fw:
+                json.dump(data, fw)
+
+
+if __name__ == "__main__":
+    main()
