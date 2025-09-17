@@ -3,7 +3,7 @@
 import numpy as np
 import pycocotools.mask as maskUtils
 import torch
-
+from pycocotools import mask as mask_util
 
 def instance_masks_to_semantic_masks(
     instance_masks: torch.Tensor, num_instances: torch.Tensor

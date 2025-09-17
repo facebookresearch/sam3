@@ -87,11 +87,22 @@ class COCO_TRAIN_API_FROM_JSON_BOX_ONLY:
     def __init__(
         self,
         annotation_file,
+        prompts=None,
+        include_negatives=True
     ):
         self._raw_data, self._cat_idx_to_text = load_coco_and_group_by_image(
             annotation_file
         )
         self._sorted_cat_ids = sorted(list(self._cat_idx_to_text.keys()))
+        self.prompts = None
+        self.include_negatives = include_negatives
+        if prompts is not None:
+            prompts = eval(prompts)
+            self.prompts = {}
+            for loc_dict in prompts:
+                self.prompts[int(loc_dict["id"])] = loc_dict["name"]
+            assert len(self.prompts) == len(self._sorted_cat_ids), "Number of prompts must match number of categories"
+
 
     def getDatapointIds(self):
         # return all the ids / idx's that will be used for trianing (make sure you use limit filter)
@@ -134,16 +145,17 @@ class COCO_TRAIN_API_FROM_JSON_BOX_ONLY:
             image_info["height"],
         )
 
-        # Group annotations by category
-        cat_id_to_anns = defaultdict(list)
-        for ann in raw_annotations:
-            cat_id_to_anns[ann["category_id"]].append(ann)
+        # # Group annotations by category
+        # cat_id_to_anns = defaultdict(list)
+        # for ann in raw_annotations:
+        #     cat_id_to_anns[ann["category_id"]].append(ann)
 
-        # Group annotations by category
-        cat_id_to_anns = {}
-        # Include negative annotations
-        for cat_id in self._sorted_cat_ids:
-            cat_id_to_anns[cat_id] = []
+        # # Group annotations by category
+        # cat_id_to_anns = {}
+        # # Include negative annotations
+        # if self.include_negatives:
+        #     for cat_id in self._sorted_cat_ids:
+        #         cat_id_to_anns[cat_id] = []
 
         # Group annotations by category
         cat_id_to_anns = defaultdict(list)
@@ -155,6 +167,9 @@ class COCO_TRAIN_API_FROM_JSON_BOX_ONLY:
         ]
 
         for cat_id, anns in annotations_by_cat_sorted:
+
+            if len(anns) == 0 and not self.include_negatives:
+                continue
 
             cur_ann_ids = []
             # Create an annotation for this category
@@ -183,7 +198,8 @@ class COCO_TRAIN_API_FROM_JSON_BOX_ONLY:
             query = query_template.copy()
             query["id"] = len(queries)
             query["original_cat_id"] = cat_id
-            query["query_text"] = self._cat_idx_to_text[cat_id]
+            query["query_text"] = self._cat_idx_to_text[cat_id] if self.prompts is None else self.prompts[cat_id]
+            # print("train:", query["query_text"], self._cat_idx_to_text[cat_id] )
             query["object_ids_output"] = cur_ann_ids
             queries.append(query)
 
@@ -197,6 +213,7 @@ class COCO_TRAIN_API_FROM_JSON_BOX_ONLY:
                 "id": 0,
                 "file_name": img_data["file_name"],
                 "original_img_id": img_data["id"],
+                "coco_img_id": img_data["id"], # TODO: Check if this shoulde 'id' or 'original_img_id'
             }
         ]
         return images
@@ -207,11 +224,21 @@ class COCO_EVAL_API_FROM_JSON_BOX_ONLY:
     def __init__(
         self,
         annotation_file,
+        prompts=None,
     ):
         self._raw_data, self._cat_idx_to_text = load_coco_and_group_by_image(
             annotation_file
         )
         self._sorted_cat_ids = sorted(list(self._cat_idx_to_text.keys()))
+
+        self.prompts = None
+        if prompts is not None:
+            prompts = eval(prompts)
+            self.prompts = {}
+            for loc_dict in prompts:
+                self.prompts[int(loc_dict["id"])] = loc_dict["name"]
+            
+            assert len(self.prompts) == len(self._sorted_cat_ids), "Number of prompts must match number of categories"
 
     def getDatapointIds(self):
         # return all the ids / idx's that will be used for trianing (make sure you use limit filter)
@@ -291,7 +318,8 @@ class COCO_EVAL_API_FROM_JSON_BOX_ONLY:
         query = query_template.copy()
         query["id"] = len(queries)
         query["original_cat_id"] = cat_id
-        query["query_text"] = self._cat_idx_to_text[cat_id]
+        query["query_text"] = self._cat_idx_to_text[cat_id] if self.prompts is None else self.prompts[cat_id]
+        # print("val:", query["query_text"], self._cat_idx_to_text[cat_id] )
         query["object_ids_output"] = cur_ann_ids
         queries.append(query)
 
@@ -307,6 +335,95 @@ class COCO_EVAL_API_FROM_JSON_BOX_ONLY:
                 "id": 0,
                 "file_name": img_data["file_name"],
                 "original_img_id": img_data["id"],
+                "coco_img_id": img_data["id"], # TODO: Check if this shoulde 'id' or 'original_img_id'
+            }
+        ]
+        return images
+
+
+class SAM3_EVAL_API_FROM_JSON_NP:
+
+    def __init__(
+        self,
+        annotation_file,
+    ):
+        with open(annotation_file, "r") as f:
+            data = json.load(f)
+        self._image_data = data['images']
+        
+
+       
+
+    def getDatapointIds(self):
+        # return all the ids / idx's that will be used for trianing (make sure you use limit filter)
+        return list(range(len(self._image_data)))
+
+    def loadQueriesAndAnnotationsFromDatapoint(self, idx):
+
+        cur_img_data = self._image_data[idx]
+
+        queries = []
+        annotations = []
+        query_template = {
+            "id": None,  # for now keeping as index within the datapoint
+            "original_cat_id": None,
+            "object_ids_output": None,
+            "query_text": None,
+            "query_processing_order": 0,
+            "ptr_x_query_id": None,
+            "ptr_y_query_id": None,
+            "query_type": 0,  # QueryType.FindQuery,
+            "image_id": 0,  # since we have only one image per datapoint, this is always 0
+            "input_box": None,
+            "input_box_label": None,
+            "input_points": None,
+            "is_exhaustive": True,
+            "within_stage_order": -1,
+        }
+
+        annot_template = {
+            "image_id": 0,  # within the datapoint image id / image index
+            "bbox": None,  # Normalized bbox in xywh
+            "area": None,  # unnomalized aera
+            "segmentation": None,  # output of ann_to_rle(segm, image_info)
+            "object_id": None,  # todo: object id from objects list
+            "is_crowd": None,  # comes from objects
+            "id": None,  # Check this! (for now keeping as index within the datapoint)
+        }
+
+        # raw_annotations = self._raw_data[img_idx]["annotations"]
+        # image_info = self._raw_data[img_idx]["image"]
+        # width, height = (
+        #     image_info["width"],
+        #     image_info["height"],
+        # )
+
+        current_cat_anns = []
+
+        cur_ann_ids = []
+        
+        
+
+        # Create a query for this category
+        query = query_template.copy()
+        query["id"] = len(queries)
+        query["original_cat_id"] = int(cur_img_data['queried_category']) # TODO: Check if this should be 1 or 'id' or 'queried_category'
+        query["query_text"] = cur_img_data['text_input']
+        # print("val:", query["query_text"], self._cat_idx_to_text[cat_id] )
+        query["object_ids_output"] = cur_ann_ids
+        queries.append(query)
+
+        return queries, annotations
+
+    def loadImagesFromDatapoint(self, idx):
+
+        img_data = self._image_data[idx]
+        images = [
+            {
+                "id": 0,
+                "file_name": img_data["file_name"],
+                "original_img_id": img_data["id"], # TODO: Check if this shoulde 'id' or 'original_img_id'
+                "coco_img_id": img_data["id"], # TODO: Check if this shoulde 'id' or 'original_img_id'
             }
         ]
         return images
