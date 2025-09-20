@@ -40,8 +40,8 @@ python eval_sam3.py
 The above script will print the below after running the evaluation.
 ```
 Subset name, CG_F1, IL_MCC, pmF1, demoF1, J&F
-epsilon: 55.52,0.77,71.87,52.96,84.61
-sa1b: 55.69,0.81,69.07,56.17,81.75
+metaclip: 55.52,0.77,71.87,52.96,84.61
+sa1b: 55.71,0.81,69.12,56.2,81.76
 crowded: 53.31,0.83,64.45,61.66,83.74
 fg_food: 65.29,0.83,78.72,66.15,87.8
 fg_sports_equipment: 69.76,0.89,78.03,65.23,90.29
