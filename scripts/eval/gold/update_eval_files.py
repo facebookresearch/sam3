@@ -13,10 +13,10 @@ from tqdm import tqdm
 
 gt_files_subset = {
     # Captioner
-    "epsilon": [
-        "gold_epsilon_merged_a_test.json",
-        "gold_epsilon_merged_b_test.json",
-        "gold_epsilon_merged_c_test.json",
+    "metaclip": [
+        "gold_metaclip_merged_a_test.json",
+        "gold_metaclip_merged_b_test.json",
+        "gold_metaclip_merged_c_test.json",
     ],
     # FG Food
     "fg_food": [
