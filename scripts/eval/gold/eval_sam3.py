@@ -17,9 +17,9 @@ all_files = {
     # MetaCLIP Captioner (55.5,0.773,71.9,53.0)
     "metaclip": {
         "gt_fname": [
-            "gold_epsilon_merged_a_test.json",
-            "gold_epsilon_merged_b_test.json",
-            "gold_epsilon_merged_c_test.json",
+            "gold_metaclip_merged_a_test.json",
+            "gold_metaclip_merged_b_test.json",
+            "gold_metaclip_merged_c_test.json",
         ],
         "pred_fname": "coco_predictions_gold_metaclip_captioner.json",
     },
