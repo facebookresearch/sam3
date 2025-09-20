@@ -15,7 +15,7 @@ from sam3.train.eval.demo_eval import DemoEvaluator
 
 all_files = {
     # MetaCLIP Captioner (55.5,0.773,71.9,53.0)
-    "epsilon": {
+    "metaclip": {
         "gt_fname": [
             "gold_epsilon_merged_a_test.json",
             "gold_epsilon_merged_b_test.json",
