@@ -13,8 +13,6 @@ from typing import Optional
 import torch
 import torch.nn as nn
 
-# Core SAM3 imports
-from sam3.model.attention import MultiheadAttention
 from sam3.model.decoder import (
     TransformerDecoder,
     TransformerDecoderLayer,
@@ -45,6 +43,9 @@ from sam3.model.video_tracking_with_prompt_demo import Sam3VideoTrackingWithProm
 from sam3.model.vitdet import ViT
 from sam3.model.vl_combiner import SAM3VLBackbone
 from sam3.sam_original.transformer import RoPEAttention
+
+# Core SAM3 imports
+from .model.model_misc import MultiheadAttentionWrapper as MultiheadAttention
 
 
 # Setup TensorFloat-32 for Ampere GPUs if available
@@ -348,10 +349,10 @@ def _create_sam3_transformer() -> TransformerWrapper:
     """Create SAM3 transformer encoder and decoder."""
     # Encoder components
     encoder_self_attention = MultiheadAttention(
-        attn_type="Vanilla", num_heads=8, dropout=0.1, embed_dim=256, batch_first=True
+        num_heads=8, dropout=0.1, embed_dim=256, batch_first=True
     )
     encoder_cross_attention = MultiheadAttention(
-        attn_type="Vanilla", num_heads=8, dropout=0.1, embed_dim=256, batch_first=True
+        num_heads=8, dropout=0.1, embed_dim=256, batch_first=True
     )
 
     encoder_layer = TransformerEncoderLayer(
@@ -380,7 +381,7 @@ def _create_sam3_transformer() -> TransformerWrapper:
 
     # Decoder components
     decoder_cross_attention = MultiheadAttention(
-        attn_type="Vanilla", num_heads=8, dropout=0.1, embed_dim=256
+        num_heads=8, dropout=0.1, embed_dim=256
     )
 
     decoder_layer = TransformerDecoderLayer(
@@ -429,9 +430,7 @@ def _create_sam3_segmentation_head() -> UniversalSegmentationHead:
         d_model=256, d_proj=256, prompt_mlp=dot_product_scorer_mlp
     )
 
-    cross_attend_prompt = MultiheadAttention(
-        attn_type="Vanilla", num_heads=8, dropout=0, embed_dim=256
-    )
+    cross_attend_prompt = MultiheadAttention(num_heads=8, dropout=0, embed_dim=256)
 
     pixel_decoder = PixelDecoder(
         num_upsampling_stages=3, interpolation_mode="nearest", hidden_dim=256
@@ -459,7 +458,7 @@ def _create_sam3_geometry_encoder() -> SequenceGeometryEncoder:
     )
 
     input_geom_self_attention = MultiheadAttention(
-        attn_type="Vanilla", num_heads=8, dropout=0.1, embed_dim=256, batch_first=False
+        num_heads=8, dropout=0.1, embed_dim=256, batch_first=False
     )
 
     input_geom_layer = TransformerEncoderLayerSimple(

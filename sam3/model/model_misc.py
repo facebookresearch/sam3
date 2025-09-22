@@ -30,6 +30,12 @@ def inverse_sigmoid(x, eps=1e-3):
     return torch.log(x1 / x2)
 
 
+class MultiheadAttentionWrapper(nn.MultiheadAttention):
+    def forward(self, *args, **kwargs):
+        kwargs["need_weights"] = False
+        return super().forward(*args, **kwargs)
+
+
 class DotProductScoring(torch.nn.Module):
     def __init__(
         self,

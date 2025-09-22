@@ -5,14 +5,17 @@ from re import match
 import torch
 import torch.nn as nn
 
-from .model.attention import MultiheadAttention
-
 from .model.decoder import TransformerDecoder, TransformerDecoderLayer
 from .model.encoder import TransformerEncoderFusion, TransformerEncoderLayer
 from .model.geometry_encoders import FusedMaskEncoder, SequenceGeometryEncoder
 from .model.maskformer_segmentation import PixelDecoder, UniversalSegmentationHead
 from .model.memory import CXBlock, SimpleFuser, SimpleMaskDownSampler
-from .model.model_misc import DotProductScoring, MLP, TransformerWrapper
+from .model.model_misc import (
+    DotProductScoring,
+    MLP,
+    MultiheadAttentionWrapper as MultiheadAttention,
+    TransformerWrapper,
+)
 from .model.necks import OriginalViTDetNeck
 from .model.position_encoding import PositionEmbeddingSine
 
@@ -116,14 +119,12 @@ def build_sam3_image_model(
         pos_enc_at_cross_attn_queries=False,
         pre_norm=True,
         self_attention=MultiheadAttention(
-            # attn_type=AttentionType.Vanilla,
             num_heads=8,
             dropout=0.1,
             embed_dim=256,
             batch_first=True,
         ),
         cross_attention=MultiheadAttention(
-            # attn_type=AttentionType.Vanilla,
             num_heads=8,
             dropout=0.1,
             embed_dim=256,
@@ -152,7 +153,7 @@ def build_sam3_image_model(
         cross_attention=MultiheadAttention(
             num_heads=8,
             dropout=0.1,
-            embed_dim=256,  # attn_type=AttentionType.Vanilla,
+            embed_dim=256,
         ),
         n_heads=8,
         use_text_cross_attention=True,
@@ -208,7 +209,7 @@ def build_sam3_image_model(
         cross_attend_prompt = MultiheadAttention(
             num_heads=8,
             dropout=0,
-            embed_dim=256,  # attn_type=AttentionType.Vanilla,
+            embed_dim=256,
         )
         if not has_presence_token:
             dp_scoring = DotProductScoring(
@@ -285,7 +286,6 @@ def build_sam3_image_model(
         pos_enc_at_attn=False,
         pre_norm=True,
         self_attention=MultiheadAttention(
-            # attn_type=AttentionType.Vanilla,
             num_heads=8,
             dropout=0.1,
             embed_dim=256,
@@ -294,7 +294,6 @@ def build_sam3_image_model(
         pos_enc_at_cross_attn_queries=False,
         pos_enc_at_cross_attn_keys=True,
         cross_attention=MultiheadAttention(
-            # attn_type=AttentionType.Vanilla,
             num_heads=8,
             dropout=0.1,
             embed_dim=256,
