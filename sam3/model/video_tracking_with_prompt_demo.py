@@ -1,3 +1,5 @@
+# Copyright (c) Meta, Inc. and its affiliates. All Rights Reserved
+
 import logging
 from collections import OrderedDict
 

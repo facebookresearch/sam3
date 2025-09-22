@@ -1,3 +1,5 @@
+# Copyright (c) Meta, Inc. and its affiliates. All Rights Reserved
+
 import torch
 
 from sam3.perflib.iou import pairwise_iou

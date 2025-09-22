@@ -1,3 +1,5 @@
+# Copyright (c) Meta, Inc. and its affiliates. All Rights Reserved
+
 """Script to update the groundtruth annotations. This will filter annotations related to missing images after downloading from public URLs.
 
    Usage: python update_eval_files.py --image-folder <folder_with_downloaded_images> --gt-folder <folder_with_initial_gts> --gt-updated-folder <folder_with_updated_gts>

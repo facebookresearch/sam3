@@ -1,3 +1,5 @@
+# Copyright (c) Meta, Inc. and its affiliates. All Rights Reserved
+
 """Triton kernel for faster and memory efficient sigmoid focal loss"""
 
 import torch

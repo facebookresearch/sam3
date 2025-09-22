@@ -1,3 +1,5 @@
+# Copyright (c) Meta, Inc. and its affiliates. All Rights Reserved
+
 """Wrappers around various implementation of attention mechanisms.
 
 The convention used in this project is that the sequences are always sequence first.

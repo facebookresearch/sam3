@@ -1,3 +1,5 @@
+# Copyright (c) Meta, Inc. and its affiliates. All Rights Reserved
+
 """
 This evaluator is meant for regular COCO mAP evaluation, for example on the COCO val set.
 For LVIS, fixed AP use the LVIS evaluator, and for Phrase AP, use the other coco_eval.py file.

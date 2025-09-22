@@ -1,4 +1,5 @@
-# Copyright (c) Aishwarya Kamath & Nicolas Carion. Licensed under the Apache License 2.0. All Rights Reserved
+# Copyright (c) Meta, Inc. and its affiliates. All Rights Reserved
+
 """Postprocessors class to transform MDETR output according to the downstream task"""
 
 import dataclasses

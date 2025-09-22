@@ -1,3 +1,5 @@
+# Copyright (c) Meta, Inc. and its affiliates. All Rights Reserved
+
 """
 Adapted from:
 1. https://github.com/meta-llama/codellama/blob/main/llama/model.py

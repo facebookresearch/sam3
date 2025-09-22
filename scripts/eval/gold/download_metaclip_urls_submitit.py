@@ -1,3 +1,5 @@
+# Copyright (c) Meta, Inc. and its affiliates. All Rights Reserved
+
 """ Script to download images from public URLs needed for SAC-Gold test set 
 
     Usage: python download_metaclip_urls_submitit.py --url-list-file gold_metaclip_filename_urls_mapping.json --out-dir <out_folder> --n-jobs 100

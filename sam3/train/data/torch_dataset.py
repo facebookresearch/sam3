@@ -1,3 +1,5 @@
+# Copyright (c) Meta, Inc. and its affiliates. All Rights Reserved
+
 from typing import Callable, Iterable, Optional
 
 from torch.utils.data import DataLoader, Dataset, DistributedSampler, IterableDataset

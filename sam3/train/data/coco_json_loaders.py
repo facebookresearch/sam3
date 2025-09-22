@@ -1,3 +1,5 @@
+# Copyright (c) Meta, Inc. and its affiliates. All Rights Reserved
+
 import json
 import os
 import pickle
@@ -84,12 +86,7 @@ def ann_to_rle(segm, im_info):
 
 class COCO_TRAIN_API_FROM_JSON_BOX_ONLY:
 
-    def __init__(
-        self,
-        annotation_file,
-        prompts=None,
-        include_negatives=True
-    ):
+    def __init__(self, annotation_file, prompts=None, include_negatives=True):
         self._raw_data, self._cat_idx_to_text = load_coco_and_group_by_image(
             annotation_file
         )
@@ -101,8 +98,9 @@ class COCO_TRAIN_API_FROM_JSON_BOX_ONLY:
             self.prompts = {}
             for loc_dict in prompts:
                 self.prompts[int(loc_dict["id"])] = loc_dict["name"]
-            assert len(self.prompts) == len(self._sorted_cat_ids), "Number of prompts must match number of categories"
-
+            assert len(self.prompts) == len(
+                self._sorted_cat_ids
+            ), "Number of prompts must match number of categories"
 
     def getDatapointIds(self):
         # return all the ids / idx's that will be used for trianing (make sure you use limit filter)
@@ -198,7 +196,11 @@ class COCO_TRAIN_API_FROM_JSON_BOX_ONLY:
             query = query_template.copy()
             query["id"] = len(queries)
             query["original_cat_id"] = cat_id
-            query["query_text"] = self._cat_idx_to_text[cat_id] if self.prompts is None else self.prompts[cat_id]
+            query["query_text"] = (
+                self._cat_idx_to_text[cat_id]
+                if self.prompts is None
+                else self.prompts[cat_id]
+            )
             # print("train:", query["query_text"], self._cat_idx_to_text[cat_id] )
             query["object_ids_output"] = cur_ann_ids
             queries.append(query)
@@ -213,7 +215,9 @@ class COCO_TRAIN_API_FROM_JSON_BOX_ONLY:
                 "id": 0,
                 "file_name": img_data["file_name"],
                 "original_img_id": img_data["id"],
-                "coco_img_id": img_data["id"], # TODO: Check if this shoulde 'id' or 'original_img_id'
+                "coco_img_id": img_data[
+                    "id"
+                ],  # TODO: Check if this shoulde 'id' or 'original_img_id'
             }
         ]
         return images
@@ -237,8 +241,10 @@ class COCO_EVAL_API_FROM_JSON_BOX_ONLY:
             self.prompts = {}
             for loc_dict in prompts:
                 self.prompts[int(loc_dict["id"])] = loc_dict["name"]
-            
-            assert len(self.prompts) == len(self._sorted_cat_ids), "Number of prompts must match number of categories"
+
+            assert len(self.prompts) == len(
+                self._sorted_cat_ids
+            ), "Number of prompts must match number of categories"
 
     def getDatapointIds(self):
         # return all the ids / idx's that will be used for trianing (make sure you use limit filter)
@@ -318,7 +324,11 @@ class COCO_EVAL_API_FROM_JSON_BOX_ONLY:
         query = query_template.copy()
         query["id"] = len(queries)
         query["original_cat_id"] = cat_id
-        query["query_text"] = self._cat_idx_to_text[cat_id] if self.prompts is None else self.prompts[cat_id]
+        query["query_text"] = (
+            self._cat_idx_to_text[cat_id]
+            if self.prompts is None
+            else self.prompts[cat_id]
+        )
         # print("val:", query["query_text"], self._cat_idx_to_text[cat_id] )
         query["object_ids_output"] = cur_ann_ids
         queries.append(query)
@@ -335,7 +345,9 @@ class COCO_EVAL_API_FROM_JSON_BOX_ONLY:
                 "id": 0,
                 "file_name": img_data["file_name"],
                 "original_img_id": img_data["id"],
-                "coco_img_id": img_data["id"], # TODO: Check if this shoulde 'id' or 'original_img_id'
+                "coco_img_id": img_data[
+                    "id"
+                ],  # TODO: Check if this shoulde 'id' or 'original_img_id'
             }
         ]
         return images
@@ -349,10 +361,7 @@ class SAM3_EVAL_API_FROM_JSON_NP:
     ):
         with open(annotation_file, "r") as f:
             data = json.load(f)
-        self._image_data = data['images']
-        
-
-       
+        self._image_data = data["images"]
 
     def getDatapointIds(self):
         # return all the ids / idx's that will be used for trianing (make sure you use limit filter)
@@ -401,14 +410,14 @@ class SAM3_EVAL_API_FROM_JSON_NP:
         current_cat_anns = []
 
         cur_ann_ids = []
-        
-        
 
         # Create a query for this category
         query = query_template.copy()
         query["id"] = len(queries)
-        query["original_cat_id"] = int(cur_img_data['queried_category']) # TODO: Check if this should be 1 or 'id' or 'queried_category'
-        query["query_text"] = cur_img_data['text_input']
+        query["original_cat_id"] = int(
+            cur_img_data["queried_category"]
+        )  # TODO: Check if this should be 1 or 'id' or 'queried_category'
+        query["query_text"] = cur_img_data["text_input"]
         # print("val:", query["query_text"], self._cat_idx_to_text[cat_id] )
         query["object_ids_output"] = cur_ann_ids
         queries.append(query)
@@ -422,8 +431,12 @@ class SAM3_EVAL_API_FROM_JSON_NP:
             {
                 "id": 0,
                 "file_name": img_data["file_name"],
-                "original_img_id": img_data["id"], # TODO: Check if this shoulde 'id' or 'original_img_id'
-                "coco_img_id": img_data["id"], # TODO: Check if this shoulde 'id' or 'original_img_id'
+                "original_img_id": img_data[
+                    "id"
+                ],  # TODO: Check if this shoulde 'id' or 'original_img_id'
+                "coco_img_id": img_data[
+                    "id"
+                ],  # TODO: Check if this shoulde 'id' or 'original_img_id'
             }
         ]
         return images

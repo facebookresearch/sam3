@@ -1,3 +1,5 @@
+# Copyright (c) Meta, Inc. and its affiliates. All Rights Reserved
+
 from dataclasses import dataclass, field as field_ptr_behaviour, fields, is_dataclass
 from enum import Enum
 from typing import Any, get_args, get_origin, List, Mapping, Optional, Sequence, Union

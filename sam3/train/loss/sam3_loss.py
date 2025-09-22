@@ -1,3 +1,5 @@
+# Copyright (c) Meta, Inc. and its affiliates. All Rights Reserved
+
 import torch
 
 # from onevision.models.detr.sam3_utils import SAM3Output

@@ -1,7 +1,6 @@
+# Copyright (c) Meta, Inc. and its affiliates. All Rights Reserved
+
 import gc
-
-# from webdemo.common.models import BaseModel
-
 
 import logging
 import threading

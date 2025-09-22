@@ -1,3 +1,5 @@
+# Copyright (c) Meta, Inc. and its affiliates. All Rights Reserved
+
 """Script to run the evaluator offline given the GTs for SAC-Gold test set and SAM3 model prediction files.
    It reports CGF1, IL_MCC, PM_F1, demo F1, J&F metrics for each subset of SAC-Gold test set.
 

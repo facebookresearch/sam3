@@ -1,3 +1,5 @@
+# Copyright (c) Meta, Inc. and its affiliates. All Rights Reserved
+
 """
 This evaluator is based upon COCO evaluation, but evaluates the model in a "demo" setting.
 This means that the model's predictions are thresholded and evaluated as "hard" predictions.
