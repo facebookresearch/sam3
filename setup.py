@@ -1,3 +1,5 @@
+# Copyright (c) Meta, Inc. and its affiliates. All Rights Reserved
+
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
@@ -42,7 +44,7 @@ setup(
     python_requires=">=3.8",
     install_requires=[
         "timm>=1.0.17",
-        "numpy<2",
+        "numpy",
         "tqdm",
         "ftfy==6.1.1",
         "regex",
@@ -64,6 +66,23 @@ setup(
             "jupyter",
             "notebook",
             "ipywidgets",
+        ],
+        "train": [
+            "hydra-core",
+            "submitit",
+            "tensorboard",
+            "pycocotools",
+            "decord",
+            "zstandard",
+            "scipy",
+            "torchmetrics",
+            "fvcore",
+            "opencv-python",
+            "einops",
+            "fairscale",
+            "scikit-image",
+            "scikit-learn",
+            "cc_torch @ git+https://github.com/ronghanghu/cc_torch.git",
         ],
     },
 )

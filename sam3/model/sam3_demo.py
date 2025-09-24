@@ -508,6 +508,11 @@ class Sam3ImageInteractiveDemo(Sam3Image):
 
         # only take the entries above the score threshold
         out_probs = out_scores.sigmoid()  # output in probabilities in 0~1
+
+        if "presence_logit_dec" in out:
+            presence_score = out["presence_logit_dec"][prompt_idx].squeeze(-1).sigmoid()
+            out_probs = presence_score * out_probs
+
         # keep = out_obj_ids >= 0
         if output_prob_thresh is not None:
             # keep = torch.logical_and(out_probs > output_prob_thresh, keep)

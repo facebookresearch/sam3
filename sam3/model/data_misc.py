@@ -4,6 +4,7 @@ Misc functions, including distributed helpers.
 """
 
 import collections
+import re
 
 from dataclasses import dataclass, field as field_ptr_behaviour, fields, is_dataclass
 from typing import Any, get_args, get_origin, List, Mapping, Optional, Sequence, Union
@@ -13,6 +14,42 @@ import torch
 from .model_misc import NestedTensor
 
 MyTensor = Union[torch.Tensor, List[Any]]
+
+
+def clean_pointers(s: str):
+    """Removes pointers of the style <ptr_#N> where N is integer, while leaving the rest of the string intact"""
+
+    pattern = r"<ptr_#\d+>"
+    output_string = re.sub(pattern, "", s).replace("  ", " ").strip()
+    return output_string
+
+
+def interpolate(
+    input, size=None, scale_factor=None, mode="nearest", align_corners=None
+):
+    # type: (Tensor, Optional[List[int]], Optional[float], str, Optional[bool]) -> Tensor
+    """
+    Equivalent to nn.functional.interpolate, but with support for empty channel sizes.
+    """
+    if input.numel() > 0:
+        return torch.nn.functional.interpolate(
+            input, size, scale_factor, mode, align_corners
+        )
+
+    assert (
+        input.shape[0] != 0 or input.shape[1] != 0
+    ), "At least one of the two first dimensions must be non zero"
+
+    if input.shape[1] == 0:
+        # Pytorch doesn't support null dimension on the channel dimension, so we transpose to fake a null batch dim
+        return torch.nn.functional.interpolate(
+            input.transpose(0, 1), size, scale_factor, mode, align_corners
+        ).transpose(0, 1)
+
+    # empty batch dimension is now supported in pytorch
+    return torch.nn.functional.interpolate(
+        input, size, scale_factor, mode, align_corners
+    )
 
 
 @dataclass
