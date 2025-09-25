@@ -252,7 +252,7 @@ class Attention(nn.Module):
         # ):
         # Let's trust the dispatcher....
         if self.use_fa3:
-            from onevision.perflib.fa3 import flash_attn_func
+            from sam3.perflib.fa3 import flash_attn_func
 
             assert dropout_p == 0.0
             out = flash_attn_func(
@@ -347,7 +347,7 @@ class RoPEAttention(Attention):
         # ):
         # Let's trust the dispatcher....
         if self.use_fa3:
-            from onevision.perflib.fa3 import flash_attn_func
+            from sam3.perflib.fa3 import flash_attn_func
 
             assert dropout_p == 0.0
             out = flash_attn_func(
