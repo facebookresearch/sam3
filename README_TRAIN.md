@@ -19,7 +19,7 @@ The main training script is located at `sam3/train.py`. It uses Hydra configurat
 
 ```bash
 # Example: Train on Roboflow dataset
-python sam3/train.py -c sam3/train/configs/roboflow_v100_full_ft_100_images.yaml
+python sam3/train/train.py -c sam3/train/configs/roboflow_v100_full_ft_100_images.yaml
 ```
 
 #### Command Line Arguments
@@ -27,7 +27,7 @@ python sam3/train.py -c sam3/train/configs/roboflow_v100_full_ft_100_images.yaml
 The training script supports several command line arguments:
 
 ```bash
-python sam3/train.py \
+python sam3/train/train.py \
     -c CONFIG_NAME \
     [--use-cluster 0|1] \
     [--partition PARTITION_NAME] \
@@ -50,23 +50,23 @@ python sam3/train.py \
 
 ```bash
 # Single GPU training
-python sam3/train.py -c sam3/train/configs/roboflow_v100_full_ft_100_images.yaml --use-cluster 0 --num-gpus 1
+python sam3/train/train.py -c sam3/train/configs/roboflow_v100_full_ft_100_images.yaml --use-cluster 0 --num-gpus 1
 
 # Multi-GPU training on a single node
-python sam3/train.py -c sam3/train/configs/roboflow_v100_full_ft_100_images.yaml --use-cluster 0 --num-gpus 4
+python sam3/train/train.py -c sam3/train/configs/roboflow_v100_full_ft_100_images.yaml --use-cluster 0 --num-gpus 4
 
 # Force local execution even if config specifies gpu's
-python sam3/train.py -c sam3/train/configs/roboflow_v100_full_ft_100_images.yaml --use-cluster 0
+python sam3/train/train.py -c sam3/train/configs/roboflow_v100_full_ft_100_images.yaml --use-cluster 0
 ```
 
 #### Cluster Training Examples
 
 ```bash
 # Basic cluster training with default settings from config
-python sam3/train.py -c sam3/train/configs/roboflow_v100_full_ft_100_images.yaml --use-cluster 1
+python sam3/train/train.py -c sam3/train/configs/roboflow_v100_full_ft_100_images.yaml --use-cluster 1
 
 # Cluster training with specific SLURM settings
-python sam3/train.py -c sam3/train/configs/roboflow_v100_full_ft_100_images.yaml \
+python sam3/train/train.py -c sam3/train/configs/roboflow_v100_full_ft_100_images.yaml \
     --use-cluster 1 \
     --partition gpu_partition \
     --account my_account \
@@ -147,6 +147,6 @@ The configuration includes a complete list of 100 Roboflow supercategories, and 
 ```bash
 # Submit job array to train on different Roboflow datasets
 # The job array index selects which dataset from all_roboflow_supercategories
-python sam3/train.py -c sam3/train/configs/roboflow_v100_full_ft_100_images.yaml \
+python sam3/train/train.py -c sam3/train/configs/roboflow_v100_full_ft_100_images.yaml \
     --use-cluster 1
 ```
