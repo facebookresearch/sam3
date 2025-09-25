@@ -9,7 +9,7 @@ import torch.nn.functional as F
 from torch import nn, Tensor
 
 from sam3 import perflib
-from sam3.model.attention import get_sdpa_settings
+
 from sam3.sam_original.rope import (
     apply_rotary_enc,
     apply_rotary_enc_real,
@@ -18,7 +18,6 @@ from sam3.sam_original.rope import (
 
 from .common import MLPBlock
 
-OLD_GPU, USE_FLASH_ATTN, MATH_KERNEL_ON = get_sdpa_settings()
 
 
 class TwoWayTransformer(nn.Module):
