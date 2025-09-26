@@ -105,7 +105,7 @@ def all_gather_via_filesys(data, filesys_save_dir=None, gather_to_rank_0_only=Fa
             load_data_filename = f"data_to_gather_{timestamp}_{salt}_{rank_load}.pkl"
             load_data_path = os.path.join(save_dir, load_data_filename)
             assert os.path.exists(load_data_path), f"cannot read {save_data_path}"
-            data_list.append(torch.load(load_data_path))
+            data_list.append(torch.load(load_data_path, weights_only=False))
     dist.barrier(group=cpu_group)
 
     # delete the saved file
@@ -179,7 +179,7 @@ def all_gather(data, force_cpu=False, force_filesys=False, filesys_save_dir=None
     for size, tensor in zip(size_list, tensor_list):
         tensor = torch.split(tensor, [size, max_size - size], dim=0)[0]
         buffer = io.BytesIO(tensor.cpu().numpy())
-        obj = torch.load(buffer)
+        obj = torch.load(buffer,weights_only=False)
         data_list.append(obj)
 
     return data_list
@@ -443,10 +443,10 @@ def broadcast_object(obj: Any, src: int = _PRIMARY_RANK, use_disk: bool = True) 
                 # collects it
                 del data_tensor
                 f.seek(0)
-                obj = torch.load(f)
+                obj = torch.load(f, weights_only=False)
         else:
             buffer = io.BytesIO(data_tensor.numpy())
-            obj = torch.load(buffer)
+            obj = torch.load(buffer, weights_only=False)
     return obj
 
 
