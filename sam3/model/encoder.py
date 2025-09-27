@@ -48,7 +48,6 @@ class TransformerEncoderLayerSimple(nn.Module):
         src_mask: Optional[Tensor] = None,
         src_key_padding_mask: Optional[Tensor] = None,
         pos: Optional[Tensor] = None,
-        attn_bias_self_attention: Optional[Tensor] = None,
     ):
         q = k = self.with_pos_embed(src, pos)
         src2 = self.self_attn(
@@ -57,7 +56,6 @@ class TransformerEncoderLayerSimple(nn.Module):
             value=src,
             attn_mask=src_mask,
             key_padding_mask=src_key_padding_mask,
-            attn_bias=attn_bias_self_attention,
         )[0]
         src = src + self.dropout1(src2)
         src = self.norm1(src)
@@ -72,7 +70,6 @@ class TransformerEncoderLayerSimple(nn.Module):
         src_mask: Optional[Tensor] = None,
         src_key_padding_mask: Optional[Tensor] = None,
         pos: Optional[Tensor] = None,
-        attn_bias_self_attention: Optional[Tensor] = None,
     ):
         src2 = self.norm1(src)
         q = k = self.with_pos_embed(src2, pos)
@@ -82,7 +79,6 @@ class TransformerEncoderLayerSimple(nn.Module):
             value=src2,
             attn_mask=src_mask,
             key_padding_mask=src_key_padding_mask,
-            attn_bias=attn_bias_self_attention,
         )[0]
         src = src + self.dropout1(src2)
         src2 = self.norm2(src)
@@ -96,7 +92,6 @@ class TransformerEncoderLayerSimple(nn.Module):
         src_mask: Optional[Tensor] = None,
         src_key_padding_mask: Optional[Tensor] = None,
         pos: Optional[Tensor] = None,
-        attn_bias_self_attention: Optional[Tensor] = None,
         **kwargs,
     ):
         if self.pre_norm:
@@ -105,14 +100,12 @@ class TransformerEncoderLayerSimple(nn.Module):
                 src_mask,
                 src_key_padding_mask,
                 pos,
-                attn_bias_self_attention=attn_bias_self_attention,
             )
         return self.forward_post(
             src,
             src_mask,
             src_key_padding_mask,
             pos,
-            attn_bias_self_attention=attn_bias_self_attention,
         )
 
 
