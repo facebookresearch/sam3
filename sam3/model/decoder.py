@@ -775,7 +775,6 @@ class TransformerDecoderLayerv1(nn.Module):
         memory_key_padding_mask: Optional[Tensor] = None,
         pos: Optional[Tensor] = None,
         query_pos: Optional[Tensor] = None,
-        attn_bias_self_attention: Optional[Tensor] = None,
         **kwargs,
     ):
         q = k = tgt + query_pos if self.pos_enc_at_attn else tgt
@@ -787,7 +786,6 @@ class TransformerDecoderLayerv1(nn.Module):
             value=tgt,
             attn_mask=tgt_mask,
             key_padding_mask=tgt_key_padding_mask,
-            attn_bias=attn_bias_self_attention,
         )[0]
         tgt = tgt + self.dropout1(tgt2)
         tgt = self.norm1(tgt)
@@ -821,7 +819,6 @@ class TransformerDecoderLayerv1(nn.Module):
         pos: Optional[Tensor] = None,
         query_pos: Optional[Tensor] = None,
         attn_bias: Optional[Tensor] = None,
-        attn_bias_self_attention: Optional[Tensor] = None,
         **kwargs,
     ):
         if dac:
@@ -837,7 +834,6 @@ class TransformerDecoderLayerv1(nn.Module):
             value=tgt2,
             attn_mask=tgt_mask,
             key_padding_mask=tgt_key_padding_mask,
-            attn_bias=attn_bias_self_attention,
         )[0]
         tgt = tgt + self.dropout1(tgt2)
         if dac:
@@ -870,7 +866,6 @@ class TransformerDecoderLayerv1(nn.Module):
         pos: Optional[Tensor] = None,
         query_pos: Optional[Tensor] = None,
         attn_bias: Optional[Tensor] = None,
-        attn_bias_self_attention: Optional[Tensor] = None,
         **kwds: Any,
     ) -> torch.Tensor:
         fwd_fn = self.forward_pre if self.pre_norm else self.forward_post
@@ -885,7 +880,6 @@ class TransformerDecoderLayerv1(nn.Module):
             pos=pos,
             query_pos=query_pos,
             attn_bias=attn_bias,
-            attn_bias_self_attention=attn_bias_self_attention,
             **kwds,
         )
 
