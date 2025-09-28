@@ -56,6 +56,11 @@ interactive = [
     "ipywidgets",
     "matplotlib",
 ]
+download = [
+    "yt-dlp",
+    "pandas",
+    "opencv-python",
+]
 
 [project.urls]
 "Homepage" = "https://github.com/facebookresearch/sam3"

@@ -65,5 +65,10 @@ setup(
             "notebook",
             "ipywidgets",
         ],
+        "download": [
+            "yt-dlp",
+            "pandas",
+            "opencv-python",
+        ],
     },
 )
