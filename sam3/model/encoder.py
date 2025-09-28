@@ -10,6 +10,105 @@ from .act_ckpt_utils import activation_ckpt_wrapper
 from .model_misc import get_activation_fn, get_clones, get_valid_ratio
 
 
+class TransformerEncoderLayerSimple(nn.Module):
+    def __init__(
+        self,
+        activation: str,
+        d_model: int,
+        dim_feedforward: int,
+        dropout: float,
+        pos_enc_at_attn: bool,
+        pre_norm: bool,
+        self_attention: nn.Module,
+    ):
+        super().__init__()
+        self.d_model = d_model
+        self.self_attn = self_attention
+
+        # Implementation of Feedforward model
+        self.linear1 = nn.Linear(d_model, dim_feedforward)
+        self.dropout = nn.Dropout(dropout)
+        self.linear2 = nn.Linear(dim_feedforward, d_model)
+
+        self.norm1 = nn.LayerNorm(d_model)
+        self.norm2 = nn.LayerNorm(d_model)
+        self.dropout1 = nn.Dropout(dropout)
+        self.dropout2 = nn.Dropout(dropout)
+
+        self.activation = get_activation_fn(activation)
+        self.pre_norm = pre_norm
+        self.pos_enc_at_attn = pos_enc_at_attn
+
+    def with_pos_embed(self, tensor, pos: Optional[Tensor]):
+        return tensor if not self.pos_enc_at_attn else tensor + pos
+
+    def forward_post(
+        self,
+        src,
+        src_mask: Optional[Tensor] = None,
+        src_key_padding_mask: Optional[Tensor] = None,
+        pos: Optional[Tensor] = None,
+    ):
+        q = k = self.with_pos_embed(src, pos)
+        src2 = self.self_attn(
+            q,
+            k,
+            value=src,
+            attn_mask=src_mask,
+            key_padding_mask=src_key_padding_mask,
+        )[0]
+        src = src + self.dropout1(src2)
+        src = self.norm1(src)
+        src2 = self.linear2(self.dropout(self.activation(self.linear1(src))))
+        src = src + self.dropout2(src2)
+        src = self.norm2(src)
+        return src
+
+    def forward_pre(
+        self,
+        src,
+        src_mask: Optional[Tensor] = None,
+        src_key_padding_mask: Optional[Tensor] = None,
+        pos: Optional[Tensor] = None,
+    ):
+        src2 = self.norm1(src)
+        q = k = self.with_pos_embed(src2, pos)
+        src2 = self.self_attn(
+            q,
+            k,
+            value=src2,
+            attn_mask=src_mask,
+            key_padding_mask=src_key_padding_mask,
+        )[0]
+        src = src + self.dropout1(src2)
+        src2 = self.norm2(src)
+        src2 = self.linear2(self.dropout(self.activation(self.linear1(src2))))
+        src = src + self.dropout2(src2)
+        return src
+
+    def forward(
+        self,
+        src,
+        src_mask: Optional[Tensor] = None,
+        src_key_padding_mask: Optional[Tensor] = None,
+        pos: Optional[Tensor] = None,
+        **kwargs,
+    ):
+        if self.pre_norm:
+            return self.forward_pre(
+                src,
+                src_mask,
+                src_key_padding_mask,
+                pos,
+            )
+        return self.forward_post(
+            src,
+            src_mask,
+            src_key_padding_mask,
+            pos,
+        )
+
+
 class TransformerEncoderLayer(nn.Module):
     """
     Transformer encoder layer that performs self-attention followed by cross-attention.
@@ -436,6 +535,8 @@ class TransformerEncoder(nn.Module):
             layer_kwargs["tgt"] = output
             layer_kwargs["tgt_key_padding_mask"] = key_padding_masks_flatten
 
+            if self.training:
+                assert self.use_act_checkpoint, "activation ckpt not enabled in encoder"
             if encoder_extra_kwargs is not None:
                 layer_kwargs.update(encoder_extra_kwargs)
             output = activation_ckpt_wrapper(layer)(

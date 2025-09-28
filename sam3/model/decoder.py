@@ -13,6 +13,8 @@ import torch
 from torch import nn, Tensor
 from torchvision.ops.roi_align import RoIAlign
 
+from sam3.sam_original.transformer import RoPEAttention
+
 from .act_ckpt_utils import activation_ckpt_wrapper
 
 from .box_ops import box_cxcywh_to_xyxy
@@ -97,6 +99,7 @@ class TransformerDecoderLayer(nn.Module):
         # dac
         dac=False,
         dac_use_selfatt_ln=True,
+        presence_token=None,
         # skip inside deformable attn
         identity=0.0,
         **kwargs,  # additional kwargs for compatibility
@@ -118,6 +121,15 @@ class TransformerDecoderLayer(nn.Module):
             else:
                 tgt_o2o = tgt
                 tgt_query_pos_o2o = tgt_query_pos
+
+            if presence_token is not None:
+                tgt_o2o = torch.cat([presence_token, tgt_o2o], dim=0)
+                tgt_query_pos_o2o = torch.cat(
+                    [torch.zeros_like(presence_token), tgt_query_pos_o2o], dim=0
+                )
+                tgt_query_pos = torch.cat(
+                    [torch.zeros_like(presence_token), tgt_query_pos], dim=0
+                )
 
             q = k = self.with_pos_embed(tgt_o2o, tgt_query_pos_o2o)
             tgt2 = self.self_attn(q, k, tgt_o2o, attn_mask=self_attn_mask)[0]
@@ -142,6 +154,12 @@ class TransformerDecoderLayer(nn.Module):
             tgt = tgt + self.catext_dropout(tgt2)
             tgt = self.catext_norm(tgt)
 
+        if presence_token is not None:
+            presence_token_mask = torch.zeros_like(cross_attn_mask[:, :1, :])
+            cross_attn_mask = torch.cat(
+                [presence_token_mask, cross_attn_mask], dim=1
+            )  # (bs*nheads, 1+nq, hw)
+
         # Cross attention to image
         tgt2 = self.cross_attn(
             query=self.with_pos_embed(tgt, tgt_query_pos),
@@ -161,7 +179,12 @@ class TransformerDecoderLayer(nn.Module):
         # ffn
         tgt = self.forward_ffn(tgt)
 
-        return tgt
+        presence_token_out = None
+        if presence_token is not None:
+            presence_token_out = tgt[:1]
+            tgt = tgt[1:]
+
+        return tgt, presence_token_out
 
 
 class TransformerDecoder(nn.Module):
@@ -186,6 +209,14 @@ class TransformerDecoder(nn.Module):
         dac_use_selfatt_ln: bool = True,
         use_act_checkpoint: bool = False,
         compile_mode=None,
+        presence_token: bool = False,
+        clamp_presence_logits: bool = True,
+        clamp_presence_logit_max_val: float = 10.0,
+        use_normed_output_consistently: bool = False,
+        separate_box_head_instance: bool = False,
+        separate_norm_instance: bool = False,
+        resolution: Optional[int] = None,
+        stride: Optional[int] = None,
     ):
         super().__init__()
         self.d_model = d_model
@@ -212,6 +243,12 @@ class TransformerDecoder(nn.Module):
         self.instance_query_reference_points = None
         self.use_instance_query = instance_query
         self.num_instances = num_instances
+        self.use_normed_output_consistently = use_normed_output_consistently
+
+        self.instance_norm = nn.LayerNorm(d_model) if separate_norm_instance else None
+        self.instance_bbox_embed = None
+        if separate_box_head_instance:
+            self.instance_bbox_embed = MLP(d_model, d_model, 4, 3)
         if instance_query:
             self.instance_query_embed = nn.Embedding(num_instances, d_model)
         self.box_refine = box_refine
@@ -238,6 +275,14 @@ class TransformerDecoder(nn.Module):
             self.compilable_stored_size = None
             self.coord_cache = {}
 
+            if resolution is not None and stride is not None:
+                feat_size = resolution // stride
+                coords_h, coords_w = self._get_coords(
+                    feat_size, feat_size, device="cuda"
+                )
+                self.compilable_cord_cache = (coords_h, coords_w)
+                self.compilable_stored_size = (feat_size, feat_size)
+
         self.roi_pooler = (
             RoIAlign(output_size=7, spatial_scale=1, sampling_ratio=-1, aligned=True)
             if interaction_layer is not None
@@ -246,6 +291,14 @@ class TransformerDecoder(nn.Module):
         if frozen:
             for p in self.parameters():
                 p.requires_grad_(False)
+
+        self.presence_token = None
+        self.clamp_presence_logits = clamp_presence_logits
+        self.clamp_presence_logit_max_val = clamp_presence_logit_max_val
+        if presence_token:
+            self.presence_token = nn.Embedding(1, d_model)
+            self.presence_token_head = MLP(d_model, d_model, 1, 3)
+            self.presence_token_out_norm = nn.LayerNorm(d_model)
 
         self.ref_point_head = MLP(2 * self.d_model, self.d_model, self.d_model, 2)
         self.dac_use_selfatt_ln = dac_use_selfatt_ln
@@ -328,6 +381,8 @@ class TransformerDecoder(nn.Module):
                 deltas_x = torch.cat([deltas_x, deltas_x_log], dim=-1)
                 deltas_y = torch.cat([deltas_y, deltas_y_log], dim=-1)
 
+        if self.training:
+            assert self.use_act_checkpoint, "activation ckpt not enabled in decoder"
         deltas_x = activation_ckpt_wrapper(self.boxRPB_embed_x)(
             x=deltas_x,
             act_ckpt_enable=self.training and self.use_act_checkpoint,
@@ -372,6 +427,7 @@ class TransformerDecoder(nn.Module):
         text_attention_mask: Optional[Tensor] = None,
         # if `apply_dac` is None, it will default to `self.dac`
         apply_dac: Optional[bool] = None,
+        is_instance_prompt=False,
         decoder_extra_kwargs: Optional[Dict] = None,
         # ROI memory bank
         obj_roi_memory_feat=None,
@@ -413,6 +469,8 @@ class TransformerDecoder(nn.Module):
 
         bs = tgt.shape[1]
         intermediate = []
+        intermediate_presence_logits = []
+        presence_feats = None
 
         if self.box_refine:
             if reference_boxes is None:
@@ -430,6 +488,18 @@ class TransformerDecoder(nn.Module):
             intermediate_ref_boxes = None
 
         output = tgt
+        presence_out = None
+        if self.presence_token is not None and is_instance_prompt is False:
+            # expand to batch dim
+            presence_out = self.presence_token.weight[None].expand(1, bs, -1)
+
+        box_head = self.bbox_embed
+        if is_instance_prompt and self.instance_bbox_embed is not None:
+            box_head = self.instance_bbox_embed
+
+        out_norm = self.norm
+        if is_instance_prompt and self.instance_norm is not None:
+            out_norm = self.instance_norm
 
         for layer_idx, layer in enumerate(self.layers):
             reference_points_input = (
@@ -453,8 +523,11 @@ class TransformerDecoder(nn.Module):
                     (spatial_shapes[0, 0], spatial_shapes[0, 1]),
                 )
                 memory_mask = memory_mask.flatten(0, 1)  # (bs*n_heads, nq, H*W)
-
-            output = activation_ckpt_wrapper(layer)(
+            if self.training:
+                assert (
+                    self.use_act_checkpoint
+                ), "Activation checkpointing not enabled in the decoder"
+            output, presence_out = activation_ckpt_wrapper(layer)(
                 tgt=output,
                 tgt_query_pos=query_pos,
                 tgt_query_sine_embed=query_sine_embed,
@@ -471,6 +544,7 @@ class TransformerDecoder(nn.Module):
                 cross_attn_mask=memory_mask,
                 dac=apply_dac,
                 dac_use_selfatt_ln=self.dac_use_selfatt_ln,
+                presence_token=presence_out,
                 **(decoder_extra_kwargs or {}),
                 act_ckpt_enable=self.training and self.use_act_checkpoint,
                 # ROI memory bank
@@ -482,7 +556,11 @@ class TransformerDecoder(nn.Module):
             if self.box_refine:
                 reference_before_sigmoid = inverse_sigmoid(reference_boxes)
                 if box_head_trk is None:
-                    delta_unsig = self.bbox_embed(output)
+                    # delta_unsig = self.bbox_embed(output)
+                    if not self.use_normed_output_consistently:
+                        delta_unsig = box_head(output)
+                    else:
+                        delta_unsig = box_head(out_norm(output))
                 else:
                     # box_head_trk use a separate box head for tracking queries
                     Q_det = decoder_extra_kwargs["Q_det"]
@@ -499,7 +577,22 @@ class TransformerDecoder(nn.Module):
             else:
                 raise NotImplementedError("not implemented yet")
 
-            intermediate.append(self.norm(output))
+            intermediate.append(out_norm(output))
+            if self.presence_token is not None and is_instance_prompt is False:
+                # norm, mlp head
+                intermediate_layer_presence_logits = self.presence_token_head(
+                    self.presence_token_out_norm(presence_out)
+                ).squeeze(-1)
+
+                # clamp to mitigate numerical issues
+                if self.clamp_presence_logits:
+                    intermediate_layer_presence_logits.clamp(
+                        min=-self.clamp_presence_logit_max_val,
+                        max=self.clamp_presence_logit_max_val,
+                    )
+
+                intermediate_presence_logits.append(intermediate_layer_presence_logits)
+                presence_feats = presence_out.clone()
 
         if not self.compiled and self.compile_mode is not None:
             self.forward = torch.compile(
@@ -507,4 +600,358 @@ class TransformerDecoder(nn.Module):
             )
             self.compiled = True
 
-        return torch.stack(intermediate), torch.stack(intermediate_ref_boxes)
+        return (
+            torch.stack(intermediate),
+            torch.stack(intermediate_ref_boxes),
+            (
+                torch.stack(intermediate_presence_logits)
+                if self.presence_token is not None and is_instance_prompt is False
+                else None
+            ),
+            presence_feats,
+        )
+
+
+class TransformerEncoderCrossAttention(nn.Module):
+    def __init__(
+        self,
+        d_model: int,
+        frozen: bool,
+        pos_enc_at_input: bool,
+        layer,
+        num_layers: int,
+        use_act_checkpoint: bool = False,
+        batch_first: bool = False,  # Do layers expect batch first input?
+        # which layers to exclude cross attention? default: None, means all
+        # layers use cross attention
+        remove_cross_attention_layers: Optional[list] = None,
+    ):
+        super().__init__()
+        self.d_model = d_model
+        self.layers = get_clones(layer, num_layers)
+        self.num_layers = num_layers
+        self.norm = nn.LayerNorm(d_model)
+        self.pos_enc_at_input = pos_enc_at_input
+        self.use_act_checkpoint = use_act_checkpoint
+
+        if frozen:
+            for p in self.parameters():
+                p.requires_grad_(False)
+
+        self.batch_first = batch_first
+
+        # remove cross attention layers if specified
+        self.remove_cross_attention_layers = [False] * self.num_layers
+        if remove_cross_attention_layers is not None:
+            for i in remove_cross_attention_layers:
+                self.remove_cross_attention_layers[i] = True
+        assert len(self.remove_cross_attention_layers) == len(self.layers)
+
+        for i, remove_cross_attention in enumerate(self.remove_cross_attention_layers):
+            if remove_cross_attention:
+                self.layers[i].cross_attn_image = None
+                self.layers[i].norm2 = None
+                self.layers[i].dropout2 = None
+
+    def forward(
+        self,
+        src,  # self-attention inputs
+        prompt,  # cross-attention inputs
+        src_mask: Optional[Tensor] = None,  # att.mask for self-attention inputs
+        prompt_mask: Optional[Tensor] = None,  # att.mask for cross-attention inputs
+        src_key_padding_mask: Optional[Tensor] = None,
+        prompt_key_padding_mask: Optional[Tensor] = None,
+        src_pos: Optional[Tensor] = None,  # pos_enc for self-attention inputs
+        prompt_pos: Optional[Tensor] = None,  # pos_enc for cross-attention inputs
+        feat_sizes: Optional[list] = None,
+        num_obj_ptr_tokens: int = 0,  # number of object pointer *tokens*
+    ):
+        if isinstance(src, list):
+            assert isinstance(src_key_padding_mask, list) and isinstance(src_pos, list)
+            assert len(src) == len(src_key_padding_mask) == len(src_pos) == 1
+            src, src_key_padding_mask, src_pos = (
+                src[0],
+                src_key_padding_mask[0],
+                src_pos[0],
+            )
+
+        assert (
+            src.shape[1] == prompt.shape[1]
+        ), "Batch size must be the same for src and prompt"
+
+        output = src
+
+        if self.pos_enc_at_input and src_pos is not None:
+            output = output + 0.1 * src_pos
+
+        if self.batch_first:
+            # Convert to batch first
+            output = output.transpose(0, 1)
+            src_pos = src_pos.transpose(0, 1)
+            prompt = prompt.transpose(0, 1)
+            prompt_pos = prompt_pos.transpose(0, 1)
+
+        for layer in self.layers:
+            kwds = {}
+            if isinstance(layer.cross_attn_image, RoPEAttention):
+                kwds = {"num_k_exclude_rope": num_obj_ptr_tokens}
+
+            output = activation_ckpt_wrapper(layer)(
+                tgt=output,
+                memory=prompt,
+                tgt_mask=src_mask,
+                memory_mask=prompt_mask,
+                tgt_key_padding_mask=src_key_padding_mask,
+                memory_key_padding_mask=prompt_key_padding_mask,
+                pos=prompt_pos,
+                query_pos=src_pos,
+                dac=False,
+                attn_bias=None,
+                act_ckpt_enable=self.training and self.use_act_checkpoint,
+                **kwds,
+            )
+            normed_output = self.norm(output)
+
+        if self.batch_first:
+            # Convert back to seq first
+            normed_output = normed_output.transpose(0, 1)
+            src_pos = src_pos.transpose(0, 1)
+
+        return {
+            "memory": normed_output,
+            "pos_embed": src_pos,
+            "padding_mask": src_key_padding_mask,
+        }
+
+
+class TransformerDecoderLayerv1(nn.Module):
+    def __init__(
+        self,
+        activation: str,
+        cross_attention: nn.Module,
+        d_model: int,
+        dim_feedforward: int,
+        dropout: float,
+        pos_enc_at_attn: bool,
+        pos_enc_at_cross_attn_keys: bool,
+        pos_enc_at_cross_attn_queries: bool,
+        pre_norm: bool,
+        self_attention: nn.Module,
+    ):
+        super().__init__()
+        self.d_model = d_model
+        self.dim_feedforward = dim_feedforward
+        self.dropout_value = dropout
+        self.self_attn = self_attention
+        self.cross_attn_image = cross_attention
+
+        # Implementation of Feedforward model
+        self.linear1 = nn.Linear(d_model, dim_feedforward)
+        self.dropout = nn.Dropout(dropout)
+        self.linear2 = nn.Linear(dim_feedforward, d_model)
+
+        self.norm1 = nn.LayerNorm(d_model)
+        self.norm2 = nn.LayerNorm(d_model)
+        self.norm3 = nn.LayerNorm(d_model)
+        self.dropout1 = nn.Dropout(dropout)
+        self.dropout2 = nn.Dropout(dropout)
+        self.dropout3 = nn.Dropout(dropout)
+
+        self.activation_str = activation
+        self.activation = get_activation_fn(activation)
+        self.pre_norm = pre_norm
+
+        self.pos_enc_at_attn = pos_enc_at_attn
+        self.pos_enc_at_cross_attn_queries = pos_enc_at_cross_attn_queries
+        self.pos_enc_at_cross_attn_keys = pos_enc_at_cross_attn_keys
+
+    def forward_post(
+        self,
+        tgt,
+        memory,
+        tgt_mask: Optional[Tensor] = None,
+        memory_mask: Optional[Tensor] = None,
+        tgt_key_padding_mask: Optional[Tensor] = None,
+        memory_key_padding_mask: Optional[Tensor] = None,
+        pos: Optional[Tensor] = None,
+        query_pos: Optional[Tensor] = None,
+        **kwargs,
+    ):
+        q = k = tgt + query_pos if self.pos_enc_at_attn else tgt
+
+        # Self attention
+        tgt2 = self.self_attn(
+            q,
+            k,
+            value=tgt,
+            attn_mask=tgt_mask,
+            key_padding_mask=tgt_key_padding_mask,
+        )[0]
+        tgt = tgt + self.dropout1(tgt2)
+        tgt = self.norm1(tgt)
+
+        # Cross attention to image
+        tgt2 = self.cross_attn_image(
+            query=tgt + query_pos if self.pos_enc_at_cross_attn_queries else tgt,
+            key=memory + pos if self.pos_enc_at_cross_attn_keys else memory,
+            value=memory,
+            attn_mask=memory_mask,
+            key_padding_mask=memory_key_padding_mask,
+        )[0]
+        tgt = tgt + self.dropout2(tgt2)
+        tgt = self.norm2(tgt)
+
+        # FFN
+        tgt2 = self.linear2(self.dropout(self.activation(self.linear1(tgt))))
+        tgt = tgt + self.dropout3(tgt2)
+        tgt = self.norm3(tgt)
+        return tgt
+
+    def forward_pre(
+        self,
+        tgt,
+        memory,
+        dac: bool = False,
+        tgt_mask: Optional[Tensor] = None,
+        memory_mask: Optional[Tensor] = None,
+        tgt_key_padding_mask: Optional[Tensor] = None,
+        memory_key_padding_mask: Optional[Tensor] = None,
+        pos: Optional[Tensor] = None,
+        query_pos: Optional[Tensor] = None,
+        attn_bias: Optional[Tensor] = None,
+        **kwargs,
+    ):
+        if dac:
+            # we only apply self attention to the first half of the queries
+            assert tgt.shape[0] % 2 == 0
+            other_tgt = tgt[tgt.shape[0] // 2 :]
+            tgt = tgt[: tgt.shape[0] // 2]
+        tgt2 = self.norm1(tgt)
+        q = k = tgt2 + query_pos if self.pos_enc_at_attn else tgt2
+        tgt2 = self.self_attn(
+            q,
+            k,
+            value=tgt2,
+            attn_mask=tgt_mask,
+            key_padding_mask=tgt_key_padding_mask,
+        )[0]
+        tgt = tgt + self.dropout1(tgt2)
+        if dac:
+            # Recombine
+            tgt = torch.cat((tgt, other_tgt), dim=0)
+        tgt2 = self.norm2(tgt)
+        tgt2 = self.cross_attn_image(
+            query=tgt2 + query_pos if self.pos_enc_at_cross_attn_queries else tgt2,
+            key=memory + pos if self.pos_enc_at_cross_attn_keys else memory,
+            value=memory,
+            attn_mask=memory_mask,
+            key_padding_mask=memory_key_padding_mask,
+            attn_bias=attn_bias,
+        )[0]
+        tgt = tgt + self.dropout2(tgt2)
+        tgt2 = self.norm3(tgt)
+        tgt2 = self.linear2(self.dropout(self.activation(self.linear1(tgt2))))
+        tgt = tgt + self.dropout3(tgt2)
+        return tgt
+
+    def forward(
+        self,
+        tgt,
+        memory,
+        dac: bool = False,
+        tgt_mask: Optional[Tensor] = None,
+        memory_mask: Optional[Tensor] = None,
+        tgt_key_padding_mask: Optional[Tensor] = None,
+        memory_key_padding_mask: Optional[Tensor] = None,
+        pos: Optional[Tensor] = None,
+        query_pos: Optional[Tensor] = None,
+        attn_bias: Optional[Tensor] = None,
+        **kwds: Any,
+    ) -> torch.Tensor:
+        fwd_fn = self.forward_pre if self.pre_norm else self.forward_post
+        return fwd_fn(
+            tgt,
+            memory,
+            dac=dac,
+            tgt_mask=tgt_mask,
+            memory_mask=memory_mask,
+            tgt_key_padding_mask=tgt_key_padding_mask,
+            memory_key_padding_mask=memory_key_padding_mask,
+            pos=pos,
+            query_pos=query_pos,
+            attn_bias=attn_bias,
+            **kwds,
+        )
+
+
+class TransformerDecoderLayerv2(TransformerDecoderLayerv1):
+    def __init__(self, cross_attention_first=False, *args: Any, **kwds: Any):
+        super().__init__(*args, **kwds)
+        self.cross_attention_first = cross_attention_first
+
+    def _forward_sa(self, tgt, query_pos):
+        # Self-Attention
+        tgt2 = self.norm1(tgt)
+        q = k = tgt2 + query_pos if self.pos_enc_at_attn else tgt2
+        tgt2 = self.self_attn(q, k, v=tgt2)
+        tgt = tgt + self.dropout1(tgt2)
+        return tgt
+
+    def _forward_ca(self, tgt, memory, query_pos, pos, num_k_exclude_rope=0):
+        if self.cross_attn_image is None:
+            return tgt
+
+        kwds = {}
+        if num_k_exclude_rope > 0:
+            assert isinstance(self.cross_attn_image, RoPEAttention)
+            kwds = {"num_k_exclude_rope": num_k_exclude_rope}
+
+        # Cross-Attention
+        tgt2 = self.norm2(tgt)
+        tgt2 = self.cross_attn_image(
+            q=tgt2 + query_pos if self.pos_enc_at_cross_attn_queries else tgt2,
+            k=memory + pos if self.pos_enc_at_cross_attn_keys else memory,
+            v=memory,
+            **kwds,
+        )
+        tgt = tgt + self.dropout2(tgt2)
+        return tgt
+
+    def forward_pre(
+        self,
+        tgt,
+        memory,
+        dac: bool,
+        tgt_mask: Optional[Tensor] = None,
+        memory_mask: Optional[Tensor] = None,
+        tgt_key_padding_mask: Optional[Tensor] = None,
+        memory_key_padding_mask: Optional[Tensor] = None,
+        pos: Optional[Tensor] = None,
+        query_pos: Optional[Tensor] = None,
+        attn_bias: Optional[Tensor] = None,
+        num_k_exclude_rope: int = 0,
+    ):
+        assert dac is False
+        assert tgt_mask is None
+        assert memory_mask is None
+        assert tgt_key_padding_mask is None
+        assert memory_key_padding_mask is None
+        assert attn_bias is None
+
+        if self.cross_attention_first:
+            tgt = self._forward_ca(tgt, memory, query_pos, pos, num_k_exclude_rope)
+            tgt = self._forward_sa(tgt, query_pos)
+        else:
+            tgt = self._forward_sa(tgt, query_pos)
+            tgt = self._forward_ca(tgt, memory, query_pos, pos, num_k_exclude_rope)
+
+        # MLP
+        tgt2 = self.norm3(tgt)
+        tgt2 = self.linear2(self.dropout(self.activation(self.linear1(tgt2))))
+        tgt = tgt + self.dropout3(tgt2)
+        return tgt
+
+    def forward(self, *args: Any, **kwds: Any) -> torch.Tensor:
+        if self.pre_norm:
+            return self.forward_pre(*args, **kwds)
+        raise NotImplementedError

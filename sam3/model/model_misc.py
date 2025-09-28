@@ -4,16 +4,19 @@
 
 import copy
 import math
-from typing import Optional, Union
+import weakref
+from collections.abc import Iterator
+from contextlib import AbstractContextManager
+from enum import auto, Enum
+from typing import Dict, List, Optional, Set, Tuple, Union
 
 import numpy as np
-
 import torch
 import torch.nn.functional as F
-
 import torch.utils._pytree as pytree
 from torch import nn, Tensor
 from torch.nn.functional import pad
+from typing_extensions import override
 
 
 def inverse_sigmoid(x, eps=1e-3):
@@ -25,6 +28,12 @@ def inverse_sigmoid(x, eps=1e-3):
     x1 = x.clamp(min=eps)
     x2 = (1 - x).clamp(min=eps)
     return torch.log(x1 / x2)
+
+
+class MultiheadAttentionWrapper(nn.MultiheadAttention):
+    def forward(self, *args, **kwargs):
+        kwargs["need_weights"] = False
+        return super().forward(*args, **kwargs)
 
 
 class DotProductScoring(torch.nn.Module):
@@ -121,12 +130,14 @@ class TransformerWrapper(nn.Module):
         decoder,
         d_model: int,
         two_stage_type="none",  # ["none"] only for now
+        pos_enc_at_input_dec=True,
     ):
         super().__init__()
 
         self.encoder = encoder
         self.decoder = decoder
-        self.num_queries = decoder.num_queries
+        self.num_queries = decoder.num_queries if decoder is not None else None
+        self.pos_enc_at_input_dec = pos_enc_at_input_dec
 
         # for two stage
         assert two_stage_type in ["none"], "unknown param {} of two_stage_type".format(
@@ -365,3 +376,159 @@ def gen_sineembed_for_position(pos_tensor, num_feats=256):
     else:
         raise ValueError("Unknown pos_tensor shape(-1):{}".format(pos_tensor.size(-1)))
     return pos
+
+
+class SAM3Output(list):
+    """
+    A class representing the output of a SAM3 model.
+    It provides an iterable interface that supports different iteration modes, including iterating over all steps per stage,
+    last step per stage, and flattened output.
+    Attributes:
+        output: The output of the SAM3 model, represented as a list of lists.
+        iter_mode: The current iteration mode.
+    Example:
+        >>> output = [[1, 2], [3, 4], [5, 6]]
+        >>> sam3_output = SAM3Output(output)
+        >>> for step in sam3_output:
+        ...     print(step)
+        [1, 2]
+        [3, 4]
+        [5, 6]
+        >>> with SAM3Output.iteration_mode(SAM3Output.IterMode.LAST_STEP_PER_STAGE) as sam3_last_step_out:
+        ...     for step in sam3_last_step_out:
+        ...         print(step)
+        [2]
+        [4]
+        [6]
+        >>> with SAM3Output.iteration_mode(SAM3Output.IterMode.FLATTENED) as sam3_flattened_out:
+        ...     for step in sam3_flattened_out:
+        ...         print(step)
+        1
+        2
+        3
+        4
+        5
+        6
+    """
+
+    class IterMode(Enum):
+        # Defines the type of iterator over ouptuts.
+        ALL_STEPS_PER_STAGE = auto()
+        LAST_STEP_PER_STAGE = auto()
+        FLATTENED = (
+            auto()
+        )  # Returns each interactivity step as if it is a seperate stage (this is used in SAM3Image model)
+
+    def __init__(
+        self,
+        output: List[List[Dict]] = None,
+        iter_mode: IterMode = IterMode.ALL_STEPS_PER_STAGE,
+        loss_stages: Optional[List[int]] = None,
+    ):
+        if output is not None:
+            assert (
+                isinstance(output, list)
+                and len(output) > 0
+                and isinstance(output[0], list)
+            ), "Expected output to be a list of lists"
+            self.output = output
+        else:
+            self.output = []
+        assert isinstance(
+            iter_mode, SAM3Output.IterMode
+        ), f"iter_mode shoulf be of enum type 'SAM3Output.IterMode'. Got {type(iter_mode)}"
+
+        self.iter_mode = iter_mode
+        # We create a weak reference to self to be used in the lambda functions.
+        # This is to avoid cyclic references and let SAM3Output be garabge collected.
+        self_ref = weakref.ref(self)
+        self._mode2iter = {
+            SAM3Output.IterMode.ALL_STEPS_PER_STAGE: lambda: iter(self_ref().output),
+            SAM3Output.IterMode.LAST_STEP_PER_STAGE: lambda: (
+                inner_list[-1] for inner_list in self_ref().output
+            ),
+            SAM3Output.IterMode.FLATTENED: lambda: (
+                element for inner_list in self_ref().output for element in inner_list
+            ),
+        }
+        self.loss_stages = loss_stages
+
+    @override
+    def __iter__(self) -> Iterator:
+        return self._mode2iter[self.iter_mode]()
+
+    def __getitem__(self, index):
+        """
+        Returns the item at the specified index.
+        Args:
+            index (int): The index of the item to return.
+        Returns:
+            list or element: The item at the specified index.
+        """
+        assert isinstance(index, int), f"index should be an integer. Got {type(index)}"
+        if self.iter_mode == SAM3Output.IterMode.ALL_STEPS_PER_STAGE:
+            return self.output[index]
+        elif self.iter_mode == SAM3Output.IterMode.LAST_STEP_PER_STAGE:
+            return self.output[index][-1]
+        elif self.iter_mode == SAM3Output.IterMode.FLATTENED:
+            if index == -1:
+                return self.self.output[-1][-1]
+            else:
+                flattened_output = sum(self.output, [])
+                return flattened_output[index]
+
+    class _IterationMode(AbstractContextManager):
+        """
+        A context manager that temporarily changes the iteration mode of a SAM3Output object.
+        This class is used internally by the SAM3Output.iteration_mode method.
+        """
+
+        def __init__(
+            self, model_output: "SAM3Output", iter_mode: "SAM3Output.IterMode"
+        ):
+            self._model_output = model_output
+            self._orig_iter_mode = model_output.iter_mode
+            self._new_iter_mode = iter_mode
+
+        @override
+        def __enter__(self) -> "SAM3Output":
+            self._model_output.iter_mode = self._new_iter_mode
+            return self._model_output
+
+        @override
+        def __exit__(self, exc_type, exc_value, traceback):
+            self._model_output.iter_mode = self._orig_iter_mode
+            return super().__exit__(exc_type, exc_value, traceback)
+
+    @staticmethod
+    def iteration_mode(
+        model_output: "SAM3Output", iter_mode: IterMode
+    ) -> _IterationMode:
+        """
+        Returns a context manager that allows you to temporarily change the iteration mode of the SAM3Output object.
+        Args:
+            model_output: The SAM3Output object.
+            iter_mode: The new iteration mode.
+        Returns:
+            SAM3Output._IterationMode: A context manager that changes the iteration mode of the SAM3Output object.
+        """
+        return SAM3Output._IterationMode(model_output=model_output, iter_mode=iter_mode)
+
+    def append(self, item: list):
+        assert isinstance(
+            item, list
+        ), f"Only list items are supported. Got {type(item)}"
+        self.output.append(item)
+
+    def __repr__(self):
+        return self.output.__repr__()
+
+    def __len__(self):
+        if self.iter_mode in [
+            SAM3Output.IterMode.ALL_STEPS_PER_STAGE,
+            SAM3Output.IterMode.LAST_STEP_PER_STAGE,
+        ]:
+            return len(self.output)
+        elif self.iter_mode == SAM3Output.IterMode.FLATTENED:
+            flattened_output = sum(self.output, [])
+            return len(flattened_output)
