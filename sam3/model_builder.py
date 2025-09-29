@@ -321,7 +321,7 @@ def build_sam3_image_model(
     )
 
     if eval_mode:
-        from .model.sam3_demo import Sam3ImageInteractiveDemo
+        from .model.sam3_demo_hf import Sam3ImageInteractiveDemo
 
         model = Sam3ImageInteractiveDemo(
             backbone=backbone,

@@ -20,7 +20,7 @@ from .box_ops import box_cxcywh_to_xyxy
 
 from .geometry_encoders import Prompt
 from .model_misc import inverse_sigmoid, NestedTensor
-
+from .act_ckpt_utils import clone_output_wrapper
 
 def _update_out(out, out_name, out_value, auxiliary=True):
     out[out_name] = out_value[-1] if auxiliary else out_value
@@ -552,7 +552,7 @@ class Sam3Image(torch.nn.Module):
     ):
         """Only activation checkpointing the inner part of video grounding forward."""
         num_prompts = find_input.img_ids.size(0)
-        prev_frame_idx = frame_idx + 1 if track_in_reverse else frame_idx - 1
+        # prev_frame_idx = frame_idx + 1 if track_in_reverse else frame_idx - 1
 
         prev_tracking_queries = self._init_tracking_queries(
             B=num_prompts,
@@ -1111,6 +1111,45 @@ class Sam3Image(torch.nn.Module):
         pred_matched_object_ids[batch_idx, src_idx] = gt_packed_object_ids[tgt_idx]
         out["matched_object_ids"] = pred_matched_object_ids
 
+
+    def compile_model(self):
+        """Compile the SAM model with torch.compile for speedup."""
+        is_compiled = getattr(self, "_model_is_compiled", False)
+        if is_compiled or not self.compile_model:
+            return
+
+        import torch._dynamo
+
+        # a larger cache size to hold varying number of shapes for torch.compile
+        # see https://github.com/pytorch/pytorch/blob/v2.5.1/torch/_dynamo/config.py#L42-L49
+        torch._dynamo.config.cache_size_limit = 64
+        torch._dynamo.config.accumulated_cache_size_limit = 2048
+        torch._dynamo.config.capture_scalar_outputs = True
+        torch._dynamo.config.suppress_errors = True
+
+        self.backbone.vision_backbone.forward = clone_output_wrapper(
+            torch.compile(
+                self.backbone.vision_backbone.forward,
+                fullgraph=True,
+                mode="max-autotune",
+            )
+        )
+        self.transformer.encoder.forward = clone_output_wrapper(
+            torch.compile(
+                self.transformer.encoder.forward,
+                fullgraph=True,
+                mode="max-autotune",
+            )
+        )
+        self.transformer.decoder.forward = clone_output_wrapper(
+            torch.compile(
+                self.transformer.decoder.forward,
+                fullgraph=True,
+                mode="max-autotune",
+                dynamic=True,  # the decoder uses dynamic shapes
+            )
+        )
+        self._model_is_compiled = True
 
 class Sam3ImageOnVideo(Sam3Image):
     """A wrapper class to run Sam3Image on videos for per-frame detection (no tracking)."""
