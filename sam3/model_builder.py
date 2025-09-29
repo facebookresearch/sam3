@@ -360,6 +360,8 @@ def build_sam3_image_model(
     # move to eval mode
     if checkpoint_path is not None:
         ckpt = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
+        if "model" in ckpt and isinstance(ckpt["model"], dict):
+            ckpt = ckpt["model"]
         missing_keys, unexpected_keys = model.load_state_dict(ckpt, strict=False)
         if len(missing_keys) > 0 or len(unexpected_keys) > 0:
             print(
