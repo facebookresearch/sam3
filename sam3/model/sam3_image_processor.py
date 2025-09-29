@@ -41,8 +41,8 @@ from sam3.model.model_misc import NestedTensor
 
 
 # Constants typically from transformers
-IMAGENET_DEFAULT_MEAN = [0.485, 0.456, 0.406]
-IMAGENET_DEFAULT_STD = [0.229, 0.224, 0.225]
+IMAGENET_DEFAULT_MEAN = [0.5, 0.5, 0.5]
+IMAGENET_DEFAULT_STD = [0.5, 0.5, 0.5]
 
 
 class ChannelDimension(Enum):
@@ -405,31 +405,6 @@ class Sam3Processor:
         **kwargs,
     ) -> Dict[str, Any]:
         """
-
-        We want something like this!
-        ```python
-        >>> from transformers import Sam3Processor, Sam3ImageModel
-        >>> from PIL import Image
-        >>> import requests
-
-        >>> processor = Sam3Processor.from_pretrained("facebook/sam3-base")
-        >>> model = Sam3ImageModel.from_pretrained("facebook/sam3-base")
-
-        >>> url = "http://images.cocodataset.org/val2017/000000039769.jpg"
-        >>> image = Image.open(requests.get(url, stream=True).raw)
-
-        >>> # Point prompting
-        >>> inputs = processor(image, input_points=[[[500, 375]]], input_labels=[[1]], return_tensors="pt")
-        >>> outputs = model(**inputs)
-
-        >>> # Box prompting
-        >>> inputs = processor(image, input_boxes=[[[300, 200, 400, 300]]], return_tensors="pt")
-        >>> outputs = model(**inputs)
-
-        >>> # Text prompting
-        >>> inputs = processor(image, text=["shoe"], return_tensors="pt")
-        >>> outputs = model(**inputs)
-        ```
         """
 
         # only image or inference_state can be passed
