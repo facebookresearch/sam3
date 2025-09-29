@@ -61,9 +61,6 @@ class PILImageResampling(Enum):
     LANCZOS = Image.Resampling.LANCZOS
 
 
-
-
-
 # Type aliases
 ImageInput = Union[
     Image.Image,
@@ -71,10 +68,6 @@ ImageInput = Union[
     torch.Tensor,
     List[Union[Image.Image, np.ndarray, torch.Tensor]],
 ]
-
-
-
-
 
 
 def make_list_of_images(
@@ -155,6 +148,7 @@ def convert_to_rgb(image: np.ndarray) -> np.ndarray:
             return np.transpose(image[..., :3], (1, 2, 0))
     return image
 
+
 def convert_list_to_tensor(data: List[Any]) -> torch.Tensor:
     """Convert list to tensor."""
     if isinstance(data, list):
@@ -165,6 +159,7 @@ def convert_list_to_tensor(data: List[Any]) -> torch.Tensor:
         return data
     else:
         raise ValueError(f"Unsupported data type: {type(data)}")
+
 
 def resize(
     image: np.ndarray,
@@ -243,8 +238,6 @@ class ImageProcessor:
     SAM3 Image Processor for preprocessing images for the SAM3 model.
     This processor handles image resizing, normalization, and format conversion.
     """
-
-    
 
     def __init__(
         self,
@@ -365,7 +358,7 @@ class ImageProcessor:
         }
 
         if return_tensors:
-            data["pixel_values"] =convert_list_to_tensor(data["pixel_values"])
+            data["pixel_values"] = convert_list_to_tensor(data["pixel_values"])
             data["original_sizes"] = data["original_sizes"]
             data["reshaped_input_sizes"] = data["reshaped_input_sizes"]
 
@@ -390,8 +383,6 @@ class Sam3Processor:
     TEXT_ID_FOR_TEXT = 0
     TEXT_ID_FOR_VISUAL = 1
     TEXT_ID_FOR_GEOMETRIC = 2
-
-    
 
     def __init__(self, image_processor=ImageProcessor(), tokenizer=None, **kwargs):
         if image_processor is None:
@@ -443,16 +434,17 @@ class Sam3Processor:
 
         # only image or inference_state can be passed
         if images is None and inference_state is None:
-            raise ValueError("You have to specify images or inference_state.") 
+            raise ValueError("You have to specify images or inference_state.")
 
         # Process images with prompts
         if images is not None:
-            assert inference_state is None, "You cannot specify both images and inference_state."
+            assert (
+                inference_state is None
+            ), "You cannot specify both images and inference_state."
             inputs = self.image_processor.preprocess(
                 images=images, return_tensors=return_tensors, **kwargs
             )
             inference_state = self._init_state(inputs, device=device)
-
 
         return inference_state
 

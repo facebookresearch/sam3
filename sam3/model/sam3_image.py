@@ -14,13 +14,13 @@ from sam3.model.vl_combiner import SAM3VLBackbone
 # TODO: Kalyan, imports to be fixed!
 from sam3.train.data.collator import BatchedDatapoint, FindStage
 
-from .act_ckpt_utils import activation_ckpt_wrapper
+from .act_ckpt_utils import activation_ckpt_wrapper, clone_output_wrapper
 
 from .box_ops import box_cxcywh_to_xyxy
 
 from .geometry_encoders import Prompt
 from .model_misc import inverse_sigmoid, NestedTensor
-from .act_ckpt_utils import clone_output_wrapper
+
 
 def _update_out(out, out_name, out_value, auxiliary=True):
     out[out_name] = out_value[-1] if auxiliary else out_value
@@ -32,12 +32,11 @@ def _update_out(out, out_name, out_value, auxiliary=True):
             aux_output[out_name] = aux_value
 
 
-
-
 class Sam3Image(torch.nn.Module):
     TEXT_ID_FOR_TEXT = 0
     TEXT_ID_FOR_VISUAL = 1
     TEXT_ID_FOR_GEOMETRIC = 2
+
     def __init__(
         self,
         backbone,
@@ -57,7 +56,7 @@ class Sam3Image(torch.nn.Module):
         supervise_joint_box_scores: bool = False,  # only relevant if using presence token/score
         detach_presence_in_joint_score: bool = False,  # only relevant if using presence token/score
         separate_scorer_for_instance: bool = False,
-        num_interactive_steps_val: int = 0, # TODO: Add support back for this.
+        num_interactive_steps_val: int = 0,  # TODO: Add support back for this.
         **kwargs,  # TODO: Kalyan, Remove this!
     ):
         super().__init__()
@@ -493,7 +492,6 @@ class Sam3Image(torch.nn.Module):
                 hs=hs,
             )
 
-       
         # TODO (Nico / Kalyan): Add support back for interactive in evals.
         # matcher is only used during training or for interactive prompts
         # if self.training or self.num_interactive_steps_val > 0:
@@ -1079,7 +1077,6 @@ class Sam3Image(torch.nn.Module):
         pred_matched_object_ids[batch_idx, src_idx] = gt_packed_object_ids[tgt_idx]
         out["matched_object_ids"] = pred_matched_object_ids
 
-
     def compile_model(self):
         """Compile the SAM model with torch.compile for speedup."""
         is_compiled = getattr(self, "_model_is_compiled", False)
@@ -1119,21 +1116,19 @@ class Sam3Image(torch.nn.Module):
         )
         self._model_is_compiled = True
 
-
-
-
     ## Everything below is only used in inference.
     @torch.inference_mode()
     def run_inference(
         self,
         inference_state,
-        
         # instance_prompt=False,
     ):
 
         # 3) run inference on this frame
         instance_prompt = inference_state["instance_prompt"]
-        inference_state["backbone_out"] = self._init_backbone_out_inference(inference_state)
+        inference_state["backbone_out"] = self._init_backbone_out_inference(
+            inference_state
+        )
         new_visual_prompt = inference_state["new_visual_prompt"]
         frame_idx = inference_state["frame_idx"]
         if new_visual_prompt is not None:
@@ -1162,17 +1157,13 @@ class Sam3Image(torch.nn.Module):
             inference_state["visual_prompt_embed"] = visual_prompt_embed
             inference_state["visual_prompt_mask"] = visual_prompt_mask
 
-        
         out = self._run_single_frame_inference(
             inference_state,
             frame_idx,
-            
             is_instance_processing=instance_prompt,
         )
 
         inference_state["model_out"] = out
-        
-
 
     def _init_backbone_out_inference(self, inference_state):
         """
@@ -1211,7 +1202,6 @@ class Sam3Image(torch.nn.Module):
             prev_encoder_out = previous_stages_out[frame_idx].get("prev_encoder_out")
         cur_step = inference_state["per_frame_cur_step"][frame_idx]
 
-
         prev_mask_pred = None
         if (
             inference_state["previous_stages_out"][frame_idx]
@@ -1243,7 +1233,6 @@ class Sam3Image(torch.nn.Module):
 
         return out
 
-    
 
 class Sam3ImageOnVideo(Sam3Image):
     """A wrapper class to run Sam3Image on videos for per-frame detection (no tracking)."""
