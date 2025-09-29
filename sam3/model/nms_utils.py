@@ -5,18 +5,13 @@ import logging
 import numpy as np
 import torch
 
-from sam3 import perflib
 
 try:
-    # Ronghang's generic GPU NMS implementation; install via
-    # pip uninstall -y torch_generic_nms; TORCH_CUDA_ARCH_LIST="8.0 9.0" pip install git+https://github.com/ronghanghu/torch_generic_nms
     from torch_generic_nms import generic_nms
 
     GENERIC_NMS_AVAILABLE = True
 except ImportError:
     GENERIC_NMS_AVAILABLE = False
-
-from sam3.perflib.nms import nms_masks as perf_nms_masks
 
 
 def nms_masks(

@@ -7,7 +7,7 @@ from typing import Dict, Optional
 import torch
 
 from sam3.model.model_misc import SAM3Output
-from sam3.model.sam3_image_on_video_multigpu_utils import nms_masks
+from sam3.model.nms_utils import nms_masks
 
 from sam3.model.vl_combiner import SAM3VLBackbone
 
