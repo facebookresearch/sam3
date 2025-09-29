@@ -41,8 +41,8 @@ from sam3.model.model_misc import NestedTensor
 
 
 # Constants typically from transformers
-IMAGENET_DEFAULT_MEAN = (0.5, 0.5, 0.5)
-IMAGENET_DEFAULT_STD = (0.5, 0.5, 0.5)
+IMAGENET_DEFAULT_MEAN = [0.485, 0.456, 0.406]
+IMAGENET_DEFAULT_STD = [0.229, 0.224, 0.225]
 
 
 class ChannelDimension(Enum):
@@ -408,11 +408,6 @@ class Sam3Processor:
         self,
         images=None,
         inference_state=None,
-        text: Optional[Union[str, List[str]]] = None,
-        input_points: Optional[List[List[List[float]]]] = None,
-        input_labels: Optional[List[List[int]]] = None,
-        input_boxes: Optional[List[List[List[float]]]] = None,
-        box_labels: Optional[List[List[int]]] = None,
         return_tensors: str = "pt",
         instance_prompt: Optional[bool] = False,
         device: Optional[torch.device] = "cuda",
@@ -458,18 +453,6 @@ class Sam3Processor:
             )
             inference_state = self._init_state(inputs, device=device)
 
-        self.add_prompt(
-            inference_state,
-            frame_idx=0,
-            text_str=text,
-            points=input_points,
-            point_labels=input_labels,
-            boxes_xywh=input_boxes,
-            box_labels=box_labels,
-            instance_prompt=instance_prompt,
-        )
-
-        # TODO: Add tokenization here
 
         return inference_state
 
