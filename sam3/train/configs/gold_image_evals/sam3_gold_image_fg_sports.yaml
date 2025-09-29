@@ -1,0 +1,304 @@
+# @package _global_
+defaults:
+  - _self_
+
+# ============================================================================
+# Paths Configuration (Chage this to your own paths)
+# ============================================================================
+paths:
+  checkpoint_path: /fsx-onevision/shoubhikdn/sam3_ckpts/paper_image_only_checkpoint_presence_0.35_completed_model_only.pt
+  experiment_log_dir: /fsx-onevision/shoubhikdn/omnivision_onevision/release_experiments/gold_fg_sports_equipment/
+  coco_gt : /fsx-onevision/shoubhikdn/release/gold_test_set/original/gold_fg_sports_equipment_merged_a_test.json
+  coco_gts :         
+    - /fsx-onevision/shoubhikdn/release/gold_test_set/original/gold_fg_sports_equipment_merged_a_test.json
+    - /fsx-onevision/shoubhikdn/release/gold_test_set/original/gold_fg_sports_equipment_merged_b_test.json
+    - /fsx-onevision/shoubhikdn/release/gold_test_set/original/gold_fg_sports_equipment_merged_c_test.json
+  metaclip_img_path: /fsx-onevision/shared/data/metaclip_merged/
+  bpe_path: /fsx-onevision/chayryali/ve/bpe_simple_vocab_16e6.txt.gz
+
+# ============================================================================
+# Different helper parameters and functions
+# ============================================================================
+scratch:
+
+  use_presence_eval: True
+
+  base_val_transform:
+    - _target_: sam3.train.transforms.basic_for_api.ComposeAPI
+      transforms:
+        ######## transforms for validation (begin) ########
+        - _target_: sam3.train.transforms.basic_for_api.RandomResizeAPI
+          sizes: ${scratch.resolution}  # originally `resolution: 1024`
+          max_size:
+            _target_: sam3.train.transforms.basic.get_random_resize_max_size
+            size: ${scratch.resolution}  # originally `resolution: 1024`
+          square: true
+          consistent_transform: False
+        ######## transforms for validation (end) ########
+        - _target_: sam3.train.transforms.basic_for_api.ToTensorAPI
+        - _target_: sam3.train.transforms.basic_for_api.NormalizeAPI
+          mean: ${scratch.val_norm_mean}
+          std: ${scratch.val_norm_std}
+
+  loss: null
+
+  # Model parameters
+  d_model: 256
+  input_box_embedding_dim: ${add:${scratch.d_model},2}
+
+  # Box processing
+  original_box_postprocessor:
+    _target_: sam3.train.eval.postprocessors.PostProcessAPI
+    soft_token: true
+    focal_loss: true
+    max_dets_per_img: -1  # infinite detections
+    use_original_ids: true
+    use_original_sizes: true
+    use_presence: ${scratch.use_presence_eval}
+
+  box_postprocessor:
+    _target_: sam3.train.eval.postprocessors.PostProcessAPI
+    soft_token: true
+    focal_loss: true
+    max_dets_per_img: -1 #infinite detections
+    use_original_ids: false
+    use_original_sizes: false
+    use_presence: ${scratch.use_presence_eval}
+
+  box_postprocessor_thresholded:
+    _target_: sam3.train.eval.postprocessors.PostProcessAPI
+    soft_token: true
+    focal_loss: true
+    max_dets_per_img: -1 #infinite detections
+    use_original_ids: false
+    use_original_sizes: false
+    detection_threshold: 0.3
+    use_presence: ${scratch.use_presence_eval}
+
+  mask_postprocessor_w_boundary_thresholded:
+    _target_: sam3.train.eval.postprocessors.PostProcessAPI
+    soft_token: true
+    focal_loss: true
+    max_dets_per_img: -1 #infinite detections
+    iou_type: "segm"
+    use_original_ids: false
+    use_original_sizes: true
+    convert_mask_to_rle: True
+    compute_boundaries: True
+    detection_threshold: 0.3
+    use_presence: ${scratch.use_presence_eval}
+
+  # Image processing parameters
+  resolution: 1008
+  max_ann_per_img: 200
+
+  # Normalization parameters
+  train_norm_mean: [0.5, 0.5, 0.5]
+  train_norm_std: [0.5, 0.5, 0.5]
+  val_norm_mean: [0.5, 0.5, 0.5]
+  val_norm_std: [0.5, 0.5, 0.5]
+
+  # Training parameters
+  train_batch_size: 1
+  val_batch_size: 1
+  num_train_workers: 0
+  num_val_workers: 0
+  max_data_epochs: 20
+  target_epoch_size: 1500
+  hybrid_repeats: 1
+  context_length: 2
+  gather_pred_via_filesys: false
+
+  # Learning rate and scheduler parameters
+  lr_scale: 0.1
+  lr_transformer: ${times:8e-4,${scratch.lr_scale}}
+  lr_vision_backbone: ${times:2.5e-4,${scratch.lr_scale}}
+  lr_language_backbone: ${times:5e-5,${scratch.lr_scale}}
+  lrd_vision_backbone: 0.9 # (lower for in-domain adn higher for ood) #TODO: 0.8, 0.9, 1.0
+  wd: 0.1 # TODO: Sweep for 0.0 adn 0.01
+  scheduler_timescale: 20
+  scheduler_warmup: 20
+  scheduler_cooldown: 20
+
+
+# ============================================================================
+# Trainer Configuration
+# ============================================================================
+
+trainer:
+  _target_: sam3.train.trainer.Trainer
+  skip_saving_ckpts: true
+  empty_gpu_mem_cache_after_eval: True
+  skip_first_val: True
+  max_epochs: ${scratch.max_data_epochs}
+  accelerator: cuda
+  seed_value: 123
+  val_epoch_freq: 10
+  mode: val
+
+  distributed:
+    backend: nccl
+    find_unused_parameters: True
+    gradient_as_bucket_view: True
+
+  loss:
+    all:
+      _target_: sam3.train.loss.sam3_loss.DummyLoss
+    default:
+      _target_: sam3.train.loss.sam3_loss.DummyLoss
+
+  data:
+    train: null
+    val:
+      _target_: sam3.train.data.torch_dataset.TorchDataset
+      dataset:
+        _target_: sam3.train.data.sam3_image_dataset.Sam3ImageDataset
+        coco_json_loader:
+          _target_: sam3.train.data.coco_json_loaders.SAM3_EVAL_API_FROM_JSON_NP
+          _partial_: true
+        img_folder: ${paths.metaclip_img_path}
+        ann_file: ${paths.coco_gt}
+        transforms: ${scratch.base_val_transform}
+        max_ann_per_img: 100000
+        multiplier: 1
+        training: false
+
+      shuffle: False
+      batch_size: ${scratch.val_batch_size}
+      num_workers: ${scratch.num_val_workers}
+      pin_memory: False
+      drop_last: False
+      collate_fn:
+        _target_: sam3.train.data.collator.collate_fn_api
+        _partial_: true
+        input_box_embedding_dim: ${scratch.input_box_embedding_dim}
+        repeats: ${scratch.hybrid_repeats}
+        dict_key: gold_fg_sports_equipment_merged_test
+
+  model:
+    _target_: sam3.model_builder.build_sam3_image_model
+    bpe_path: ${paths.bpe_path}
+    device: cpus
+    eval_mode: true
+    enable_segmentation: true # Warning: Enable this if using segmentation.
+    checkpoint_path: ${paths.checkpoint_path}
+    has_presence_token: ${scratch.use_presence_eval}
+
+  meters:
+    val:
+      gold_fg_sports_equipment_merged_test:
+        demo:
+          _target_: sam3.train.eval.demo_eval.DemoEvaluator
+          iou_types:
+            - "bbox"
+          dump_dir: null
+          coco_gt: ${paths.coco_gts}
+          postprocessor: ${scratch.box_postprocessor_thresholded}
+          average_by_rarity: False
+          gather_pred_via_filesys: ${scratch.gather_pred_via_filesys}
+          exhaustive_only: true
+        demo_segm:
+          _target_: sam3.train.eval.demo_eval.DemoEvaluator
+          compute_JnF: True
+          iou_types:
+            - "segm"
+          dump_dir: ${launcher.experiment_log_dir}/dumps/gold_fg_sports_equipment_merged_test/predictions
+          metrics_dump_dir:  ${launcher.experiment_log_dir}/dumps/gold_fg_sports_equipment_merged_test/metrics
+          coco_gt: ${paths.coco_gts}
+          postprocessor: ${scratch.mask_postprocessor_w_boundary_thresholded}
+          average_by_rarity: False
+          gather_pred_via_filesys: ${scratch.gather_pred_via_filesys}
+          exhaustive_only: true
+
+  optim:
+    amp:
+      enabled: True
+      amp_dtype: bfloat16
+
+    optimizer:
+      _target_: torch.optim.AdamW
+
+    gradient_clip:
+      _target_: sam3.train.optim.optimizer.GradientClipper
+      max_norm: 0.1
+      norm_type: 2
+
+    param_group_modifiers:
+      - _target_: sam3.train.optim.optimizer.layer_decay_param_modifier
+        _partial_: True
+        layer_decay_value: ${scratch.lrd_vision_backbone}
+        apply_to: 'backbone.vision_backbone.trunk'
+        overrides:
+          - pattern: '*pos_embed*'
+            value: 1.0
+
+    options:
+      lr:
+        - scheduler:  # transformer and class_embed
+            _target_: sam3.train.optim.schedulers.InverseSquareRootParamScheduler
+            base_lr: ${scratch.lr_transformer}
+            timescale: ${scratch.scheduler_timescale}
+            warmup_steps: ${scratch.scheduler_warmup}
+            cooldown_steps: ${scratch.scheduler_cooldown}
+        - scheduler:
+            _target_: sam3.train.optim.schedulers.InverseSquareRootParamScheduler
+            base_lr: ${scratch.lr_vision_backbone}
+            timescale: ${scratch.scheduler_timescale}
+            warmup_steps: ${scratch.scheduler_warmup}
+            cooldown_steps: ${scratch.scheduler_cooldown}
+          param_names:
+            - 'backbone.vision_backbone.*'
+        - scheduler:
+            _target_: sam3.train.optim.schedulers.InverseSquareRootParamScheduler
+            base_lr: ${scratch.lr_language_backbone}
+            timescale: ${scratch.scheduler_timescale}
+            warmup_steps: ${scratch.scheduler_warmup}
+            cooldown_steps: ${scratch.scheduler_cooldown}
+          param_names:
+            - 'backbone.language_backbone.*'
+
+      weight_decay:
+        - scheduler:
+            _target_: fvcore.common.param_scheduler.ConstantParamScheduler
+            value: ${scratch.wd}
+        - scheduler:
+            _target_: fvcore.common.param_scheduler.ConstantParamScheduler
+            value: 0.0
+          param_names:
+            - '*bias*'
+          module_cls_names: ['torch.nn.LayerNorm']
+
+  checkpoint:
+    save_dir: ${launcher.experiment_log_dir}/checkpoints
+    save_freq: 0  # 0 only last checkpoint is saved.
+
+
+  logging:
+    tensorboard_writer:
+      _target_: sam3.train.utils.logger.make_tensorboard_logger
+      log_dir: ${launcher.experiment_log_dir}/tensorboard
+      flush_secs: 120
+      should_log: True
+    wandb_writer: null
+    log_dir: ${launcher.experiment_log_dir}/logs/
+    log_freq: 10
+
+# ============================================================================
+# Launcher and Submitit Configuration
+# ============================================================================
+
+launcher:
+  num_nodes: 2
+  gpus_per_node: 8
+  experiment_log_dir: ${paths.experiment_log_dir}
+  multiprocessing_context: forkserver
+
+submitit:
+  account: onevision
+  partition: null
+  qos: onevision_high
+  timeout_hour: 72
+  use_cluster: True
+  cpus_per_task: 10
+  port_range: [10000, 65000]
+  constraint: null #"volta32gb"
