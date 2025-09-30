@@ -53,7 +53,7 @@ class Sam2Predictor(nn.Module):
 
     def forward(self, *args, **kwargs):
         raise NotImplementedError(
-            "Use the sam2 predictor APIs instead. Check VideoTrackingWithPromptDemo class for details."
+            "Use the sam2 predictor APIs instead. Check Sam3TrackerPredictor class for details."
         )
 
     def __getattr__(self, name):
@@ -108,9 +108,9 @@ class Sam2Predictor(nn.Module):
 #             hydra_overrides = []
 #         self.per_obj_inference = per_obj_inference
 #         inference_model_class = (
-#             "sam3.model.video_tracking_with_prompt_demo_per_obj_inference.Sam3VideoTrackingWithPromptDemoPerObjInference"  # Note: This class may not be available in sam3
+#             "sam3.model.video_tracking_with_prompt_demo_per_obj_inference.Sam3TrackerPredictorPerObjInference"  # Note: This class may not be available in sam3
 #             if per_obj_inference
-#             else "sam3.model.video_tracking_with_prompt_demo.Sam3VideoTrackingWithPromptDemo"
+#             else "sam3.model.video_tracking_with_prompt_demo.Sam3TrackerPredictor"
 #         )
 #         hydra_overrides = list(hydra_overrides)
 #         hydra_overrides.extend(
@@ -187,7 +187,7 @@ class Sam2Predictor(nn.Module):
 
 #     def forward(self, *args, **kwargs):
 #         raise NotImplementedError(
-#             "Use the sam2 predictor APIs instead. Check VideoTrackingWithPromptDemo class for details."
+#             "Use the sam2 predictor APIs instead. Check Sam3TrackerPredictor class for details."
 #         )
 
 #     def add_output_per_object(self, *args, **kwargs):

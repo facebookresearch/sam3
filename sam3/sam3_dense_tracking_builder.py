@@ -39,7 +39,7 @@ from sam3.model.sam3_demo_dense_tracking_multigpu import Sam3DenseTrackingDemoMu
 from sam3.model.sam3_image import Sam3ImageOnVideoMultiGPU
 from sam3.model.text_encoder_ve import VETextEncoder
 from sam3.model.tokenizer_ve import SimpleTokenizer
-from sam3.model.video_tracking_with_prompt_demo import Sam3VideoTrackingWithPromptDemo
+from sam3.model.video_tracking_with_prompt_demo import Sam3TrackerPredictor
 from sam3.model.vitdet import ViT
 from sam3.model.vl_combiner import SAM3VLBackbone
 from sam3.sam_original.transformer import RoPEAttention
@@ -83,7 +83,7 @@ class Sam2Predictor(nn.Module):
     def forward(self, *args, **kwargs):
         """Forward pass is not implemented - use predictor APIs instead."""
         raise NotImplementedError(
-            "Use the sam2 predictor APIs instead. Check VideoTrackingWithPromptDemo class for details."
+            "Use the sam2 predictor APIs instead. Check Sam3TrackerPredictor class for details."
         )
 
     def __getattr__(self, name):
@@ -207,62 +207,23 @@ def build_sam2_model() -> Sam2Predictor:
     transformer = _create_sam2_transformer()
 
     # Create the main SAM2 model
-    model = Sam3VideoTrackingWithPromptDemo(
+    model = Sam3TrackerPredictor(
         image_size=1008,
         num_maskmem=7,
         backbone=None,
+        backbone_stride=14,
         transformer=transformer,
         maskmem_backbone=maskmem_backbone,
-        # Training/evaluation parameters
-        prob_to_use_pt_input_for_train=0.5,
-        prob_to_use_pt_input_for_eval=0.0,
-        prob_to_use_box_input_for_train=0.5,
-        prob_to_use_box_input_for_eval=0.0,
-        prob_to_sample_from_gt_for_train=0.1,
-        # Frame correction
-        num_frames_to_correct_for_train=2,
-        num_frames_to_correct_for_eval=1,
-        rand_frames_to_correct_for_train=True,
-        add_all_frames_to_correct_as_cond=True,
-        # Conditioning frames
-        num_init_cond_frames_for_train=2,
-        rand_init_cond_frames_for_train=True,
-        num_correction_pt_per_frame=7,
-        # Memory and checkpointing
-        use_act_ckpt_iterative_pt_sampling=True,
-        directly_add_no_mem_embed=True,
-        # Mask encoding
-        apply_sigmoid_to_mask_logits_for_mem_enc=True,
-        sigmoid_scale_for_mem_enc=20.0,
-        sigmoid_bias_for_mem_enc=-10.0,
         # SAM parameters
-        use_mask_input_as_output_without_sam=True,
-        use_high_res_features_in_sam=True,
         multimask_output_in_sam=True,
-        iter_use_prev_mask_pred=True,
         # Evaluation
-        num_init_cond_frames_for_eval=1,
         forward_backbone_per_frame_for_eval=True,
-        iou_prediction_use_sigmoid=True,
-        # Object pointers
-        add_tpos_enc_to_obj_ptrs=True,
         trim_past_non_cond_mem_for_eval=False,
-        use_obj_ptrs_in_encoder=True,
-        pred_obj_scores=True,
-        pred_obj_scores_mlp=True,
-        fixed_no_obj_ptr=True,
         # Multimask
         multimask_output_for_tracking=True,
-        use_multimask_token_for_obj_ptr=True,
         multimask_min_pt_num=0,
         multimask_max_pt_num=1,
-        use_mlp_for_obj_ptr_proj=True,
         # Additional settings
-        prob_to_dropout_spatial_mem=0.0,
-        no_obj_embed_spatial=True,
-        proj_tpos_enc_in_obj_ptrs=True,
-        use_signed_tpos_enc_to_obj_ptrs=True,
-        backbone_stride=14,
         always_start_from_first_ann_frame=False,
         # Mask overlap
         non_overlap_masks_for_mem_enc=False,
@@ -275,8 +236,6 @@ def build_sam2_model() -> Sam2Predictor:
             "dynamic_multimask_stability_delta": 0.05,
             "dynamic_multimask_stability_thresh": 0.98,
         },
-        binarize_mask_from_pts_for_mem_enc=True,
-        only_obj_ptrs_in_the_past_for_eval=True,
         clear_non_cond_mem_around_input=True,
         fill_hole_area=0,
     )
