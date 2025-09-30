@@ -1052,14 +1052,11 @@ class VideoTrackingWithPromptDemo(VideoTrackingWithPrompt):
                 frame_idx=frame_idx,
                 is_init_cond_frame=is_init_cond_frame,
                 current_vision_feats=current_vision_feats,
-                current_vision_masks=current_vision_masks,
                 current_vision_pos_embeds=current_vision_pos_embeds,
                 feat_sizes=feat_sizes,
                 image=image,
                 point_inputs=point_inputs,
                 mask_inputs=mask_inputs,
-                gt_masks=None,
-                frames_to_add_correction_pt=[],
                 output_dict=output_dict,
                 num_frames=inference_state["num_frames"],
                 track_in_reverse=reverse,
@@ -1326,15 +1323,7 @@ class Sam3VideoTrackingWithPromptDemo(VideoTrackingWithPromptDemo):
         offload_state_to_cpu=False,
     ):
         """Initialize a inference state."""
-        # Make sure that sigmoid is used on mask logits (should be True for all our recent models).
-        # Since we rely on large negative values as scores for missing objects, the raw logits
-        # cannot be consumed directly and must be converted into 0~1 range via sigmoid first.
-        if not self.apply_sigmoid_to_mask_logits_for_mem_enc:
-            raise NotImplementedError(
-                "Multi-object tracking requires sigmoid in memory encoder for non-overlapping constraints."
-            )
         inference_state = {}
-        # inference_state["images"] = images
         inference_state["num_frames"] = num_frames
         # whether to offload the video frames to CPU memory
         # turning on this option saves the GPU memory with only a very small overhead

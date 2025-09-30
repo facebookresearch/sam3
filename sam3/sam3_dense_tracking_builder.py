@@ -213,35 +213,16 @@ def build_sam2_model() -> Sam2Predictor:
         backbone=None,
         transformer=transformer,
         maskmem_backbone=maskmem_backbone,
-        # Training/evaluation parameters
-        prob_to_use_pt_input_for_train=0.5,
-        prob_to_use_pt_input_for_eval=0.0,
-        prob_to_use_box_input_for_train=0.5,
-        prob_to_use_box_input_for_eval=0.0,
-        prob_to_sample_from_gt_for_train=0.1,
-        # Frame correction
-        num_frames_to_correct_for_train=2,
-        num_frames_to_correct_for_eval=1,
-        rand_frames_to_correct_for_train=True,
-        add_all_frames_to_correct_as_cond=True,
-        # Conditioning frames
-        num_init_cond_frames_for_train=2,
-        rand_init_cond_frames_for_train=True,
-        num_correction_pt_per_frame=7,
-        # Memory and checkpointing
-        use_act_ckpt_iterative_pt_sampling=True,
+        # Memory
         directly_add_no_mem_embed=True,
         # Mask encoding
-        apply_sigmoid_to_mask_logits_for_mem_enc=True,
         sigmoid_scale_for_mem_enc=20.0,
         sigmoid_bias_for_mem_enc=-10.0,
         # SAM parameters
         use_mask_input_as_output_without_sam=True,
         use_high_res_features_in_sam=True,
         multimask_output_in_sam=True,
-        iter_use_prev_mask_pred=True,
         # Evaluation
-        num_init_cond_frames_for_eval=1,
         forward_backbone_per_frame_for_eval=True,
         iou_prediction_use_sigmoid=True,
         # Object pointers
@@ -258,7 +239,6 @@ def build_sam2_model() -> Sam2Predictor:
         multimask_max_pt_num=1,
         use_mlp_for_obj_ptr_proj=True,
         # Additional settings
-        prob_to_dropout_spatial_mem=0.0,
         no_obj_embed_spatial=True,
         proj_tpos_enc_in_obj_ptrs=True,
         use_signed_tpos_enc_to_obj_ptrs=True,

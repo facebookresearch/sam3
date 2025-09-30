@@ -404,8 +404,7 @@ class Sam3Processor:
         device: Optional[torch.device] = "cuda",
         **kwargs,
     ) -> Dict[str, Any]:
-        """
-        """
+        """ """
 
         # only image or inference_state can be passed
         if images is None and inference_state is None:

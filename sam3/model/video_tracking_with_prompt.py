@@ -43,66 +43,24 @@ class VideoTrackingWithPrompt(torch.nn.Module):
         transformer,
         maskmem_backbone,
         num_maskmem=7,  # default 1 input frame + 6 previous frames as in CAE
-        image_size=512,
-        backbone_stride=16,  # default to 16 as in CAE (truncated Hiera backbone)
-        prob_to_use_pt_input_for_train=0.0,
-        prob_to_use_pt_input_for_eval=0.0,
-        prob_to_use_box_input_for_train=0.0,
-        prob_to_use_box_input_for_eval=0.0,
-        # always_keep_first_frame_mem=True,  # this option is removed (we've always set it to True)
-        apply_sigmoid_to_mask_logits_for_mem_enc=False,
-        sigmoid_scale_for_mem_enc=1.0,  # scale factor for mask sigmoid prob, only effective when `apply_sigmoid_to_mask_logits_for_mem_enc` is True
-        sigmoid_bias_for_mem_enc=0.0,  # bias factor for mask sigmoid prob, only effective when `apply_sigmoid_to_mask_logits_for_mem_enc` is True
+        image_size=1008,
+        backbone_stride=14,  # stride of the image backbone output
+        sigmoid_scale_for_mem_enc=1.0,  # scale factor for mask sigmoid prob
+        sigmoid_bias_for_mem_enc=0.0,  # bias factor for mask sigmoid prob
         # During evaluation, whether to binarize the sigmoid mask logits on interacted frames with clicks, only effective when `apply_sigmoid_to_mask_logits_for_mem_enc` is True
         binarize_mask_from_pts_for_mem_enc=False,
         use_mask_input_as_output_without_sam=False,  # on frames with mask input, whether to directly output the input mask without using a SAM prompt encoder + mask decoder
-        # how many frames for interactive point sampling (only effective when using point inputs per video; the first frame is always used)
-        # - if `num_frames_to_correct` below is True, we randomly sample 1~num_frames_to_correct frames for interactive point sampling
-        # - otherwise we used a fixed number of num_frames_to_correct frames for interactive point sampling
-        # if it is 1, we do interactive point sampling only on the 1st frame
-        # if it is greater than 1, we interactive point sampling in the 1st frame and other randomly selected frames
-        num_frames_to_correct_for_train=1,  # default: only iteratively sample on first frame
-        num_frames_to_correct_for_eval=1,  # default: only iteratively sample on first frame
-        rand_frames_to_correct_for_train=False,
-        rand_frames_to_correct_for_eval=False,
-        # how many frames to use as initial conditioning frames (for both point input and mask input; the first frame is always used as an initial conditioning frame)
-        # - if `rand_init_cond_frames` below is True, we randomly sample 1~num_init_cond_frames initial conditioning frames
-        # - otherwise we sample a fixed number of num_init_cond_frames initial conditioning frames
-        # note: for point input, we sample correction points on all such initial conditioning frames, and we require that `num_frames_to_correct` >= `num_init_cond_frames`;
-        # these are initial conditioning frames because as we track the video, more conditioning frames might be added
-        # when a frame receives correction clicks under point input if `add_all_frames_to_correct_as_cond=True`
-        num_init_cond_frames_for_train=1,  # default: only use the first frame as initial conditioning frame
-        num_init_cond_frames_for_eval=1,  # default: only use the first frame as initial conditioning frame
-        rand_init_cond_frames_for_train=True,  # default: random 1~num_init_cond_frames_for_train cond frames (to be constent w/ previous TA data loader)
-        rand_init_cond_frames_for_eval=False,
         # The maximum number of conditioning frames to participate in the memory attention (-1 means no limit; if there are more conditioning frames than this limit,
         # we only cross-attend to the temporally closest `max_cond_frames_in_attn` conditioning frames in the encoder when tracking each frame). This gives the model
         # a temporal locality when handling a large number of annotated frames (since closer frames should be more important) and also avoids GPU OOM.
         max_cond_frames_in_attn=-1,
         # Whether to always keep the first conditioning frame in case we exceep the maximum number of conditioning frames allowed
         keep_first_cond_frame=False,
-        # if `add_all_frames_to_correct_as_cond` is True, we also append to the conditioning frame list any frame that receives a later correction click
-        # if `add_all_frames_to_correct_as_cond` is False, we conditioning frame list to only use those initial conditioning frames
-        add_all_frames_to_correct_as_cond=False,
-        # how many additional correction points to sample (on each frame selected to be corrected)
-        # note that the first frame receives an initial input click (in addition to any correction clicks)
-        num_correction_pt_per_frame=7,
-        # method for point sampling during evaluation
-        # "uniform" (sample uniformly from error region) or "center" (use the point with the largest distance to error region boundary)
-        # default to "center" to be consistent with evaluation in the SAM paper
-        pt_sampling_for_eval="center",
-        # During training, we optionally allow sampling the correction points from GT regions
-        # instead of the prediction error regions with a small probability. This might allow the
-        # model to overfit less to the error regions in training datasets
-        prob_to_sample_from_gt_for_train=0.0,
         # on the first frame, whether to directly add the no-memory embedding to the image feature
         # (instead of using the transformer encoder)
         directly_add_no_mem_embed=False,
-        use_recurrent_mem=False,  # Whether to use recurrent Memory
-        rnn=None,  # RNN module, relevant only when use_recurrent_mem=True
         # whether to use high-resolution feature maps in the SAM mask decoder
         use_high_res_features_in_sam=False,
-        use_act_ckpt_iterative_pt_sampling=False,
         # whether to output multiple (3) masks for the first click on initial conditioning frames
         multimask_output_in_sam=False,
         # the minimum and maximum number of clicks to use multimask_output_in_sam (only relevant when `multimask_output_in_sam=True`;
@@ -114,13 +72,8 @@ class VideoTrackingWithPrompt(torch.nn.Module):
         # Whether to use multimask tokens for obj ptr; Only relevant when both
         # use_obj_ptrs_in_encoder=True and multimask_output_for_tracking=True
         use_multimask_token_for_obj_ptr: bool = False,
-        # if the last output is multimask during training, whether to select the mask w/ highest IoU to the ground-truth for memory encoder
-        # (instead of the mask with the highest prediction score; this resembles teacher-forcing for multi-mask prediction in tracking)
-        use_best_iou_mask_for_mem_enc=False,
         # whether to use sigmoid to restrict ious prediction to [0-1]
         iou_prediction_use_sigmoid=False,
-        # whether to feed the previously predicted low-res mask logits as a mask prompt into the SAM mask decoder during iterative point sampling
-        iter_use_prev_mask_pred=False,
         # whether to forward image features per frame (as it's being tracked) during evaluation, instead of forwarding image features
         # of all frames at once. This avoids backbone OOM errors on very long videos in evaluation, but could be slightly slower.
         forward_backbone_per_frame_for_eval=False,
@@ -151,17 +104,10 @@ class VideoTrackingWithPrompt(torch.nn.Module):
         # whether to only attend to object pointers in the past (before the current frame) in the encoder during evaluation
         # (only relevant when `use_obj_ptrs_in_encoder=True`; this might avoid pointer information too far in the future to distract the initial tracking)
         only_obj_ptrs_in_the_past_for_eval=False,
-        # during training, we optionally dropout (select only a subset of) spatial memory frames with some probability
-        # (only relevant when `use_obj_ptrs_in_encoder=True`; this might help the model better focus on the object pointers)
-        prob_to_dropout_spatial_mem=0.5,
         # Whether to predict if there is an object in the frame
         pred_obj_scores: bool = False,
         # Whether to use an MLP to predict object scores
         pred_obj_scores_mlp: bool = False,
-        # Only relevant if pred_obj_scores=True; Whether to use gt masks to detect no obj for use
-        # in obj ptr and spatial memory encoding (teacher_force_obj_scores_for_mem=True) during training
-        # or instead use predicted object_scores
-        teacher_force_obj_scores_for_mem: bool = False,
         # Only relevant if pred_obj_scores=True and use_obj_ptrs_in_encoder=True;
         # Whether to have a fixed no obj pointer when there is no object present
         # or to use it as an additive embedding with obj_ptr produced by decoder
@@ -172,11 +118,6 @@ class VideoTrackingWithPrompt(torch.nn.Module):
         use_mlp_for_obj_ptr_proj: bool = False,
         # add no obj embedding to spatial frames
         no_obj_embed_spatial: bool = False,
-        # does not apply to spatial memories (only to obj ptrs), unless unified_tpos_enc=True
-        sincos_tpos_enc=True,
-        # Unified tpos enc settings
-        unified_tpos_enc=False,
-        cond_frame_obj_ptr_embedding=False,
         # extra arguments used to construct the SAM mask decoder; if not None, it should be a dict of kwargs to be passed into `MaskDecoder` class.
         sam_mask_decoder_extra_args=None,
         # whether to compile all the model compoents
@@ -193,7 +134,6 @@ class VideoTrackingWithPrompt(torch.nn.Module):
         self.num_feature_levels = 3 if use_high_res_features_in_sam else 1
         self.use_obj_ptrs_in_encoder = use_obj_ptrs_in_encoder
         self.max_obj_ptrs_in_encoder = max_obj_ptrs_in_encoder
-        self.prob_to_dropout_spatial_mem = prob_to_dropout_spatial_mem
         if use_obj_ptrs_in_encoder:
             # A conv layer to downsample the GT mask prompt to stride 4 (the same stride as
             # low-res SAM mask logits) and to change its scales from 0~1 to SAM logit scale,
@@ -205,8 +145,6 @@ class VideoTrackingWithPrompt(torch.nn.Module):
         self.proj_tpos_enc_in_obj_ptrs = proj_tpos_enc_in_obj_ptrs
         self.use_signed_tpos_enc_to_obj_ptrs = use_signed_tpos_enc_to_obj_ptrs
         self.only_obj_ptrs_in_the_past_for_eval = only_obj_ptrs_in_the_past_for_eval
-
-        self.use_act_ckpt_iterative_pt_sampling = use_act_ckpt_iterative_pt_sampling
 
         # Part 2: encoder-only transformer to fuse current frame's visual features
         # with memories from past frames
@@ -223,22 +161,12 @@ class VideoTrackingWithPrompt(torch.nn.Module):
             # if there is compression of memories along channel dim
             self.mem_dim = self.maskmem_backbone.out_proj.weight.shape[0]
         self.num_maskmem = num_maskmem  # Number of memories accessible
+
         # Temporal encoding of the memories
-        self.unified_tpos_enc = unified_tpos_enc
-        self.sincos_tpos_enc = sincos_tpos_enc
-        if not self.unified_tpos_enc:
-            # tpos specific to spatial memories only
-            # last token actually corresponds to conditioning
-            # frame embedding, indep of temporal position
-            self.maskmem_tpos_enc = torch.nn.Parameter(
-                torch.zeros(num_maskmem, 1, 1, self.mem_dim)
-            )
-            trunc_normal_(self.maskmem_tpos_enc, std=0.02)
-        else:
-            self.cond_frame_spatial_embedding = torch.nn.Parameter(
-                torch.zeros(1, 1, self.mem_dim)
-            )
-            trunc_normal_(self.cond_frame_spatial_embedding, std=0.02)
+        self.maskmem_tpos_enc = torch.nn.Parameter(
+            torch.zeros(num_maskmem, 1, 1, self.mem_dim)
+        )
+        trunc_normal_(self.maskmem_tpos_enc, std=0.02)
 
         # a single token to indicate no memory embedding from previous frames
         self.no_mem_embed = torch.nn.Parameter(torch.zeros(1, 1, self.hidden_dim))
@@ -246,15 +174,11 @@ class VideoTrackingWithPrompt(torch.nn.Module):
         trunc_normal_(self.no_mem_embed, std=0.02)
         trunc_normal_(self.no_mem_pos_enc, std=0.02)
         self.directly_add_no_mem_embed = directly_add_no_mem_embed
-        # Whether to apply sigmoid to the output raw mask logits (to turn them from
+        # Apply sigmoid to the output raw mask logits (to turn them from
         # range (-inf, +inf) to range (0, 1)) before feeding them into the memory encoder
-        self.apply_sigmoid_to_mask_logits_for_mem_enc = (
-            apply_sigmoid_to_mask_logits_for_mem_enc
-        )
-        if apply_sigmoid_to_mask_logits_for_mem_enc:
-            self.sigmoid_scale_for_mem_enc = sigmoid_scale_for_mem_enc
-            self.sigmoid_bias_for_mem_enc = sigmoid_bias_for_mem_enc
-            self.binarize_mask_from_pts_for_mem_enc = binarize_mask_from_pts_for_mem_enc
+        self.sigmoid_scale_for_mem_enc = sigmoid_scale_for_mem_enc
+        self.sigmoid_bias_for_mem_enc = sigmoid_bias_for_mem_enc
+        self.binarize_mask_from_pts_for_mem_enc = binarize_mask_from_pts_for_mem_enc
         self.non_overlap_masks_for_mem_enc = non_overlap_masks_for_mem_enc
         self.memory_temporal_stride_for_eval = memory_temporal_stride_for_eval
         # On frames with mask input, whether to directly output the input mask without
@@ -265,16 +189,8 @@ class VideoTrackingWithPrompt(torch.nn.Module):
         self.multimask_max_pt_num = multimask_max_pt_num
         self.multimask_output_for_tracking = multimask_output_for_tracking
         self.use_multimask_token_for_obj_ptr = use_multimask_token_for_obj_ptr
-        self.use_best_iou_mask_for_mem_enc = use_best_iou_mask_for_mem_enc
         self.iou_prediction_use_sigmoid = iou_prediction_use_sigmoid
-        if iter_use_prev_mask_pred:
-            # In this case, we are feeding the previously predicted SAM mask logits
-            # as mask prompt into the SAM mask decoder, which has a different format
-            # and magnitude from GT mask input in VOS. Therefore in this case, the GT
-            # mask input must be encoded directly (not through the SAM mask decoder).
-            if min(prob_to_use_pt_input_for_train, prob_to_use_pt_input_for_eval) < 1:
-                assert use_mask_input_as_output_without_sam
-        self.iter_use_prev_mask_pred = iter_use_prev_mask_pred
+
         # Part 4: SAM-style prompt encoder (for both mask and point inputs)
         # and SAM-style mask decoder for the final mask output
         self.image_size = image_size
@@ -286,33 +202,18 @@ class VideoTrackingWithPrompt(torch.nn.Module):
         self.input_mask_size = self.low_res_mask_size * 4
         self.forward_backbone_per_frame_for_eval = forward_backbone_per_frame_for_eval
         self.offload_output_to_cpu_for_eval = offload_output_to_cpu_for_eval
-        if trim_past_non_cond_mem_for_eval:
-            assert (
-                num_frames_to_correct_for_eval <= 1
-            ), "trim_past_non_cond_mem_for_eval=True requires that only the first frame receives prompts"
         self.trim_past_non_cond_mem_for_eval = trim_past_non_cond_mem_for_eval
         self.sam_mask_decoder_extra_args = sam_mask_decoder_extra_args
         self.pred_obj_scores = pred_obj_scores
         self.pred_obj_scores_mlp = pred_obj_scores_mlp
         self.fixed_no_obj_ptr = fixed_no_obj_ptr
         self.soft_no_obj_ptr = soft_no_obj_ptr
-        self.teacher_force_obj_scores_for_mem = teacher_force_obj_scores_for_mem
         if self.fixed_no_obj_ptr:
             assert self.pred_obj_scores
             assert self.use_obj_ptrs_in_encoder
-        if self.teacher_force_obj_scores_for_mem:
-            assert self.pred_obj_scores
         if self.pred_obj_scores and self.use_obj_ptrs_in_encoder:
             self.no_obj_ptr = torch.nn.Parameter(torch.zeros(1, self.hidden_dim))
             trunc_normal_(self.no_obj_ptr, std=0.02)
-
-        if cond_frame_obj_ptr_embedding:
-            assert self.use_obj_ptrs_in_encoder
-            self.cond_frame_obj_ptr_embedding = torch.nn.Parameter(
-                torch.zeros(1, 1, self.hidden_dim)
-            )
-            trunc_normal_(self.cond_frame_obj_ptr_embedding, std=0.02)
-
         self.use_mlp_for_obj_ptr_proj = use_mlp_for_obj_ptr_proj
         self.no_obj_embed_spatial = None
         if no_obj_embed_spatial:
@@ -320,40 +221,8 @@ class VideoTrackingWithPrompt(torch.nn.Module):
             trunc_normal_(self.no_obj_embed_spatial, std=0.02)
 
         self._build_sam_heads()
-
-        # Point sampler and conditioning frames
-        self.prob_to_use_pt_input_for_train = prob_to_use_pt_input_for_train
-        self.prob_to_use_box_input_for_train = prob_to_use_box_input_for_train
-        self.prob_to_use_pt_input_for_eval = prob_to_use_pt_input_for_eval
-        self.prob_to_use_box_input_for_eval = prob_to_use_box_input_for_eval
-        if prob_to_use_pt_input_for_train > 0 or prob_to_use_pt_input_for_eval > 0:
-            logging.info("Using points (sampled from masks) as inputs")
-            assert num_frames_to_correct_for_train >= num_init_cond_frames_for_train
-            assert num_frames_to_correct_for_eval >= num_init_cond_frames_for_eval
-        self.num_frames_to_correct_for_train = num_frames_to_correct_for_train
-        self.num_frames_to_correct_for_eval = num_frames_to_correct_for_eval
-        self.rand_frames_to_correct_for_train = rand_frames_to_correct_for_train
-        self.rand_frames_to_correct_for_eval = rand_frames_to_correct_for_eval
-        # Initial multi-conditioning frames
-        self.num_init_cond_frames_for_train = num_init_cond_frames_for_train
-        self.num_init_cond_frames_for_eval = num_init_cond_frames_for_eval
-        self.rand_init_cond_frames_for_train = rand_init_cond_frames_for_train
-        self.rand_init_cond_frames_for_eval = rand_init_cond_frames_for_eval
         self.max_cond_frames_in_attn = max_cond_frames_in_attn
         self.keep_first_cond_frame = keep_first_cond_frame
-        self.add_all_frames_to_correct_as_cond = add_all_frames_to_correct_as_cond
-        self.num_correction_pt_per_frame = num_correction_pt_per_frame
-        self.pt_sampling_for_eval = pt_sampling_for_eval
-        self.prob_to_sample_from_gt_for_train = prob_to_sample_from_gt_for_train
-        # A random number generator with a fixed initial seed across GPUs
-        self.rng = np.random.default_rng(seed=42)
-
-        # Memory
-        self.use_recurrent_mem = use_recurrent_mem
-        if self.use_recurrent_mem:
-            assert rnn is not None, "rnn cannot be None when recurrent_mem is enabled"
-            logging.info("Using Recurrent Memory")
-            self.rnn = rnn  # Expected to accept two inputs (input, recurrent_state)
 
         # Use frame filtering according to SAM2Long
         self.use_memory_selection = use_memory_selection
@@ -362,6 +231,10 @@ class VideoTrackingWithPrompt(torch.nn.Module):
         self.compile_all_components = compile_all_components
         if self.compile_all_components:
             self._compile_all_components()
+
+    @property
+    def device(self):
+        return next(self.parameters()).device
 
     def _get_tpos_enc(self, rel_pos_list, device, max_abs_pos=None, dummy=False):
         if dummy:
@@ -372,13 +245,8 @@ class VideoTrackingWithPrompt(torch.nn.Module):
             torch.tensor(rel_pos_list).pin_memory().to(device=device, non_blocking=True)
             / t_diff_max
         )
-        if self.sincos_tpos_enc:
-            tpos_dim = (
-                self.hidden_dim if self.proj_tpos_enc_in_obj_ptrs else self.mem_dim
-            )
-            pos_enc = get_1d_sine_pe(pos_enc, dim=tpos_dim)
-        else:
-            raise NotImplementedError
+        tpos_dim = self.hidden_dim if self.proj_tpos_enc_in_obj_ptrs else self.mem_dim
+        pos_enc = get_1d_sine_pe(pos_enc, dim=tpos_dim)
         pos_enc = self.obj_ptr_tpos_proj(pos_enc)
 
         return pos_enc
@@ -667,17 +535,10 @@ class VideoTrackingWithPrompt(torch.nn.Module):
         )
 
     def forward(self, input: BatchedDatapoint, is_inference=False):
-        if self.training or not self.forward_backbone_per_frame_for_eval:
-            # precompute image features on all frames before tracking
-            backbone_out = self.forward_image(input.img_batch)
-        else:
-            # defer image feature computation on a frame until it's being tracked
-            backbone_out = {"backbone_fpn": None, "vision_pos_enc": None}
-        backbone_out = self.prepare_prompt_inputs(backbone_out, input)
-        previous_stages_out = self.forward_tracking(backbone_out, input)
-
-        # "None" for get_queries to be compatible with the trainer
-        return previous_stages_out, None
+        raise NotImplementedError(
+            "Please use the corresponding methods in SAM3VideoPredictor for inference or SAM2Train for training/fine-tuning"
+            "See examples/sam3_dense_video_tracking.ipynb for an inference example."
+        )
 
     def forward_image(self, img_batch):
         """Get the image feature on the input batch."""
@@ -699,124 +560,6 @@ class VideoTrackingWithPrompt(torch.nn.Module):
             backbone_out["vision_pos_enc"][i] = self._maybe_clone(
                 backbone_out["vision_pos_enc"][i]
             )
-        return backbone_out
-
-    def prepare_prompt_inputs(self, backbone_out, input, start_frame_idx=0):
-        """
-        Prepare input mask, point or box prompts. Optionally, we allow tracking from
-        a custom `start_frame_idx` to the end of the video (for evaluation purposes).
-        """
-        # Load the ground-truth masks on all frames (so that we can later
-        # sample correction points from them)
-        gt_masks_per_frame = {
-            stage_id: targets.segments.unsqueeze(1)  # [B, 1, H_im, W_im]
-            for stage_id, targets in enumerate(input.find_targets)
-        }
-        backbone_out["gt_masks_per_frame"] = gt_masks_per_frame
-        num_frames = len(input.find_targets)
-        backbone_out["num_frames"] = num_frames
-
-        # Randomly decide whether to use point inputs or mask inputs
-        if self.training:
-            prob_to_use_pt_input = self.prob_to_use_pt_input_for_train
-            prob_to_use_box_input = self.prob_to_use_box_input_for_train
-            num_frames_to_correct = self.num_frames_to_correct_for_train
-            rand_frames_to_correct = self.rand_frames_to_correct_for_train
-            num_init_cond_frames = self.num_init_cond_frames_for_train
-            rand_init_cond_frames = self.rand_init_cond_frames_for_train
-        else:
-            prob_to_use_pt_input = self.prob_to_use_pt_input_for_eval
-            prob_to_use_box_input = self.prob_to_use_box_input_for_eval
-            num_frames_to_correct = self.num_frames_to_correct_for_eval
-            rand_frames_to_correct = self.rand_frames_to_correct_for_eval
-            num_init_cond_frames = self.num_init_cond_frames_for_eval
-            rand_init_cond_frames = self.rand_init_cond_frames_for_eval
-        if num_frames == 1:
-            # here we handle a special case for mixing video + SAM on image training,
-            # where we force using point input for the SAM task on static images
-            prob_to_use_pt_input = 1.0
-            num_frames_to_correct = 1
-            num_init_cond_frames = 1
-        assert num_init_cond_frames >= 1
-        # (here `self.rng.random()` returns value in range 0.0 <= X < 1.0)
-        use_pt_input = self.rng.random() < prob_to_use_pt_input
-        if rand_init_cond_frames and num_init_cond_frames > 1:
-            # randomly select 1 to `num_init_cond_frames` frames as initial conditioning frames
-            num_init_cond_frames = self.rng.integers(
-                1, num_init_cond_frames, endpoint=True
-            )
-        if (
-            use_pt_input
-            and rand_frames_to_correct
-            and num_frames_to_correct > num_init_cond_frames
-        ):
-            # randomly select `num_init_cond_frames` to `num_frames_to_correct` frames to sample
-            # correction clicks (only for the case of point input)
-            num_frames_to_correct = self.rng.integers(
-                num_init_cond_frames, num_frames_to_correct, endpoint=True
-            )
-        backbone_out["use_pt_input"] = use_pt_input
-
-        # Sample initial conditioning frames
-        if num_init_cond_frames == 1:
-            init_cond_frames = [start_frame_idx]  # starting frame
-        else:
-            # starting frame + randomly selected remaining frames (without replacement)
-            init_cond_frames = [start_frame_idx] + self.rng.choice(
-                range(start_frame_idx + 1, num_frames),
-                num_init_cond_frames - 1,
-                replace=False,
-            ).tolist()
-        backbone_out["init_cond_frames"] = init_cond_frames
-        backbone_out["frames_not_in_init_cond"] = [
-            t for t in range(start_frame_idx, num_frames) if t not in init_cond_frames
-        ]
-        # Prepare mask or point inputs on initial conditioning frames
-        backbone_out["mask_inputs_per_frame"] = {}  # {frame_idx: <input_masks>}
-        backbone_out["point_inputs_per_frame"] = {}  # {frame_idx: <input_points>}
-        for t in init_cond_frames:
-            if not use_pt_input:
-                backbone_out["mask_inputs_per_frame"][t] = gt_masks_per_frame[t]
-            else:
-                # During training # P(box) = prob_to_use_pt_input * prob_to_use_box_input
-                use_box_input = self.rng.random() < prob_to_use_box_input
-                if use_box_input:
-                    points, labels = sample_box_points(
-                        gt_masks_per_frame[t],
-                    )
-                else:
-                    # (here we only sample **one initial point** on initial conditioning frames from the
-                    # ground-truth mask; we may sample more correction points on the fly)
-                    points, labels = get_next_point(
-                        gt_masks=gt_masks_per_frame[t],
-                        pred_masks=None,
-                        method=(
-                            "uniform" if self.training else self.pt_sampling_for_eval
-                        ),
-                    )
-
-                point_inputs = {"point_coords": points, "point_labels": labels}
-                backbone_out["point_inputs_per_frame"][t] = point_inputs
-
-        # Sample frames where we will add correction clicks on the fly
-        # based on the error between prediction and ground-truth masks
-        if not use_pt_input:
-            # no correction points will be sampled when using mask inputs
-            frames_to_add_correction_pt = []
-        elif num_frames_to_correct == num_init_cond_frames:
-            frames_to_add_correction_pt = init_cond_frames
-        else:
-            assert num_frames_to_correct > num_init_cond_frames
-            # initial cond frame + randomly selected remaining frames (without replacement)
-            extra_num = num_frames_to_correct - num_init_cond_frames
-            frames_to_add_correction_pt = (
-                init_cond_frames
-                + self.rng.choice(
-                    backbone_out["frames_not_in_init_cond"], extra_num, replace=False
-                ).tolist()
-            )
-        backbone_out["frames_to_add_correction_pt"] = frames_to_add_correction_pt
-
         return backbone_out
 
     def _prepare_backbone_features(self, backbone_out):
@@ -925,7 +668,6 @@ class VideoTrackingWithPrompt(torch.nn.Module):
         frame_idx,
         is_init_cond_frame,
         current_vision_feats,
-        current_vision_masks,
         current_vision_pos_embeds,
         feat_sizes,
         output_dict,
@@ -1036,24 +778,10 @@ class VideoTrackingWithPrompt(torch.nn.Module):
                     maskmem_enc = maskmem_enc + self.cond_frame_spatial_embedding
 
                 # Temporal positional encoding
-                max_abs_pos = None
-                if not self.unified_tpos_enc:
-                    # cond_frame NOT temporally encoded in this setting
-                    # and last of the maskmem_tpos_enc is actually an
-                    # indicator for being a cond_frame
-                    t = t_pos if not is_selected_cond_frame else 0
-                    maskmem_enc = (
-                        maskmem_enc + self.maskmem_tpos_enc[self.num_maskmem - t - 1]
-                    )
-                else:
-                    max_abs_pos = max(
-                        self.num_maskmem,
-                        min(num_frames, self.max_obj_ptrs_in_encoder),
-                    )
-                    maskmem_enc = maskmem_enc + self._get_tpos_enc(
-                        rel_pos_list=[t_pos], max_abs_pos=max_abs_pos, device=device
-                    ).unsqueeze(0)
-
+                t = t_pos if not is_selected_cond_frame else 0
+                maskmem_enc = (
+                    maskmem_enc + self.maskmem_tpos_enc[self.num_maskmem - t - 1]
+                )
                 to_cat_prompt_pos_embed.append(maskmem_enc)
 
             # Construct the list of past object pointers
@@ -1138,7 +866,7 @@ class VideoTrackingWithPrompt(torch.nn.Module):
                     if self.add_tpos_enc_to_obj_ptrs:
                         obj_pos = self._get_tpos_enc(
                             pos_list,
-                            max_abs_pos=max_abs_pos or max_obj_ptrs_in_encoder,
+                            max_abs_pos=max_obj_ptrs_in_encoder,
                             device=device,
                         )
                     else:
@@ -1183,7 +911,7 @@ class VideoTrackingWithPrompt(torch.nn.Module):
         ):
             encoder_out = self.transformer.encoder(
                 src=current_vision_feats,
-                src_key_padding_mask=current_vision_masks,
+                src_key_padding_mask=[None],
                 src_pos=current_vision_pos_embeds,
                 prompt=prompt,
                 prompt_pos=prompt_pos_embed,
@@ -1219,21 +947,19 @@ class VideoTrackingWithPrompt(torch.nn.Module):
             pred_masks_high_res = self._apply_non_overlapping_constraints(
                 pred_masks_high_res
             )
-        if self.apply_sigmoid_to_mask_logits_for_mem_enc:
-            # scale the raw mask logits with a temperature before applying sigmoid
-            binarize = self.binarize_mask_from_pts_for_mem_enc and is_mask_from_pts
-            if binarize and not self.training:
-                mask_for_mem = (pred_masks_high_res > 0).float()
-            else:
-                # apply sigmoid on the raw mask logits to turn them into range (0, 1)
-                mask_for_mem = torch.sigmoid(pred_masks_high_res)
-            # apply scale and bias terms to the sigmoid probabilities
-            if self.sigmoid_scale_for_mem_enc != 1.0:
-                mask_for_mem = mask_for_mem * self.sigmoid_scale_for_mem_enc
-            if self.sigmoid_bias_for_mem_enc != 0.0:
-                mask_for_mem = mask_for_mem + self.sigmoid_bias_for_mem_enc
+        # scale the raw mask logits with a temperature before applying sigmoid
+        binarize = self.binarize_mask_from_pts_for_mem_enc and is_mask_from_pts
+        if binarize and not self.training:
+            mask_for_mem = (pred_masks_high_res > 0).float()
         else:
-            mask_for_mem = pred_masks_high_res
+            # apply sigmoid on the raw mask logits to turn them into range (0, 1)
+            mask_for_mem = torch.sigmoid(pred_masks_high_res)
+        # apply scale and bias terms to the sigmoid probabilities
+        if self.sigmoid_scale_for_mem_enc != 1.0:
+            mask_for_mem = mask_for_mem * self.sigmoid_scale_for_mem_enc
+        if self.sigmoid_bias_for_mem_enc != 0.0:
+            mask_for_mem = mask_for_mem + self.sigmoid_bias_for_mem_enc
+
         with torch.profiler.record_function("VideoTrackingWithPrompt.maskmem_backbone"):
             if isinstance(self.maskmem_backbone, SimpleMaskEncoder):
                 pix_feat = pix_feat.view_as(pix_feat)
@@ -1254,23 +980,6 @@ class VideoTrackingWithPrompt(torch.nn.Module):
             ) * self.no_obj_embed_spatial[..., None, None].expand(
                 *maskmem_features.shape
             )
-
-        # Recurrence
-        if self.use_recurrent_mem:
-            if output_dict is None:
-                logging.warning(
-                    "Recurrent memory is enabled but output_dict is not passed to the model. This is not the typical behavior and will disable recurrent memory, make sure that this is intended."
-                )
-            else:
-                ht_1 = output_dict.get("prev_state", None)
-                if is_init_cond_frame or ht_1 is None:
-                    # Set ht_1 = 0 for init conditioning frames
-                    ht_1 = self.rnn.init_state(batch_size=B)
-                out, ht = self.rnn(maskmem_out["vision_features"], ht_1)
-                maskmem_features = out
-                # Only update hidden state with non-cond frames or first init cond frame
-                if not is_init_cond_frame or "prev_state" not in output_dict:
-                    output_dict["prev_state"] = ht
 
         return maskmem_features, maskmem_pos_enc
 
@@ -1367,14 +1076,11 @@ class VideoTrackingWithPrompt(torch.nn.Module):
         frame_idx,
         is_init_cond_frame,
         current_vision_feats,
-        current_vision_masks,
         current_vision_pos_embeds,
         feat_sizes,
         image,
         point_inputs,
         mask_inputs,
-        gt_masks,
-        frames_to_add_correction_pt,
         output_dict,
         num_frames,
         track_in_reverse=False,  # tracking in reverse time order (for demo usage)
@@ -1407,21 +1113,17 @@ class VideoTrackingWithPrompt(torch.nn.Module):
             )
         else:
             # fused the visual feature with previous memory features in the memory bank
-            with torch.profiler.record_function(
-                "VideoTrackingWithPrompt._prepare_memory_conditioned_features"
-            ):
-                pix_feat_with_mem = self._prepare_memory_conditioned_features(
-                    frame_idx=frame_idx,
-                    is_init_cond_frame=is_init_cond_frame,
-                    current_vision_feats=current_vision_feats[-1:],
-                    current_vision_masks=current_vision_masks[-1:],
-                    current_vision_pos_embeds=current_vision_pos_embeds[-1:],
-                    feat_sizes=feat_sizes[-1:],
-                    output_dict=output_dict,
-                    num_frames=num_frames,
-                    track_in_reverse=track_in_reverse,
-                    use_prev_mem_frame=use_prev_mem_frame,
-                )
+            pix_feat_with_mem = self._prepare_memory_conditioned_features(
+                frame_idx=frame_idx,
+                is_init_cond_frame=is_init_cond_frame,
+                current_vision_feats=current_vision_feats[-1:],
+                current_vision_pos_embeds=current_vision_pos_embeds[-1:],
+                feat_sizes=feat_sizes[-1:],
+                output_dict=output_dict,
+                num_frames=num_frames,
+                track_in_reverse=track_in_reverse,
+                use_prev_mem_frame=use_prev_mem_frame,
+            )
             # apply SAM-style segmentation head
             # here we might feed previously predicted low-res SAM mask logits into the SAM mask decoder,
             # e.g. in demo where such logits come from earlier interaction instead of correction sampling
@@ -1432,19 +1134,15 @@ class VideoTrackingWithPrompt(torch.nn.Module):
                 assert point_inputs is not None and mask_inputs is None
                 mask_inputs = prev_sam_mask_logits
             multimask_output = self._use_multimask(is_init_cond_frame, point_inputs)
-            with torch.profiler.record_function(
-                "VideoTrackingWithPrompt._forward_sam_heads1"
-            ):
-                sam_outputs = self._forward_sam_heads(
-                    backbone_features=pix_feat_with_mem,
-                    point_inputs=point_inputs,
-                    mask_inputs=mask_inputs,
-                    high_res_features=high_res_features,
-                    multimask_output=multimask_output,
-                    gt_masks=gt_masks,
-                )
+            sam_outputs = self._forward_sam_heads(
+                backbone_features=pix_feat_with_mem,
+                point_inputs=point_inputs,
+                mask_inputs=mask_inputs,
+                high_res_features=high_res_features,
+                multimask_output=multimask_output,
+            )
         (
-            low_res_multimasks,
+            _,
             high_res_multimasks,
             ious,
             low_res_masks,
@@ -1452,101 +1150,6 @@ class VideoTrackingWithPrompt(torch.nn.Module):
             obj_ptr,
             object_score_logits,
         ) = sam_outputs
-        current_out["multistep_pred_masks"] = low_res_masks
-        current_out["multistep_pred_masks_high_res"] = high_res_masks
-        current_out["multistep_pred_multimasks"] = [low_res_multimasks]
-        current_out["multistep_pred_multimasks_high_res"] = [high_res_multimasks]
-        current_out["multistep_pred_ious"] = [ious]
-        current_out["multistep_point_inputs"] = [point_inputs]
-        current_out["multistep_object_score_logits"] = [object_score_logits]
-
-        # Optionally, sample correction points iteratively to correct the mask
-        if frame_idx in frames_to_add_correction_pt:
-            assert gt_masks is not None
-            all_pred_masks = [low_res_masks]
-            all_pred_high_res_masks = [high_res_masks]
-            all_pred_multimasks = [low_res_multimasks]
-            all_pred_high_res_multimasks = [high_res_multimasks]
-            all_pred_ious = [ious]
-            all_point_inputs = [point_inputs]
-            all_object_score_logits = [object_score_logits]
-            for _ in range(self.num_correction_pt_per_frame):
-                # sample a new point from the error between prediction and ground-truth
-                # (with a small probability, directly sample from GT masks instead of errors)
-                if self.training and self.prob_to_sample_from_gt_for_train > 0:
-                    sample_from_gt = (
-                        self.rng.random() < self.prob_to_sample_from_gt_for_train
-                    )
-                else:
-                    sample_from_gt = False
-                # if `pred_for_new_pt` is None, only GT masks will be used for point sampling
-                pred_for_new_pt = None if sample_from_gt else (high_res_masks > 0)
-                new_points, new_labels = get_next_point(
-                    gt_masks=gt_masks,
-                    pred_masks=pred_for_new_pt,
-                    method="uniform" if self.training else self.pt_sampling_for_eval,
-                )
-                point_inputs = concat_points(point_inputs, new_points, new_labels)
-                if self.iter_use_prev_mask_pred:
-                    # Feed the mask logits of the previous SAM outputs in the next SAM decoder step.
-                    # For tracking, this means that when the user adds a correction click, we also feed
-                    # the tracking output mask logits along with the click as input to the SAM decoder.
-                    mask_inputs = low_res_masks
-                multimask_output = self._use_multimask(is_init_cond_frame, point_inputs)
-                with torch.profiler.record_function(
-                    "VideoTrackingWithPrompt._forward_sam_heads2"
-                ):
-                    if self.use_act_ckpt_iterative_pt_sampling and not multimask_output:
-                        sam_outputs = torch.utils.checkpoint.checkpoint(
-                            self._forward_sam_heads,
-                            backbone_features=pix_feat_with_mem,
-                            point_inputs=point_inputs,
-                            mask_inputs=mask_inputs,
-                            high_res_features=high_res_features,
-                            multimask_output=multimask_output,
-                            gt_masks=gt_masks,
-                            use_reentrant=False,
-                        )
-                    else:
-                        sam_outputs = self._forward_sam_heads(
-                            backbone_features=pix_feat_with_mem,
-                            point_inputs=point_inputs,
-                            mask_inputs=mask_inputs,
-                            high_res_features=high_res_features,
-                            multimask_output=multimask_output,
-                            gt_masks=gt_masks,
-                        )
-                (
-                    low_res_multimasks,
-                    high_res_multimasks,
-                    ious,
-                    low_res_masks,
-                    high_res_masks,
-                    obj_ptr,
-                    object_score_logits,
-                ) = sam_outputs
-                all_pred_masks.append(low_res_masks)
-                all_pred_high_res_masks.append(high_res_masks)
-                all_pred_multimasks.append(low_res_multimasks)
-                all_pred_high_res_multimasks.append(high_res_multimasks)
-                all_pred_ious.append(ious)
-                all_point_inputs.append(point_inputs)
-                all_object_score_logits.append(object_score_logits)
-
-            # Concatenate the masks along channel (to compute losses on all of them,
-            # using `onevision.losses.loss_fns.MultiStepIteractiveMasks`)
-            current_out["multistep_pred_masks"] = torch.cat(all_pred_masks, dim=1)
-            current_out["multistep_pred_masks_high_res"] = torch.cat(
-                all_pred_high_res_masks, dim=1
-            )
-            current_out["multistep_pred_multimasks"] = all_pred_multimasks
-            current_out["multistep_pred_multimasks_high_res"] = (
-                all_pred_high_res_multimasks
-            )
-            current_out["multistep_pred_ious"] = all_pred_ious
-            current_out["multistep_point_inputs"] = all_point_inputs
-            current_out["multistep_object_score_logits"] = all_object_score_logits
-
         # Use the final prediction (after all correction steps for output and eval)
         current_out["pred_masks"] = low_res_masks
         current_out["pred_masks_high_res"] = high_res_masks
@@ -1569,24 +1172,16 @@ class VideoTrackingWithPrompt(torch.nn.Module):
         # images, in which case we'll just skip memory encoder to save compute).
         if run_mem_encoder and self.num_maskmem > 0:
             high_res_masks_for_mem_enc = high_res_masks
-            # Optionally, use the best loss mask from the multimasks for memory encoding
-            if self.training and self.use_best_iou_mask_for_mem_enc:
-                high_res_masks_for_mem_enc = get_best_gt_match_from_multimasks(
-                    high_res_multimasks, gt_masks, pred_scores=ious
-                )
-            with torch.profiler.record_function(
-                "VideoTrackingWithPrompt._encode_new_memory"
-            ):
-                maskmem_features, maskmem_pos_enc = self._encode_new_memory(
-                    image=image,
-                    current_vision_feats=current_vision_feats,
-                    feat_sizes=feat_sizes,
-                    pred_masks_high_res=high_res_masks_for_mem_enc,
-                    object_score_logits=object_score_logits,
-                    is_mask_from_pts=(point_inputs is not None),
-                    output_dict=output_dict,
-                    is_init_cond_frame=is_init_cond_frame,
-                )
+            maskmem_features, maskmem_pos_enc = self._encode_new_memory(
+                image=image,
+                current_vision_feats=current_vision_feats,
+                feat_sizes=feat_sizes,
+                pred_masks_high_res=high_res_masks_for_mem_enc,
+                object_score_logits=object_score_logits,
+                is_mask_from_pts=(point_inputs is not None),
+                output_dict=output_dict,
+                is_init_cond_frame=is_init_cond_frame,
+            )
             current_out["maskmem_features"] = maskmem_features
             current_out["maskmem_pos_enc"] = maskmem_pos_enc
         else:
@@ -1636,14 +1231,6 @@ class VideoTrackingWithPrompt(torch.nn.Module):
                 output_dict["non_cond_frame_outputs"][past_frame_idx] = trimmed_past_out
 
         return current_out
-
-    def back_convert(self, targets):
-        """To be compatible with SetCriterionAPI losses (mask loss only)."""
-        batched_targets = {}
-        batched_targets["num_boxes"] = targets.num_boxes
-        batched_targets["masks"] = targets.segments
-        batched_targets["is_valid_mask"] = targets.is_valid_segment
-        return batched_targets
 
     def _use_multimask(self, is_init_cond_frame, point_inputs):
         """Whether to use multimask output in the SAM head."""
