@@ -1,28 +1,17 @@
 # Copyright (c) Meta, Inc. and its affiliates. All Rights Reserved
 
 import logging
-import os
-import sys
 
-import numpy as np
 import torch
-import torch.distributed
 import torch.nn.functional as F
 
 from timm.models.layers import trunc_normal_
-
-# Add sam3 to path
-# sys.path.append(os.path.expanduser('~/sam3'))
-
 
 from sam3.model.memory import SimpleMaskEncoder
 from sam3.model.model_misc import NestedTensor
 
 from sam3.model.video_tracking_with_prompt_utils import (
     get_1d_sine_pe,
-    get_best_gt_match_from_multimasks,
-    get_next_point,
-    sample_box_points,
     select_closest_cond_frames,
 )
 
@@ -45,22 +34,12 @@ class VideoTrackingWithPrompt(torch.nn.Module):
         num_maskmem=7,  # default 1 input frame + 6 previous frames as in CAE
         image_size=1008,
         backbone_stride=14,  # stride of the image backbone output
-        sigmoid_scale_for_mem_enc=1.0,  # scale factor for mask sigmoid prob
-        sigmoid_bias_for_mem_enc=0.0,  # bias factor for mask sigmoid prob
-        # During evaluation, whether to binarize the sigmoid mask logits on interacted frames with clicks, only effective when `apply_sigmoid_to_mask_logits_for_mem_enc` is True
-        binarize_mask_from_pts_for_mem_enc=False,
-        use_mask_input_as_output_without_sam=False,  # on frames with mask input, whether to directly output the input mask without using a SAM prompt encoder + mask decoder
         # The maximum number of conditioning frames to participate in the memory attention (-1 means no limit; if there are more conditioning frames than this limit,
         # we only cross-attend to the temporally closest `max_cond_frames_in_attn` conditioning frames in the encoder when tracking each frame). This gives the model
         # a temporal locality when handling a large number of annotated frames (since closer frames should be more important) and also avoids GPU OOM.
         max_cond_frames_in_attn=-1,
-        # Whether to always keep the first conditioning frame in case we exceep the maximum number of conditioning frames allowed
+        # Whether to always keep the first conditioning frame in case we exceed the maximum number of conditioning frames allowed
         keep_first_cond_frame=False,
-        # on the first frame, whether to directly add the no-memory embedding to the image feature
-        # (instead of using the transformer encoder)
-        directly_add_no_mem_embed=False,
-        # whether to use high-resolution feature maps in the SAM mask decoder
-        use_high_res_features_in_sam=False,
         # whether to output multiple (3) masks for the first click on initial conditioning frames
         multimask_output_in_sam=False,
         # the minimum and maximum number of clicks to use multimask_output_in_sam (only relevant when `multimask_output_in_sam=True`;
@@ -69,11 +48,6 @@ class VideoTrackingWithPrompt(torch.nn.Module):
         multimask_max_pt_num=1,
         # whether to also use multimask output for tracking (not just for the first click on initial conditioning frames; only relevant when `multimask_output_in_sam=True`)
         multimask_output_for_tracking=False,
-        # Whether to use multimask tokens for obj ptr; Only relevant when both
-        # use_obj_ptrs_in_encoder=True and multimask_output_for_tracking=True
-        use_multimask_token_for_obj_ptr: bool = False,
-        # whether to use sigmoid to restrict ious prediction to [0-1]
-        iou_prediction_use_sigmoid=False,
         # whether to forward image features per frame (as it's being tracked) during evaluation, instead of forwarding image features
         # of all frames at once. This avoids backbone OOM errors on very long videos in evaluation, but could be slightly slower.
         forward_backbone_per_frame_for_eval=False,
@@ -89,35 +63,8 @@ class VideoTrackingWithPrompt(torch.nn.Module):
         trim_past_non_cond_mem_for_eval=False,
         # whether to apply non-overlapping constraints on the object masks in the memory encoder during evaluation (to avoid/alleviate superposing masks)
         non_overlap_masks_for_mem_enc=False,
-        # whether to cross-attend to object pointers from other frames (based on SAM output tokens) in the encoder
-        use_obj_ptrs_in_encoder=False,
-        # the maximum number of object pointers from other frames in encoder cross attention (only relevant when `use_obj_ptrs_in_encoder=True`)
+        # the maximum number of object pointers from other frames in encoder cross attention
         max_obj_ptrs_in_encoder=16,
-        # whether to add temporal positional encoding to the object pointers in the encoder (only relevant when `use_obj_ptrs_in_encoder=True`)
-        add_tpos_enc_to_obj_ptrs=True,
-        # whether to add an extra linear projection layer for the temporal positional encoding in the object pointers to avoid potential interference
-        # with spatial positional encoding (only relevant when both `use_obj_ptrs_in_encoder=True` and `add_tpos_enc_to_obj_ptrs=True`)
-        proj_tpos_enc_in_obj_ptrs=False,
-        # whether to use signed distance (instead of unsigned absolute distance) in the temporal positional encoding in the object pointers
-        # (only relevant when both `use_obj_ptrs_in_encoder=True` and `add_tpos_enc_to_obj_ptrs=True`)
-        use_signed_tpos_enc_to_obj_ptrs=False,
-        # whether to only attend to object pointers in the past (before the current frame) in the encoder during evaluation
-        # (only relevant when `use_obj_ptrs_in_encoder=True`; this might avoid pointer information too far in the future to distract the initial tracking)
-        only_obj_ptrs_in_the_past_for_eval=False,
-        # Whether to predict if there is an object in the frame
-        pred_obj_scores: bool = False,
-        # Whether to use an MLP to predict object scores
-        pred_obj_scores_mlp: bool = False,
-        # Only relevant if pred_obj_scores=True and use_obj_ptrs_in_encoder=True;
-        # Whether to have a fixed no obj pointer when there is no object present
-        # or to use it as an additive embedding with obj_ptr produced by decoder
-        fixed_no_obj_ptr: bool = False,
-        # Soft no object, i.e. mix in no_obj_ptr softly,
-        # hope to make recovery easier if there is a mistake and mitigate accumulation of errors
-        soft_no_obj_ptr: bool = False,
-        use_mlp_for_obj_ptr_proj: bool = False,
-        # add no obj embedding to spatial frames
-        no_obj_embed_spatial: bool = False,
         # extra arguments used to construct the SAM mask decoder; if not None, it should be a dict of kwargs to be passed into `MaskDecoder` class.
         sam_mask_decoder_extra_args=None,
         # whether to compile all the model compoents
@@ -129,22 +76,12 @@ class VideoTrackingWithPrompt(torch.nn.Module):
 
         # Part 1: the image backbone
         self.backbone = backbone
-        # Use level 0, 1, 2 for high-res setting, or just level 2 for the default setting
-        self.use_high_res_features_in_sam = use_high_res_features_in_sam
-        self.num_feature_levels = 3 if use_high_res_features_in_sam else 1
-        self.use_obj_ptrs_in_encoder = use_obj_ptrs_in_encoder
+        self.num_feature_levels = 3
         self.max_obj_ptrs_in_encoder = max_obj_ptrs_in_encoder
-        if use_obj_ptrs_in_encoder:
-            # A conv layer to downsample the GT mask prompt to stride 4 (the same stride as
-            # low-res SAM mask logits) and to change its scales from 0~1 to SAM logit scale,
-            # so that it can be fed into the SAM mask decoder to generate a pointer.
-            self.mask_downsample = torch.nn.Conv2d(1, 1, kernel_size=4, stride=4)
-        self.add_tpos_enc_to_obj_ptrs = add_tpos_enc_to_obj_ptrs
-        if proj_tpos_enc_in_obj_ptrs:
-            assert add_tpos_enc_to_obj_ptrs  # these options need to be used together
-        self.proj_tpos_enc_in_obj_ptrs = proj_tpos_enc_in_obj_ptrs
-        self.use_signed_tpos_enc_to_obj_ptrs = use_signed_tpos_enc_to_obj_ptrs
-        self.only_obj_ptrs_in_the_past_for_eval = only_obj_ptrs_in_the_past_for_eval
+        # A conv layer to downsample the GT mask prompt to stride 4 (the same stride as
+        # low-res SAM mask logits) and to change its scales from 0~1 to SAM logit scale,
+        # so that it can be fed into the SAM mask decoder to generate a pointer.
+        self.mask_downsample = torch.nn.Conv2d(1, 1, kernel_size=4, stride=4)
 
         # Part 2: encoder-only transformer to fuse current frame's visual features
         # with memories from past frames
@@ -173,23 +110,18 @@ class VideoTrackingWithPrompt(torch.nn.Module):
         self.no_mem_pos_enc = torch.nn.Parameter(torch.zeros(1, 1, self.hidden_dim))
         trunc_normal_(self.no_mem_embed, std=0.02)
         trunc_normal_(self.no_mem_pos_enc, std=0.02)
-        self.directly_add_no_mem_embed = directly_add_no_mem_embed
         # Apply sigmoid to the output raw mask logits (to turn them from
         # range (-inf, +inf) to range (0, 1)) before feeding them into the memory encoder
-        self.sigmoid_scale_for_mem_enc = sigmoid_scale_for_mem_enc
-        self.sigmoid_bias_for_mem_enc = sigmoid_bias_for_mem_enc
-        self.binarize_mask_from_pts_for_mem_enc = binarize_mask_from_pts_for_mem_enc
+        self.sigmoid_scale_for_mem_enc = 20.0
+        self.sigmoid_bias_for_mem_enc = -10.0
         self.non_overlap_masks_for_mem_enc = non_overlap_masks_for_mem_enc
         self.memory_temporal_stride_for_eval = memory_temporal_stride_for_eval
         # On frames with mask input, whether to directly output the input mask without
         # using a SAM prompt encoder + mask decoder
-        self.use_mask_input_as_output_without_sam = use_mask_input_as_output_without_sam
         self.multimask_output_in_sam = multimask_output_in_sam
         self.multimask_min_pt_num = multimask_min_pt_num
         self.multimask_max_pt_num = multimask_max_pt_num
         self.multimask_output_for_tracking = multimask_output_for_tracking
-        self.use_multimask_token_for_obj_ptr = use_multimask_token_for_obj_ptr
-        self.iou_prediction_use_sigmoid = iou_prediction_use_sigmoid
 
         # Part 4: SAM-style prompt encoder (for both mask and point inputs)
         # and SAM-style mask decoder for the final mask output
@@ -204,21 +136,10 @@ class VideoTrackingWithPrompt(torch.nn.Module):
         self.offload_output_to_cpu_for_eval = offload_output_to_cpu_for_eval
         self.trim_past_non_cond_mem_for_eval = trim_past_non_cond_mem_for_eval
         self.sam_mask_decoder_extra_args = sam_mask_decoder_extra_args
-        self.pred_obj_scores = pred_obj_scores
-        self.pred_obj_scores_mlp = pred_obj_scores_mlp
-        self.fixed_no_obj_ptr = fixed_no_obj_ptr
-        self.soft_no_obj_ptr = soft_no_obj_ptr
-        if self.fixed_no_obj_ptr:
-            assert self.pred_obj_scores
-            assert self.use_obj_ptrs_in_encoder
-        if self.pred_obj_scores and self.use_obj_ptrs_in_encoder:
-            self.no_obj_ptr = torch.nn.Parameter(torch.zeros(1, self.hidden_dim))
-            trunc_normal_(self.no_obj_ptr, std=0.02)
-        self.use_mlp_for_obj_ptr_proj = use_mlp_for_obj_ptr_proj
-        self.no_obj_embed_spatial = None
-        if no_obj_embed_spatial:
-            self.no_obj_embed_spatial = torch.nn.Parameter(torch.zeros(1, self.mem_dim))
-            trunc_normal_(self.no_obj_embed_spatial, std=0.02)
+        self.no_obj_ptr = torch.nn.Parameter(torch.zeros(1, self.hidden_dim))
+        trunc_normal_(self.no_obj_ptr, std=0.02)
+        self.no_obj_embed_spatial = torch.nn.Parameter(torch.zeros(1, self.mem_dim))
+        trunc_normal_(self.no_obj_embed_spatial, std=0.02)
 
         self._build_sam_heads()
         self.max_cond_frames_in_attn = max_cond_frames_in_attn
@@ -245,7 +166,7 @@ class VideoTrackingWithPrompt(torch.nn.Module):
             torch.tensor(rel_pos_list).pin_memory().to(device=device, non_blocking=True)
             / t_diff_max
         )
-        tpos_dim = self.hidden_dim if self.proj_tpos_enc_in_obj_ptrs else self.mem_dim
+        tpos_dim = self.hidden_dim
         pos_enc = get_1d_sine_pe(pos_enc, dim=tpos_dim)
         pos_enc = self.obj_ptr_tpos_proj(pos_enc)
 
@@ -278,28 +199,19 @@ class VideoTrackingWithPrompt(torch.nn.Module):
             transformer_dim=self.sam_prompt_embed_dim,
             iou_head_depth=3,
             iou_head_hidden_dim=256,
-            use_high_res_features=self.use_high_res_features_in_sam,
-            iou_prediction_use_sigmoid=self.iou_prediction_use_sigmoid,
-            pred_obj_scores=self.pred_obj_scores,
-            pred_obj_scores_mlp=self.pred_obj_scores_mlp,
-            use_multimask_token_for_obj_ptr=self.use_multimask_token_for_obj_ptr,
+            use_high_res_features=True,
+            iou_prediction_use_sigmoid=True,
+            pred_obj_scores=True,
+            pred_obj_scores_mlp=True,
+            use_multimask_token_for_obj_ptr=True,
             **(self.sam_mask_decoder_extra_args or {}),
         )
-        if self.use_obj_ptrs_in_encoder:
-            # a linear projection on SAM output tokens to turn them into object pointers
-            self.obj_ptr_proj = torch.nn.Linear(self.hidden_dim, self.hidden_dim)
-            if self.use_mlp_for_obj_ptr_proj:
-                self.obj_ptr_proj = MLP(
-                    self.hidden_dim, self.hidden_dim, self.hidden_dim, 3
-                )
-        else:
-            self.obj_ptr_proj = torch.nn.Identity()
-        if self.proj_tpos_enc_in_obj_ptrs:
-            # a linear projection on temporal positional encoding in object pointers to
-            # avoid potential interference with spatial positional encoding
-            self.obj_ptr_tpos_proj = torch.nn.Linear(self.hidden_dim, self.mem_dim)
-        else:
-            self.obj_ptr_tpos_proj = torch.nn.Identity()
+        # a linear projection on SAM output tokens to turn them into object pointers
+        self.obj_ptr_proj = torch.nn.Linear(self.hidden_dim, self.hidden_dim)
+        self.obj_ptr_proj = MLP(self.hidden_dim, self.hidden_dim, self.hidden_dim, 3)
+        # a linear projection on temporal positional encoding in object pointers to
+        # avoid potential interference with spatial positional encoding
+        self.obj_ptr_tpos_proj = torch.nn.Linear(self.hidden_dim, self.mem_dim)
 
     def _forward_sam_heads(
         self,
@@ -417,22 +329,21 @@ class VideoTrackingWithPrompt(torch.nn.Module):
         sam_output_tokens = self._maybe_clone(sam_output_tokens)
         object_score_logits = self._maybe_clone(object_score_logits)
 
-        if self.pred_obj_scores:
-            if self.training and self.teacher_force_obj_scores_for_mem:
-                # we use gt to detect if there is an object or not to
-                # select no obj ptr and use an empty mask for spatial memory
-                is_obj_appearing = torch.any(gt_masks.float().flatten(1) > 0, dim=1)
-                is_obj_appearing = is_obj_appearing[..., None]
-            else:
-                is_obj_appearing = object_score_logits > 0
+        if self.training and self.teacher_force_obj_scores_for_mem:
+            # we use gt to detect if there is an object or not to
+            # select no obj ptr and use an empty mask for spatial memory
+            is_obj_appearing = torch.any(gt_masks.float().flatten(1) > 0, dim=1)
+            is_obj_appearing = is_obj_appearing[..., None]
+        else:
+            is_obj_appearing = object_score_logits > 0
 
-            # Mask used for spatial memories is always a *hard* choice between obj and no obj,
-            # consistent with the actual mask prediction
-            low_res_multimasks = torch.where(
-                is_obj_appearing[:, None, None],
-                low_res_multimasks,
-                NO_OBJ_SCORE,
-            )
+        # Mask used for spatial memories is always a *hard* choice between obj and no obj,
+        # consistent with the actual mask prediction
+        low_res_multimasks = torch.where(
+            is_obj_appearing[:, None, None],
+            low_res_multimasks,
+            NO_OBJ_SCORE,
+        )
 
         # convert masks from possibly bfloat16 (or float16) to float32
         # (older PyTorch versions before 2.1 don't support `interpolate` on bf16)
@@ -458,18 +369,10 @@ class VideoTrackingWithPrompt(torch.nn.Module):
 
         # Extract object pointer from the SAM output token (with occlusion handling)
         obj_ptr = self.obj_ptr_proj(sam_output_token)
-        if self.pred_obj_scores:
-            # Allow *soft* no obj ptr, unlike for masks
-            if self.soft_no_obj_ptr:
-                # Only hard possible with gt
-                assert not self.teacher_force_obj_scores_for_mem
-                lambda_is_obj_appearing = object_score_logits.sigmoid()
-            else:
-                lambda_is_obj_appearing = is_obj_appearing.float()
+        lambda_is_obj_appearing = is_obj_appearing.float()
 
-            if self.fixed_no_obj_ptr:
-                obj_ptr = lambda_is_obj_appearing * obj_ptr
-            obj_ptr = obj_ptr + (1 - lambda_is_obj_appearing) * self.no_obj_ptr
+        obj_ptr = lambda_is_obj_appearing * obj_ptr
+        obj_ptr = obj_ptr + (1 - lambda_is_obj_appearing) * self.no_obj_ptr
 
         return (
             low_res_multimasks,
@@ -499,19 +402,13 @@ class VideoTrackingWithPrompt(torch.nn.Module):
         )
         # a dummy IoU prediction of all 1's under mask input
         ious = mask_inputs.new_ones(mask_inputs.size(0), 1).float()
-        if not self.use_obj_ptrs_in_encoder:
-            # all zeros as a dummy object pointer (of shape [B, C])
-            obj_ptr = torch.zeros(
-                mask_inputs.size(0), self.hidden_dim, device=mask_inputs.device
-            )
-        else:
-            # produce an object pointer using the SAM decoder from the mask input
-            _, _, _, _, _, obj_ptr, _ = self._forward_sam_heads(
-                backbone_features=backbone_features,
-                mask_inputs=self.mask_downsample(mask_inputs_float),
-                high_res_features=high_res_features,
-                gt_masks=mask_inputs,
-            )
+        # produce an object pointer using the SAM decoder from the mask input
+        _, _, _, _, _, obj_ptr, _ = self._forward_sam_heads(
+            backbone_features=backbone_features,
+            mask_inputs=self.mask_downsample(mask_inputs_float),
+            high_res_features=high_res_features,
+            gt_masks=mask_inputs,
+        )
         # In this method, we are treating mask_input as output, e.g. using it directly to create spatial mem;
         # Below, we follow the same design axiom to use mask_input to decide if obj appears or not instead of relying
         # on the object_scores from the SAM decoder.
@@ -519,10 +416,8 @@ class VideoTrackingWithPrompt(torch.nn.Module):
         is_obj_appearing = is_obj_appearing[..., None]
         lambda_is_obj_appearing = is_obj_appearing.float()
         object_score_logits = out_scale * lambda_is_obj_appearing + out_bias
-        if self.pred_obj_scores:
-            if self.fixed_no_obj_ptr:
-                obj_ptr = lambda_is_obj_appearing * obj_ptr
-            obj_ptr = obj_ptr + (1 - lambda_is_obj_appearing) * self.no_obj_ptr
+        obj_ptr = lambda_is_obj_appearing * obj_ptr
+        obj_ptr = obj_ptr + (1 - lambda_is_obj_appearing) * self.no_obj_ptr
 
         return (
             low_res_masks,
@@ -543,15 +438,14 @@ class VideoTrackingWithPrompt(torch.nn.Module):
     def forward_image(self, img_batch):
         """Get the image feature on the input batch."""
         backbone_out = self.backbone.forward_image(img_batch)
-        if self.use_high_res_features_in_sam:
-            # precompute projected level 0 and level 1 features in SAM decoder
-            # to avoid running it again on every SAM click
-            backbone_out["backbone_fpn"][0].tensors = self.sam_mask_decoder.conv_s0(
-                backbone_out["backbone_fpn"][0].tensors
-            )
-            backbone_out["backbone_fpn"][1].tensors = self.sam_mask_decoder.conv_s1(
-                backbone_out["backbone_fpn"][1].tensors
-            )
+        # precompute projected level 0 and level 1 features in SAM decoder
+        # to avoid running it again on every SAM click
+        backbone_out["backbone_fpn"][0].tensors = self.sam_mask_decoder.conv_s0(
+            backbone_out["backbone_fpn"][0].tensors
+        )
+        backbone_out["backbone_fpn"][1].tensors = self.sam_mask_decoder.conv_s1(
+            backbone_out["backbone_fpn"][1].tensors
+        )
         # Clone to help torch.compile
         for i in range(len(backbone_out["backbone_fpn"])):
             backbone_out["backbone_fpn"][i].tensors = self._maybe_clone(
@@ -785,117 +679,97 @@ class VideoTrackingWithPrompt(torch.nn.Module):
                 to_cat_prompt_pos_embed.append(maskmem_enc)
 
             # Construct the list of past object pointers
-            if self.use_obj_ptrs_in_encoder:
-                # Optionally, select only a subset of spatial memory frames during trainining
-                if (
-                    self.training
-                    and self.prob_to_dropout_spatial_mem > 0
-                    and self.rng.random() < self.prob_to_dropout_spatial_mem
-                ):
-                    num_spatial_mem_keep = self.rng.integers(len(to_cat_prompt) + 1)
-                    keep = self.rng.choice(
-                        range(len(to_cat_prompt)), num_spatial_mem_keep, replace=False
-                    ).tolist()
-                    to_cat_prompt = [to_cat_prompt[i] for i in keep]
-                    to_cat_prompt_mask = [to_cat_prompt_mask[i] for i in keep]
-                    to_cat_prompt_pos_embed = [to_cat_prompt_pos_embed[i] for i in keep]
+            # Optionally, select only a subset of spatial memory frames during trainining
+            if (
+                self.training
+                and self.prob_to_dropout_spatial_mem > 0
+                and self.rng.random() < self.prob_to_dropout_spatial_mem
+            ):
+                num_spatial_mem_keep = self.rng.integers(len(to_cat_prompt) + 1)
+                keep = self.rng.choice(
+                    range(len(to_cat_prompt)), num_spatial_mem_keep, replace=False
+                ).tolist()
+                to_cat_prompt = [to_cat_prompt[i] for i in keep]
+                to_cat_prompt_mask = [to_cat_prompt_mask[i] for i in keep]
+                to_cat_prompt_pos_embed = [to_cat_prompt_pos_embed[i] for i in keep]
 
-                max_obj_ptrs_in_encoder = min(num_frames, self.max_obj_ptrs_in_encoder)
-                # First add those object pointers from selected conditioning frames
-                # (optionally, only include object pointers in the past during evaluation)
-                if not self.training and self.only_obj_ptrs_in_the_past_for_eval:
-                    ptr_cond_outputs = {
-                        t: out
-                        for t, out in selected_cond_outputs.items()
-                        if (t >= frame_idx if track_in_reverse else t <= frame_idx)
-                    }
+            max_obj_ptrs_in_encoder = min(num_frames, self.max_obj_ptrs_in_encoder)
+            # First add those object pointers from selected conditioning frames
+            # (optionally, only include object pointers in the past during evaluation)
+            if not self.training:
+                ptr_cond_outputs = {
+                    t: out
+                    for t, out in selected_cond_outputs.items()
+                    if (t >= frame_idx if track_in_reverse else t <= frame_idx)
+                }
+            else:
+                ptr_cond_outputs = selected_cond_outputs
+            pos_and_ptrs = [
+                # Temporal pos encoding contains how far away each pointer is from current frame
+                (
+                    (frame_idx - t) * tpos_sign_mul,
+                    out["obj_ptr"],
+                    True,  # is_selected_cond_frame
+                )
+                for t, out in ptr_cond_outputs.items()
+            ]
+
+            # Add up to (max_obj_ptrs_in_encoder - 1) non-conditioning frames before current frame
+            for t_diff in range(1, max_obj_ptrs_in_encoder):
+                if not self.use_memory_selection:
+                    t = frame_idx + t_diff if track_in_reverse else frame_idx - t_diff
+                    if t < 0 or (num_frames is not None and t >= num_frames):
+                        break
                 else:
-                    ptr_cond_outputs = selected_cond_outputs
-                pos_and_ptrs = [
-                    # Temporal pos encoding contains how far away each pointer is from current frame
-                    (
-                        (
-                            (frame_idx - t) * tpos_sign_mul
-                            if self.use_signed_tpos_enc_to_obj_ptrs
-                            else abs(frame_idx - t)
-                        ),
-                        out["obj_ptr"],
-                        True,  # is_selected_cond_frame
+                    if -t_diff <= -len(valid_indices):
+                        break
+                    t = valid_indices[-t_diff]
+
+                out = output_dict["non_cond_frame_outputs"].get(
+                    t, unselected_cond_outputs.get(t, None)
+                )
+                if out is not None:
+                    pos_and_ptrs.append((t_diff, out["obj_ptr"], False))
+
+            # If we have at least one object pointer, add them to the across attention
+            if len(pos_and_ptrs) > 0:
+                pos_list, ptrs_list, is_selected_cond_frame_list = zip(*pos_and_ptrs)
+                # stack object pointers along dim=0 into [ptr_seq_len, B, C] shape
+                obj_ptrs = torch.stack(ptrs_list, dim=0)
+                if getattr(self, "cond_frame_obj_ptr_embedding", None) is not None:
+                    obj_ptrs = (
+                        obj_ptrs
+                        + self.cond_frame_obj_ptr_embedding
+                        * torch.tensor(is_selected_cond_frame_list, device=device)[
+                            ..., None, None
+                        ].float()
                     )
-                    for t, out in ptr_cond_outputs.items()
-                ]
+                # a temporal positional embedding based on how far each object pointer is from
+                # the current frame (sine embedding normalized by the max pointer num).
+                obj_pos = self._get_tpos_enc(
+                    pos_list,
+                    max_abs_pos=max_obj_ptrs_in_encoder,
+                    device=device,
+                )
+                # expand to batch size
+                obj_pos = obj_pos.unsqueeze(1).expand(-1, B, -1)
 
-                # Add up to (max_obj_ptrs_in_encoder - 1) non-conditioning frames before current frame
-                for t_diff in range(1, max_obj_ptrs_in_encoder):
-                    if not self.use_memory_selection:
-                        t = (
-                            frame_idx + t_diff
-                            if track_in_reverse
-                            else frame_idx - t_diff
-                        )
-                        if t < 0 or (num_frames is not None and t >= num_frames):
-                            break
-                    else:
-                        if -t_diff <= -len(valid_indices):
-                            break
-                        t = valid_indices[-t_diff]
-
-                    out = output_dict["non_cond_frame_outputs"].get(
-                        t, unselected_cond_outputs.get(t, None)
-                    )
-                    if out is not None:
-                        pos_and_ptrs.append((t_diff, out["obj_ptr"], False))
-
-                # If we have at least one object pointer, add them to the across attention
-                if len(pos_and_ptrs) > 0:
-                    pos_list, ptrs_list, is_selected_cond_frame_list = zip(
-                        *pos_and_ptrs
-                    )
-                    # stack object pointers along dim=0 into [ptr_seq_len, B, C] shape
-                    obj_ptrs = torch.stack(ptrs_list, dim=0)
-                    if getattr(self, "cond_frame_obj_ptr_embedding", None) is not None:
-                        obj_ptrs = (
-                            obj_ptrs
-                            + self.cond_frame_obj_ptr_embedding
-                            * torch.tensor(is_selected_cond_frame_list, device=device)[
-                                ..., None, None
-                            ].float()
-                        )
-                    # a temporal positional embedding based on how far each object pointer is from
-                    # the current frame (sine embedding normalized by the max pointer num).
-                    if self.add_tpos_enc_to_obj_ptrs:
-                        obj_pos = self._get_tpos_enc(
-                            pos_list,
-                            max_abs_pos=max_obj_ptrs_in_encoder,
-                            device=device,
-                        )
-                    else:
-                        obj_pos = self._get_tpos_enc(
-                            pos_list, device=device, dummy=True
-                        )
-                    # expand to batch size
-                    obj_pos = obj_pos.unsqueeze(1).expand(-1, B, -1)
-
-                    if self.mem_dim < C:
-                        # split a pointer into (C // self.mem_dim) tokens for self.mem_dim < C
-                        obj_ptrs = obj_ptrs.reshape(
-                            -1, B, C // self.mem_dim, self.mem_dim
-                        )
-                        obj_ptrs = obj_ptrs.permute(0, 2, 1, 3).flatten(0, 1)
-                        obj_pos = obj_pos.repeat_interleave(C // self.mem_dim, dim=0)
-                    to_cat_prompt.append(obj_ptrs)
-                    to_cat_prompt_mask.append(None)  # "to_cat_prompt_mask" is not used
-                    to_cat_prompt_pos_embed.append(obj_pos)
-                    num_obj_ptr_tokens = obj_ptrs.shape[0]
-                else:
-                    num_obj_ptr_tokens = 0
+                if self.mem_dim < C:
+                    # split a pointer into (C // self.mem_dim) tokens for self.mem_dim < C
+                    obj_ptrs = obj_ptrs.reshape(-1, B, C // self.mem_dim, self.mem_dim)
+                    obj_ptrs = obj_ptrs.permute(0, 2, 1, 3).flatten(0, 1)
+                    obj_pos = obj_pos.repeat_interleave(C // self.mem_dim, dim=0)
+                to_cat_prompt.append(obj_ptrs)
+                to_cat_prompt_mask.append(None)  # "to_cat_prompt_mask" is not used
+                to_cat_prompt_pos_embed.append(obj_pos)
+                num_obj_ptr_tokens = obj_ptrs.shape[0]
+            else:
+                num_obj_ptr_tokens = 0
         else:
-            # for initial conditioning frames, encode them without using any previous memory
-            if self.directly_add_no_mem_embed:
-                # directly add no-mem embedding (instead of using the transformer encoder)
-                pix_feat_with_mem = current_vision_feats[-1] + self.no_mem_embed
-                pix_feat_with_mem = pix_feat_with_mem.permute(1, 2, 0).view(B, C, H, W)
-                return pix_feat_with_mem
+            # directly add no-mem embedding (instead of using the transformer encoder)
+            pix_feat_with_mem = current_vision_feats[-1] + self.no_mem_embed
+            pix_feat_with_mem = pix_feat_with_mem.permute(1, 2, 0).view(B, C, H, W)
+            return pix_feat_with_mem
 
             # Use a dummy token on the first grame (to avoid emtpy memory input to tranformer encoder)
             to_cat_prompt = [self.no_mem_embed.expand(1, B, self.mem_dim)]
@@ -948,8 +822,7 @@ class VideoTrackingWithPrompt(torch.nn.Module):
                 pred_masks_high_res
             )
         # scale the raw mask logits with a temperature before applying sigmoid
-        binarize = self.binarize_mask_from_pts_for_mem_enc and is_mask_from_pts
-        if binarize and not self.training:
+        if is_mask_from_pts and not self.training:
             mask_for_mem = (pred_masks_high_res > 0).float()
         else:
             # apply sigmoid on the raw mask logits to turn them into range (0, 1)
@@ -973,13 +846,10 @@ class VideoTrackingWithPrompt(torch.nn.Module):
         maskmem_pos_enc = [self._maybe_clone(m) for m in maskmem_out["vision_pos_enc"]]
         # add a no-object embedding to the spatial memory to indicate that the frame
         # is predicted to be occluded (i.e. no object is appearing in the frame)
-        if self.no_obj_embed_spatial is not None:
-            is_obj_appearing = (object_score_logits > 0).float()
-            maskmem_features += (
-                1 - is_obj_appearing[..., None, None]
-            ) * self.no_obj_embed_spatial[..., None, None].expand(
-                *maskmem_features.shape
-            )
+        is_obj_appearing = (object_score_logits > 0).float()
+        maskmem_features += (
+            1 - is_obj_appearing[..., None, None]
+        ) * self.no_obj_embed_spatial[..., None, None].expand(*maskmem_features.shape)
 
         return maskmem_features, maskmem_pos_enc
 
@@ -1103,8 +973,7 @@ class VideoTrackingWithPrompt(torch.nn.Module):
             ]
         else:
             high_res_features = None
-        if mask_inputs is not None and self.use_mask_input_as_output_without_sam:
-            # When use_mask_input_as_output_without_sam=True, we directly output the mask input
+        if mask_inputs is not None:
             # (see it as a GT mask) without using a SAM prompt encoder + mask decoder.
             pix_feat = current_vision_feats[-1].permute(1, 2, 0)
             pix_feat = pix_feat.view(-1, self.hidden_dim, *feat_sizes[-1])
@@ -1315,15 +1184,14 @@ class Sam2WithSAM3Backbone(VideoTrackingWithPrompt):
         # This line is the only change from the parent class
         # to use the SAM3 backbone instead of the SAM2 backbone.
         backbone_out = self.backbone.forward_image(img_batch)["sam2_backbone_out"]
-        if self.use_high_res_features_in_sam:
-            # precompute projected level 0 and level 1 features in SAM decoder
-            # to avoid running it again on every SAM click
-            backbone_out["backbone_fpn"][0].tensors = self.sam_mask_decoder.conv_s0(
-                backbone_out["backbone_fpn"][0].tensors
-            )
-            backbone_out["backbone_fpn"][1].tensors = self.sam_mask_decoder.conv_s1(
-                backbone_out["backbone_fpn"][1].tensors
-            )
+        # precompute projected level 0 and level 1 features in SAM decoder
+        # to avoid running it again on every SAM click
+        backbone_out["backbone_fpn"][0].tensors = self.sam_mask_decoder.conv_s0(
+            backbone_out["backbone_fpn"][0].tensors
+        )
+        backbone_out["backbone_fpn"][1].tensors = self.sam_mask_decoder.conv_s1(
+            backbone_out["backbone_fpn"][1].tensors
+        )
         # Clone to help torch.compile
         for i in range(len(backbone_out["backbone_fpn"])):
             backbone_out["backbone_fpn"][i].tensors = self._maybe_clone(

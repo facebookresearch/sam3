@@ -211,38 +211,19 @@ def build_sam2_model() -> Sam2Predictor:
         image_size=1008,
         num_maskmem=7,
         backbone=None,
+        backbone_stride=14,
         transformer=transformer,
         maskmem_backbone=maskmem_backbone,
-        # Memory
-        directly_add_no_mem_embed=True,
-        # Mask encoding
-        sigmoid_scale_for_mem_enc=20.0,
-        sigmoid_bias_for_mem_enc=-10.0,
         # SAM parameters
-        use_mask_input_as_output_without_sam=True,
-        use_high_res_features_in_sam=True,
         multimask_output_in_sam=True,
         # Evaluation
         forward_backbone_per_frame_for_eval=True,
-        iou_prediction_use_sigmoid=True,
-        # Object pointers
-        add_tpos_enc_to_obj_ptrs=True,
         trim_past_non_cond_mem_for_eval=False,
-        use_obj_ptrs_in_encoder=True,
-        pred_obj_scores=True,
-        pred_obj_scores_mlp=True,
-        fixed_no_obj_ptr=True,
         # Multimask
         multimask_output_for_tracking=True,
-        use_multimask_token_for_obj_ptr=True,
         multimask_min_pt_num=0,
         multimask_max_pt_num=1,
-        use_mlp_for_obj_ptr_proj=True,
         # Additional settings
-        no_obj_embed_spatial=True,
-        proj_tpos_enc_in_obj_ptrs=True,
-        use_signed_tpos_enc_to_obj_ptrs=True,
-        backbone_stride=14,
         always_start_from_first_ann_frame=False,
         # Mask overlap
         non_overlap_masks_for_mem_enc=False,
@@ -255,8 +236,6 @@ def build_sam2_model() -> Sam2Predictor:
             "dynamic_multimask_stability_delta": 0.05,
             "dynamic_multimask_stability_thresh": 0.98,
         },
-        binarize_mask_from_pts_for_mem_enc=True,
-        only_obj_ptrs_in_the_past_for_eval=True,
         clear_non_cond_mem_around_input=True,
         fill_hole_area=0,
     )
