@@ -82,7 +82,7 @@ roboflow_train:
       pos_embed: ${scratch.pos_embed}
 
   # loss config (no mask loss)
-  roboflow_loss:
+  loss:
     _target_: sam3.train.loss.sam3_loss.Sam3LossWrapper
     matcher: ${scratch.matcher}
     o2m_weight: 2.0
@@ -91,7 +91,7 @@ roboflow_train:
       alpha: 0.3
       threshold: 0.4
       topk: 4
-    use_o2m_matcher_on_o2m_aux: false
+    use_o2m_matcher_on_o2m_aux: true
     loss_fns_find:
       - _target_: sam3.train.loss.loss_fns.Boxes
         weight_dict:
@@ -100,60 +100,74 @@ roboflow_train:
       - _target_: sam3.train.loss.loss_fns.IABCEMdetr
         weak_loss: False
         weight_dict:
-          loss_ce: 100
-        pos_weight: 10
+          loss_ce: 20.0 # Another option is 100.0
+          presence_loss: 20.0
+        pos_weight: 10.0 # Another option is 5.0
+        alpha: 0.25
         gamma: 2
+        use_presence: True  # Change
+        pos_focal: false
+        pad_n_queries: 200
+        pad_scale_pos: 1.0
+
+    loss_fn_semantic_seg: null
     scale_by_find_batch_size: ${scratch.scale_by_find_batch_size}
 
-  # Loss to use for segmentation masks
+
+  # NOTE: Loss to be used for training in case of segmentation
   # loss:
-  #   all:
-  #     _target_: sam3.train.loss.sam3_loss.Sam3LossWrapper
-  #     matcher: ${scratch.matcher}
-  #     o2m_weight: 2.0
-  #     o2m_matcher:
-  #       _target_: sam3.train.matcher.BinaryOneToManyMatcher
-  #       alpha: 0.3
-  #       threshold: 0.4
-  #       topk: 4
-  #     # use one-to-one (instead of one-to-many) matcher on o2m auxiliary outputs (to be consistent with FA 1a_v4.5)
-  #     use_o2m_matcher_on_o2m_aux: false
-  #     loss_fns_find:
-  #       - _target_: osam3.train.loss.loss_fns.Boxes
-  #         weight_dict:
-  #           loss_bbox: 5.0
-  #           loss_giou: 2.0
-  #       - _target_: sam3.train.loss.loss_fns.IABCEMdetr
-  #         weak_loss: False
-  #         weight_dict:
-  #           loss_ce: 100
-  #         pos_weight: 10
-  #         gamma: 2
-  #         pad_n_queries: ${scratch.num_queries}
-  #       - _target_: sam3.train.loss.loss_fns.Masks
-  #         focal_alpha: ${scratch.segmentation_focal_alpha}
-  #         focal_gamma: ${scratch.segmentation_focal_gamma}
-  #         weight_dict:
-  #           loss_mask: ${scratch.loss_mask}
-  #           loss_dice: ${scratch.loss_dice}
-  #         compute_aux: ${trainer.model.segmentation_head.aux_masks}
-  #     loss_fn_semantic_seg:
-  #       _target_: sam3.train.loss.loss_fns.SemanticSegCriterion
-  #       presence_head: True
-  #       focal: True
-  #       focal_alpha: ${scratch.sem_seg_focal_alpha}
-  #       focal_gamma: ${scratch.sem_seg_focal_gamma}
-  #       downsample: False
+  #   _target_: sam3.train.loss.sam3_loss.Sam3LossWrapper
+  #   matcher: ${scratch.matcher}
+  #   o2m_weight: 2.0
+  #   o2m_matcher:
+  #     _target_: sam3.train.matcher.BinaryOneToManyMatcher
+  #     alpha: 0.3
+  #     threshold: 0.4
+  #     topk: 4
+  #   use_o2m_matcher_on_o2m_aux: true
+  #   loss_fns_find:
+  #     - _target_: sam3.train.loss.loss_fns.Boxes
   #       weight_dict:
-  #         loss_semantic_seg: ${scratch.sem_seg_weight}
-  #         loss_semantic_presence: ${scratch.sem_seg_presence_weight}
-  #         loss_semantic_dice: ${scratch.sem_seg_dice_weight}
-  #     scale_by_find_batch_size: ${scratch.scale_by_find_batch_size}
+  #         loss_bbox: 5.0
+  #         loss_giou: 2.0
+  #     - _target_: sam3.train.loss.loss_fns.IABCEMdetr
+  #       weak_loss: False
+  #       weight_dict:
+  #         loss_ce: 20.0 # Another option is 100.0
+  #         presence_loss: 20.0
+  #       pos_weight: 10.0 # Another option is 5.0
+  #       alpha: 0.25
+  #       gamma: 2
+  #       use_presence: True  # Change
+  #       pos_focal: false
+  #       pad_n_queries: 200
+  #       pad_scale_pos: 1.0
+  #     - _target_: onevision.losses.loss_fns.Masks
+  #       focal_alpha: 0.25
+  #       focal_gamma: 2.0
+  #       weight_dict:
+  #         loss_mask: 200.0
+  #         loss_dice: 10.0
+  #       compute_aux: false
+  #   loss_fn_semantic_seg:
+  #     _target_: sam3.losses.loss_fns.SemanticSegCriterion
+  #     presence_head: True
+  #     presence_loss: False  # Change
+  #     focal: True
+  #     focal_alpha: 0.6
+  #     focal_gamma: 2.0
+  #     downsample: False
+  #     weight_dict:
+  #       loss_semantic_seg: 20.0
+  #       loss_semantic_presence: 1.0
+  #       loss_semantic_dice: 30.0
+  #   scale_by_find_batch_size: ${scratch.scale_by_find_batch_size}
 
 # ============================================================================
 # Different helper parameters and functions
 # ============================================================================
 scratch:
+  enable_segmentation: False # NOTE: This is the number of queries used for segmentation
   # Model parameters
   d_model: 256
   input_box_embedding_dim: ${add:${scratch.d_model},2}
@@ -165,7 +179,7 @@ scratch:
     temperature: 10000
 
   # Box processing
-  use_presence_eval: False
+  use_presence_eval: True
   original_box_postprocessor:
     _target_: sam3.train.eval.postprocessors.PostProcessAPI
     soft_token: true
@@ -173,8 +187,7 @@ scratch:
     max_dets_per_img: -1  # infinite detections
     use_original_ids: true
     use_original_sizes: true
-    # TODO: (Kalyan) Add support for presence token!
-    # use_presence: ${scratch.use_presence_eval}
+    use_presence: ${scratch.use_presence_eval}
 
   # Matcher configuration
   matcher:
@@ -228,7 +241,7 @@ scratch:
     input_box_embedding_dim: ${scratch.input_box_embedding_dim}
     repeats: ${scratch.hybrid_repeats}
     dict_key: roboflow100
-    with_seg_masks: false # Note: Set this to true if using segmentation masks!
+    with_seg_masks: ${scratch.enable_segmentation} # Note: Set this to true if using segmentation masks!
 
   # Note: usin this setting if using gradient accumulation
   # gradient_accumulation_steps: 2
@@ -278,7 +291,7 @@ trainer:
         _target_: sam3.train.data.sam3_image_dataset.Sam3ImageDataset
         limit_ids: ${roboflow_train.num_images}
         transforms: ${roboflow_train.train_transforms}
-        load_segmentation: false
+        load_segmentation: ${scratch.enable_segmentation}
         max_ann_per_img: 500000
         multiplier: 1
         max_train_queries: 50000
@@ -301,6 +314,7 @@ trainer:
       _target_: sam3.train.data.torch_dataset.TorchDataset
       dataset:
         _target_: sam3.train.data.sam3_image_dataset.Sam3ImageDataset
+        load_segmentation: ${scratch.enable_segmentation}
         coco_json_loader:
           _target_: sam3.train.data.coco_json_loaders.COCO_EVAL_API_FROM_JSON_BOX_ONLY
           _partial_: true
@@ -326,8 +340,9 @@ trainer:
     bpe_path: /checkpoint/onevision/kalyanv/bpe_simple_vocab_16e6.txt.gz
     device: cpus
     eval_mode: false
-    enable_segmentation: false # Warning: Enable this if using segmentation.
+    enable_segmentation: ${scratch.enable_segmentation} # Warning: Enable this if using segmentation.
     checkpoint_path: ${paths.checkpoint_path}
+    has_presence_token: ${scratch.use_presence_eval}
 
   meters:
     val:
