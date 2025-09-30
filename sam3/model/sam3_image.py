@@ -7,14 +7,14 @@ from typing import Dict, Optional
 import torch
 
 from sam3.model.model_misc import SAM3Output
-from sam3.model.sam3_image_on_video_multigpu_utils import nms_masks
+from sam3.model.nms_utils import nms_masks
 
 from sam3.model.vl_combiner import SAM3VLBackbone
 
 # TODO: Kalyan, imports to be fixed!
 from sam3.train.data.collator import BatchedDatapoint, FindStage
 
-from .act_ckpt_utils import activation_ckpt_wrapper
+from .act_ckpt_utils import activation_ckpt_wrapper, clone_output_wrapper
 
 from .box_ops import box_cxcywh_to_xyxy
 
@@ -33,6 +33,10 @@ def _update_out(out, out_name, out_value, auxiliary=True):
 
 
 class Sam3Image(torch.nn.Module):
+    TEXT_ID_FOR_TEXT = 0
+    TEXT_ID_FOR_VISUAL = 1
+    TEXT_ID_FOR_GEOMETRIC = 2
+
     def __init__(
         self,
         backbone,
@@ -52,6 +56,7 @@ class Sam3Image(torch.nn.Module):
         supervise_joint_box_scores: bool = False,  # only relevant if using presence token/score
         detach_presence_in_joint_score: bool = False,  # only relevant if using presence token/score
         separate_scorer_for_instance: bool = False,
+        num_interactive_steps_val: int = 0,  # TODO: Add support back for this.
         **kwargs,  # TODO: Kalyan, Remove this!
     ):
         super().__init__()
@@ -487,46 +492,7 @@ class Sam3Image(torch.nn.Module):
                 hs=hs,
             )
 
-        # ###### FRANCOIS MODIFICATIONS ######
-        # bs = hs.shape[1]
-        # query_pos_emb = self.transformer.decoder.query_embed.weight
-        # query_pos_emb = query_pos_emb.unsqueeze(1).repeat(1, bs, 1)
-        # if self.resolve_ambiguity_head is not None:
-        #     # get the current step
-        #     out = self.resolve_ambiguity_head.resolve_ambiguity(
-        #         out=out, query_pos_emb=query_pos_emb
-        #     )
-
-        #     # Recompute logits from updated queries
-        #     updated_queries = out["new_query_emb"]  # [K, B, N, d]
-
-        #     if self.use_separate_dot_prod_scoring_for_ambiguity:
-        #         pred_logits_refined = self.dot_prod_scoring_ambiguity_head(
-        #             updated_queries, prompt, prompt_mask
-        #         )
-        #     else:
-        #         pred_logits_refined = self.dot_prod_scoring(
-        #             updated_queries, prompt, prompt_mask
-        #         )  # shape: [K, B, N, 1]
-        #     out["pred_logits_refined"] = pred_logits_refined
-
-        #     B = pred_logits_refined.shape[1]  # batch size
-        #     idx = out["chosen_expert"].long()  # [B]
-        #     batch_idx = torch.arange(B, device=idx.device)  # [B]
-        #     # IMPORTANT: Overwrite the pred logits with pred_logits_refined. And for each sample of the batch, we get the idx of the chosen expert.
-
-        #     out["pred_logits"] = pred_logits_refined[idx, batch_idx]  # [B, N, 1]
-
-        #     if "presence_score_logits" in out:
-        #         # Overwrite the presence score logits with the refined presence score logits
-        #         presence_score_logits = out["presence_score_logits"].squeeze(
-        #             -1
-        #         )  # [B, K]
-        #         presence_logit = presence_score_logits[batch_idx, idx]  # [B]
-        #         out["presence_logit_dec"] = presence_logit
-
-        ###### END OF FRANCOIS MODIFICATIONS ######
-
+        # TODO (Nico / Kalyan): Add support back for interactive in evals.
         # matcher is only used during training or for interactive prompts
         # if self.training or self.num_interactive_steps_val > 0:
         #     self._compute_matching(out, self.back_convert(find_target))
@@ -552,7 +518,7 @@ class Sam3Image(torch.nn.Module):
     ):
         """Only activation checkpointing the inner part of video grounding forward."""
         num_prompts = find_input.img_ids.size(0)
-        prev_frame_idx = frame_idx + 1 if track_in_reverse else frame_idx - 1
+        # prev_frame_idx = frame_idx + 1 if track_in_reverse else frame_idx - 1
 
         prev_tracking_queries = self._init_tracking_queries(
             B=num_prompts,
@@ -1111,96 +1077,164 @@ class Sam3Image(torch.nn.Module):
         pred_matched_object_ids[batch_idx, src_idx] = gt_packed_object_ids[tgt_idx]
         out["matched_object_ids"] = pred_matched_object_ids
 
+    def compile_model(self):
+        """Compile the SAM model with torch.compile for speedup."""
+        is_compiled = getattr(self, "_model_is_compiled", False)
+        if is_compiled or not self.compile_model:
+            return
 
-class Sam3ImageOnVideo(Sam3Image):
-    """A wrapper class to run Sam3Image on videos for per-frame detection (no tracking)."""
+        import torch._dynamo
 
-    def __init__(
+        # a larger cache size to hold varying number of shapes for torch.compile
+        # see https://github.com/pytorch/pytorch/blob/v2.5.1/torch/_dynamo/config.py#L42-L49
+        torch._dynamo.config.cache_size_limit = 64
+        torch._dynamo.config.accumulated_cache_size_limit = 2048
+        torch._dynamo.config.capture_scalar_outputs = True
+        torch._dynamo.config.suppress_errors = True
+
+        self.backbone.vision_backbone.forward = clone_output_wrapper(
+            torch.compile(
+                self.backbone.vision_backbone.forward,
+                fullgraph=True,
+                mode="max-autotune",
+            )
+        )
+        self.transformer.encoder.forward = clone_output_wrapper(
+            torch.compile(
+                self.transformer.encoder.forward,
+                fullgraph=True,
+                mode="max-autotune",
+            )
+        )
+        self.transformer.decoder.forward = clone_output_wrapper(
+            torch.compile(
+                self.transformer.decoder.forward,
+                fullgraph=True,
+                mode="max-autotune",
+                dynamic=True,  # the decoder uses dynamic shapes
+            )
+        )
+        self._model_is_compiled = True
+
+    ## Everything below is only used in inference.
+    @torch.inference_mode()
+    def run_inference(
         self,
-        *args,
-        tracking_score_thresh: float = 0.0,
-        offload_outputs_to_cpu_for_eval: bool = False,
-        **kwargs,
+        inference_state,
+        # instance_prompt=False,
     ):
-        super().__init__(*args, **kwargs)
-        self.tracking_score_thresh = tracking_score_thresh
-        self.offload_outputs_to_cpu_for_eval = offload_outputs_to_cpu_for_eval
-        self.trim_outputs_for_eval = True  # dummy option -- it doesn't do anything
 
-    def forward(
-        self,
-        input: BatchedDatapoint,
-        is_inference=False,  # (a dummy parameter not used anymore)
-    ):
-        assert not self.training, "Sam3ImageOnVideo should only be used in eval mode."
+        # 3) run inference on this frame
+        instance_prompt = inference_state["instance_prompt"]
+        inference_state["backbone_out"] = self._init_backbone_out_inference(
+            inference_state
+        )
+        new_visual_prompt = inference_state["new_visual_prompt"]
+        frame_idx = inference_state["frame_idx"]
+        if new_visual_prompt is not None:
+            # currently we do not allow simultaneously adding text prompt and visual
+            # prompt both as initial prompt (since visual prompt uses the text "visual")
+            if inference_state["text_prompt"] is not None:
+                raise RuntimeError(
+                    "Text and visual prompts (box as an initial prompt) cannot be used together. "
+                    "Please reset the session."
+                )
 
+            # add the visual prompt into the input batch and encode it (currently the added
+            # visual prompt is applied to *all* frames, i.e. not just this prompted frame)
+            for t in range(inference_state["num_frames"]):
+                text_id = self.TEXT_ID_FOR_VISUAL
+                inference_state["input_batch"].find_inputs[t].text_ids[...] = text_id
+            # currently visual prompt is encoded the same way (`_encode_prompt`) as geometric prompt
+            visual_prompt_embed, visual_prompt_mask, _backbone_out = (
+                self._encode_prompt(
+                    backbone_out=inference_state["backbone_out"],
+                    find_input=inference_state["input_batch"].find_inputs[frame_idx],
+                    geometric_prompt=new_visual_prompt,
+                    encode_text=False,
+                )
+            )
+            inference_state["visual_prompt_embed"] = visual_prompt_embed
+            inference_state["visual_prompt_mask"] = visual_prompt_mask
+
+        out = self._run_single_frame_inference(
+            inference_state,
+            frame_idx,
+            is_instance_processing=instance_prompt,
+        )
+
+        inference_state["model_out"] = out
+
+    def _init_backbone_out_inference(self, inference_state):
+        """
+        Initialize a backbone_out dictionary and extract the text features.
+
+        Note that the visual features of each frame are not extracted here. They will be
+        extracted on the fly when running inference on each frame.
+        """
+        input = inference_state["input_batch"]
         device = self.device
         backbone_out = {"img_batch_all_stages": input.img_batch}
         text_outputs = self.backbone.forward_text(input.find_text_batch, device=device)
         backbone_out.update(text_outputs)
-        num_frames = len(input.find_inputs)
+        return backbone_out
 
-        previous_stages_out = SAM3Output(
-            iter_mode=SAM3Output.IterMode.LAST_STEP_PER_STAGE
-        )
-        for frame_idx in range(num_frames):
-            find_input = input.find_inputs[frame_idx]
-            find_target = input.find_targets[frame_idx]
-            geometric_prompt = self._get_geo_prompt_from_find_input(find_input)
-            cur_out, _ = self.forward_video_grounding(
-                backbone_out=backbone_out,
-                find_input=find_input,
-                find_target=find_target,
-                geometric_prompt=geometric_prompt,
-            )
-            # offload model outputs to CPU (to save GPU memory) for evaluation
-            if self.offload_outputs_to_cpu_for_eval:
-                cur_out = {k: v.cpu() for k, v in cur_out.items()}
-
-            previous_stages_out.append([cur_out])
-
-        get_queries = None
-        return previous_stages_out, get_queries
-
-    def forward_video_grounding(
-        self,
-        backbone_out,
-        find_input,
-        find_target,
-        geometric_prompt: Prompt,
-        **kwargs,
+    def _run_single_frame_inference(
+        self, inference_state, frame_idx, is_instance_processing=False
     ):
-        # route this to the image grounding forward method
-        out = self.forward_grounding(
+        """
+        Perform inference on a single frame and get its inference results. This would
+        also update `inference_state`.
+        """
+        input = inference_state["input_batch"]
+        find_input = input.find_inputs[frame_idx]
+        # find_target = None
+        # num_frames = inference_state["num_frames"]
+        # is_video_batch = num_frames > 1
+
+        backbone_out = inference_state["backbone_out"]
+        geometric_prompt = inference_state["per_frame_geometric_prompt"][frame_idx]
+        if geometric_prompt is None:
+            geometric_prompt = inference_state["constants"]["empty_geometric_prompt"]
+        previous_stages_out = inference_state["previous_stages_out"]
+        prev_encoder_out = None
+        if previous_stages_out[frame_idx] is not None:
+            prev_encoder_out = previous_stages_out[frame_idx].get("prev_encoder_out")
+        cur_step = inference_state["per_frame_cur_step"][frame_idx]
+
+        prev_mask_pred = None
+        if (
+            inference_state["previous_stages_out"][frame_idx]
+            # and self.use_prev_mask
+            and is_instance_processing
+        ):
+            prev_mask_pred = self._get_best_mask(
+                inference_state["previous_stages_out"][frame_idx]
+            )
+
+        out, _ = self.forward_video_grounding(
             backbone_out=backbone_out,
             find_input=find_input,
-            find_target=find_target,
-            geometric_prompt=geometric_prompt,
+            find_target=None,
+            frame_idx=frame_idx,
+            # num_frames=num_frames,
+            previous_stages_out=previous_stages_out,
+            geometric_prompt=geometric_prompt.clone(),
+            # run_encoder= cur_step == 0, # TODO: Check this. Currently interactivity_in_encoder is always True?
+            prev_encoder_out=prev_encoder_out,
+            visual_prompt=inference_state["visual_prompt_embed"],
+            visual_prompt_mask=inference_state["visual_prompt_mask"],
+            is_instance_prompt=is_instance_processing,
+            # track_in_reverse=reverse,
+            prev_mask_pred=prev_mask_pred,
         )
-        # trim the output to only include the necessary keys
-        out = {
-            "pred_logits": out["pred_logits"],
-            "pred_boxes": out["pred_boxes"],
-            "pred_boxes_xyxy": out["pred_boxes_xyxy"],
-            "pred_masks": out["pred_masks"],
-            "pred_object_ids": self._get_dummy_object_ids(out["pred_logits"]),
-        }
-        return out, backbone_out
+        inference_state["previous_stages_out"][frame_idx] = out
+        inference_state["per_frame_cur_step"][frame_idx] = cur_step + 1
 
-    def _get_dummy_object_ids(self, pred_logits):
-        """Generate dummy object IDs for the detected objects, based on their detection query indices."""
-        # Assuming pred_logits has shape [batch_size, num_queries, num_classes]
-        B, Q, _ = pred_logits.shape
-        is_above_thresh = pred_logits.squeeze(2) > self.tracking_score_thresh
-        dummy_obj_ids = torch.arange(Q, device=self.device).expand(B, -1)
-        dummy_obj_ids = torch.where(is_above_thresh, dummy_obj_ids, -1)
-        return dummy_obj_ids
-
-    def _trim_outputs(self, *args, **kwargs):
-        pass  # not needed for image-on-video
+        return out
 
 
-class Sam3ImageOnVideoMultiGPU(Sam3ImageOnVideo):
+class Sam3ImageOnVideoMultiGPU(Sam3Image):
     def __init__(
         self, *args, async_all_gather=True, gather_backbone_out=None, **kwargs
     ):
@@ -1367,7 +1401,6 @@ class Sam3ImageOnVideoMultiGPU(Sam3ImageOnVideo):
             "pred_boxes": out_local["pred_boxes"],
             "pred_boxes_xyxy": out_local["pred_boxes_xyxy"],
             "pred_masks": out_local["pred_masks"],
-            "pred_object_ids": self._get_dummy_object_ids(out_local["pred_logits"]),
         }
 
         # gather the results: after this step, each GPU will receive FA outputs on

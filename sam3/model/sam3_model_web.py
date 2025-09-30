@@ -54,10 +54,10 @@ class Sam3Model:
                 text=request.get("text", None),
                 points=request.get("points", None),
                 point_labels=request.get("point_labels", None),
-                clear_old_points=request.get("clear_old_points", None),
+                clear_old_points=request.get("clear_old_points", True),
                 bounding_boxes=request.get("bounding_boxes", None),
                 bounding_box_labels=request.get("bounding_box_labels", None),
-                clear_old_boxes=request.get("clear_old_boxes", None),
+                clear_old_boxes=request.get("clear_old_boxes", True),
                 output_prob_thresh=request.get(
                     "output_prob_thresh", self.default_output_prob_thresh
                 ),

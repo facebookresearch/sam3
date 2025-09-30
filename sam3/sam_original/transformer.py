@@ -19,7 +19,6 @@ from sam3.sam_original.rope import (
 from .common import MLPBlock
 
 
-
 class TwoWayTransformer(nn.Module):
     def __init__(
         self,

@@ -25,13 +25,19 @@ from sam3.model.data_misc import (
 )
 from sam3.model.geometry_encoders import Prompt
 from sam3.model.model_misc import NestedTensor
+from sam3.model.nms_utils import mask_iou
 
-from sam3.model.sam3_dense_shared_multigpu import Sam3DenseTrackingMultiGPU
-from sam3.model.sam3_image_on_video_multigpu_utils import mask_iou
+from sam3.model.sam3_dense_shared_multigpu import (
+    MaskletConfirmationStatus,
+    Sam3DenseTrackingMultiGPU,
+)
 
 # Sam3DemoMixin functionality - using sam3 imports
-from sam3.model.video_tracking_with_prompt_utils import load_resource_as_video_frames
-from sam3.perflib.compile import compile_wrapper
+from sam3.model.video_tracking_with_prompt_utils import (
+    fill_holes_in_mask_scores,
+    load_resource_as_video_frames,
+)
+from sam3.perflib.compile import compile_wrapper, shape_logging_wrapper
 from sam3.perflib.masks_to_boxes import masks_to_boxes as perf_masks_to_boxes
 
 logger = logging.getLogger(__name__)
@@ -239,9 +245,6 @@ class Sam3DenseTrackingDemoMultiGPU(Sam3DemoMixin, Sam3DenseTrackingMultiGPU):
         self.image_std = image_std
         self.compile_model = compile_model
 
-        self.bf16_context = torch.autocast(device_type="cuda", dtype=torch.bfloat16)
-        self.bf16_context.__enter__()
-
     @torch.inference_mode()
     def init_state(
         self,
@@ -265,6 +268,8 @@ class Sam3DenseTrackingDemoMultiGPU(Sam3DemoMixin, Sam3DenseTrackingMultiGPU):
         inference_state["sam2_inference_states"] = []
         inference_state["sam2_metadata"] = {}
         inference_state["feature_cache"] = {}
+        inference_state["cached_frame_outputs"] = {}
+        inference_state["is_image_only"] = is_image_type(resource_path)
         return inference_state
 
     def reset_state(self, inference_state):
@@ -273,6 +278,7 @@ class Sam3DenseTrackingDemoMultiGPU(Sam3DemoMixin, Sam3DenseTrackingMultiGPU):
         inference_state["sam2_inference_states"].clear()
         inference_state["sam2_metadata"].clear()
         inference_state["feature_cache"].clear()
+        inference_state["cached_frame_outputs"] = {}
 
     def _get_processing_order(
         self, inference_state, start_frame_idx, max_frame_num_to_track, reverse
@@ -331,8 +337,20 @@ class Sam3DenseTrackingDemoMultiGPU(Sam3DemoMixin, Sam3DenseTrackingMultiGPU):
             reverse=reverse,
         )
 
+        # Store max_frame_num_to_track in feature_cache for downstream methods
+        inference_state["feature_cache"]["tracking_bounds"] = {
+            "max_frame_num_to_track": max_frame_num_to_track,
+            "propagate_in_video_start_frame_idx": start_frame_idx,
+        }
+
         hotstart_buffer = []
         hotstart_removed_obj_ids = set()
+        # when deciding whether to output a masklet on `yield_frame_idx`, we check whether the object is confirmed
+        # in a future frame (`unconfirmed_frame_delay` frames after the current frame). For example, if we require
+        # an object to be detected in 3 consecutive frames to be confirmed, then we look 2 frames in the future --
+        # e.g., we output an object on frame 4 only if it becomes confirmed on frame 6.
+        unconfirmed_status_delay = self.masklet_confirmation_consecutive_det_thresh - 1
+        unconfirmed_obj_ids_per_frame = {}  # frame_idx -> hidden_obj_ids
         for frame_idx in tqdm(
             processing_order, desc="propagate_in_video", disable=self.rank > 0
         ):
@@ -349,6 +367,9 @@ class Sam3DenseTrackingDemoMultiGPU(Sam3DemoMixin, Sam3DenseTrackingMultiGPU):
                 # update the object IDs removed by hotstart so that we don't output them
                 if self.rank == 0:
                     hotstart_removed_obj_ids.update(out["removed_obj_ids"])
+                    unconfirmed_obj_ids = out.get("unconfirmed_obj_ids", None)
+                    if unconfirmed_obj_ids is not None:
+                        unconfirmed_obj_ids_per_frame[frame_idx] = unconfirmed_obj_ids
 
                 if frame_idx == end_frame_idx:
                     # we reached the end of propagation -- yield all frames in the buffer
@@ -371,11 +392,36 @@ class Sam3DenseTrackingDemoMultiGPU(Sam3DemoMixin, Sam3DenseTrackingMultiGPU):
                 ):
                     if self.rank == 0:
                         suppressed_obj_ids = yield_out["suppressed_obj_ids"]
+                        unconfirmed_status_frame_idx = (
+                            yield_frame_idx + unconfirmed_status_delay
+                            if not reverse
+                            else yield_frame_idx - unconfirmed_status_delay
+                        )
+
+                        # Clamp the frame index to stay within video bounds
+                        num_frames = inference_state["num_frames"]
+                        unconfirmed_status_frame_idx = max(
+                            0, min(unconfirmed_status_frame_idx, num_frames - 1)
+                        )
+
+                        unconfirmed_obj_ids = unconfirmed_obj_ids_per_frame.get(
+                            unconfirmed_status_frame_idx, None
+                        )
                         postprocessed_out = self._postprocess_output(
                             inference_state,
                             yield_out,
                             hotstart_removed_obj_ids,
                             suppressed_obj_ids,
+                            unconfirmed_obj_ids,
+                        )
+
+                        self._cache_frame_outputs(
+                            inference_state,
+                            yield_frame_idx,
+                            yield_out["obj_id_to_mask"],
+                            suppressed_obj_ids=suppressed_obj_ids,
+                            removed_obj_ids=hotstart_removed_obj_ids,
+                            unconfirmed_obj_ids=unconfirmed_obj_ids,
                         )
                     else:
                         postprocessed_out = None  # no output on other GPUs
@@ -403,6 +449,7 @@ class Sam3DenseTrackingDemoMultiGPU(Sam3DemoMixin, Sam3DenseTrackingMultiGPU):
             sam2_states_local_new,
             sam2_metadata_new,
             frame_stats,
+            sam2_obj_scores_global,
         ) = self._det_track_one_frame(
             frame_idx=frame_idx,
             num_frames=inference_state["num_frames"],
@@ -414,27 +461,51 @@ class Sam3DenseTrackingDemoMultiGPU(Sam3DemoMixin, Sam3DenseTrackingMultiGPU):
             feature_cache=inference_state["feature_cache"],
             orig_vid_height=inference_state["orig_height"],
             orig_vid_width=inference_state["orig_width"],
+            is_image_only=inference_state["is_image_only"],
         )
         # update inference state
         inference_state["sam2_inference_states"] = sam2_states_local_new
         inference_state["sam2_metadata"] = sam2_metadata_new
         # use a dummy string in "previous_stages_out" to indicate this frame has outputs
         inference_state["previous_stages_out"][frame_idx] = "_THIS_FRAME_HAS_OUTPUTS_"
-        out = {"obj_id_to_mask": obj_id_to_mask, "obj_id_to_score": obj_id_to_score}
+
+        if self.rank == 0:
+            self._cache_frame_outputs(inference_state, frame_idx, obj_id_to_mask)
+
+        out = {
+            "obj_id_to_mask": obj_id_to_mask,
+            "obj_id_to_score": obj_id_to_score,  # first frame detection score
+            "obj_id_to_sam2_score": sam2_metadata_new[
+                "obj_id_to_sam2_score_frame_wise"
+            ][frame_idx],
+        }
         # removed_obj_ids is only needed on rank 0 to handle hotstart delay buffer
         if self.rank == 0:
-            removed_obj_ids = sam2_metadata_new["rank0_metadata"]["removed_obj_ids"]
+            rank0_metadata = sam2_metadata_new["rank0_metadata"]
+            removed_obj_ids = rank0_metadata["removed_obj_ids"]
             out["removed_obj_ids"] = removed_obj_ids
-            out["suppressed_obj_ids"] = sam2_metadata_new["rank0_metadata"][
-                "suppressed_obj_ids"
-            ][frame_idx]
+            out["suppressed_obj_ids"] = rank0_metadata["suppressed_obj_ids"][frame_idx]
             out["frame_stats"] = frame_stats
+            if self.masklet_confirmation_enable:
+                status = rank0_metadata["masklet_confirmation"]["status"]
+                is_unconfirmed = status == MaskletConfirmationStatus.UNCONFIRMED.value
+                out["unconfirmed_obj_ids"] = sam2_metadata_new["obj_ids_all_gpu"][
+                    is_unconfirmed
+                ].tolist()
+            else:
+                out["unconfirmed_obj_ids"] = []
+
         return out
 
     def _postprocess_output(
-        self, inference_state, out, removed_obj_ids=None, suppressed_obj_ids=None
+        self,
+        inference_state,
+        out,
+        removed_obj_ids=None,
+        suppressed_obj_ids=None,
+        unconfirmed_obj_ids=None,
     ):
-        obj_id_to_mask = out["obj_id_to_mask"]
+        obj_id_to_mask = out["obj_id_to_mask"]  # low res masks
         curr_obj_ids = sorted(obj_id_to_mask.keys())
         H_video, W_video = inference_state["orig_height"], inference_state["orig_width"]
         if len(curr_obj_ids) == 0:
@@ -447,24 +518,34 @@ class Sam3DenseTrackingDemoMultiGPU(Sam3DemoMixin, Sam3DenseTrackingMultiGPU):
             out_probs = torch.tensor(
                 [out["obj_id_to_score"][obj_id] for obj_id in curr_obj_ids]
             )
+            out_sam2_probs = torch.tensor(
+                [
+                    (
+                        out["obj_id_to_sam2_score"][obj_id]
+                        if obj_id in out["obj_id_to_sam2_score"]
+                        else 0.0
+                    )
+                    for obj_id in curr_obj_ids
+                ]
+            )
             out_binary_masks = torch.cat(
                 [obj_id_to_mask[obj_id] for obj_id in curr_obj_ids], dim=0
             )
 
-            to_suppress = torch.zeros_like(out_obj_ids, dtype=torch.bool)
-            if suppressed_obj_ids is not None and len(suppressed_obj_ids) > 0:
-                suppressed_obj_ids = torch.tensor(
-                    list(suppressed_obj_ids), dtype=torch.int64
-                )
-                to_suppress = torch.isin(out_obj_ids, suppressed_obj_ids)
-            # remove masks with zero areas
             assert out_binary_masks.dtype == torch.bool
-            keep = out_binary_masks.any(dim=(1, 2)).cpu()
-            keep &= ~to_suppress
-            # remove outputs for those object IDs in `removed_obj_ids`
-            if removed_obj_ids is not None and len(removed_obj_ids) > 0:
-                removed = torch.tensor(list(removed_obj_ids), dtype=torch.int64)
-                keep &= ~torch.isin(out_obj_ids, removed)
+            keep = out_binary_masks.any(dim=(1, 2)).cpu()  # remove masks with 0 areas
+            # hide outputs for those object IDs in `obj_ids_to_hide`
+            obj_ids_to_hide = []
+            if suppressed_obj_ids is not None:
+                obj_ids_to_hide.extend(suppressed_obj_ids)
+            if removed_obj_ids is not None:
+                obj_ids_to_hide.extend(removed_obj_ids)
+            if unconfirmed_obj_ids is not None:
+                obj_ids_to_hide.extend(unconfirmed_obj_ids)
+            if len(obj_ids_to_hide) > 0:
+                obj_ids_to_hide_t = torch.tensor(obj_ids_to_hide, dtype=torch.int64)
+                keep &= ~torch.isin(out_obj_ids, obj_ids_to_hide_t)
+
             # slice those valid entries from the original outputs
             keep_idx = torch.nonzero(keep, as_tuple=True)[0]
             keep_idx_gpu = keep_idx.pin_memory().to(
@@ -473,6 +554,7 @@ class Sam3DenseTrackingDemoMultiGPU(Sam3DemoMixin, Sam3DenseTrackingMultiGPU):
 
             out_obj_ids = torch.index_select(out_obj_ids, 0, keep_idx)
             out_probs = torch.index_select(out_probs, 0, keep_idx)
+            out_sam2_probs = torch.index_select(out_sam2_probs, 0, keep_idx)
             out_binary_masks = torch.index_select(out_binary_masks, 0, keep_idx_gpu)
 
             if perflib.is_enabled:
@@ -489,6 +571,17 @@ class Sam3DenseTrackingDemoMultiGPU(Sam3DemoMixin, Sam3DenseTrackingMultiGPU):
             out_boxes_xywh[..., 2] /= W_video
             out_boxes_xywh[..., 3] /= H_video
 
+        # apply non-overlapping constraints on the existing masklets
+        if out_binary_masks.shape[0] > 1:
+            assert len(out_binary_masks) == len(out_sam2_probs)
+            out_binary_masks = (
+                self.sam2_predictor._apply_object_wise_non_overlapping_constraints(
+                    out_binary_masks.unsqueeze(1),
+                    out_sam2_probs.unsqueeze(1).to(out_binary_masks.device),
+                    background_value=0,
+                ).squeeze(1)
+            ) > 0
+
         outputs = {
             "out_obj_ids": out_obj_ids.cpu().numpy(),
             "out_probs": out_probs.cpu().numpy(),
@@ -497,6 +590,57 @@ class Sam3DenseTrackingDemoMultiGPU(Sam3DemoMixin, Sam3DenseTrackingMultiGPU):
             "frame_stats": out.get("frame_stats", None),
         }
         return outputs
+
+    def _cache_frame_outputs(
+        self,
+        inference_state,
+        frame_idx,
+        obj_id_to_mask,
+        suppressed_obj_ids=None,
+        removed_obj_ids=None,
+        unconfirmed_obj_ids=None,
+    ):
+        if "cached_frame_outputs" not in inference_state:
+            inference_state["cached_frame_outputs"] = {}
+
+        # Filter out suppressed, removed, and unconfirmed objects from the cache
+        filtered_obj_id_to_mask = obj_id_to_mask.copy()
+
+        objects_to_exclude = set()
+        if suppressed_obj_ids is not None:
+            objects_to_exclude.update(suppressed_obj_ids)
+        if removed_obj_ids is not None:
+            objects_to_exclude.update(removed_obj_ids)
+        if unconfirmed_obj_ids is not None:
+            objects_to_exclude.update(unconfirmed_obj_ids)
+
+        if objects_to_exclude:
+            for obj_id in objects_to_exclude:
+                if obj_id in filtered_obj_id_to_mask:
+                    del filtered_obj_id_to_mask[obj_id]
+
+        inference_state["cached_frame_outputs"][frame_idx] = filtered_obj_id_to_mask
+
+    def _build_sam2_output(
+        self, inference_state, frame_idx, refined_obj_id_to_mask=None
+    ):
+        assert (
+            "cached_frame_outputs" in inference_state
+            and frame_idx in inference_state["cached_frame_outputs"]
+        ), "No cached outputs found. Ensure normal propagation has run first to populate the cache."
+        cached_outputs = inference_state["cached_frame_outputs"][frame_idx]
+
+        obj_id_to_mask = cached_outputs.copy()
+
+        # Update with refined masks if provided
+        if refined_obj_id_to_mask is not None:
+            for obj_id, refined_mask in refined_obj_id_to_mask.items():
+                assert (
+                    refined_mask is not None
+                ), f"Refined mask data must be provided for obj_id {obj_id}"
+                obj_id_to_mask[obj_id] = refined_mask
+
+        return obj_id_to_mask
 
     def _compile_model(self):
         """Compile the SAM model with torch.compile for speedup."""
@@ -509,7 +653,7 @@ class Sam3DenseTrackingDemoMultiGPU(Sam3DemoMixin, Sam3DenseTrackingMultiGPU):
 
         # a larger cache size to hold varying number of shapes for torch.compile
         # see https://github.com/pytorch/pytorch/blob/v2.5.1/torch/_dynamo/config.py#L42-L49
-        torch._dynamo.config.cache_size_limit = 64
+        torch._dynamo.config.cache_size_limit = 128
         torch._dynamo.config.accumulated_cache_size_limit = 2048
         torch._dynamo.config.capture_scalar_outputs = True
         torch._dynamo.config.suppress_errors = True
@@ -560,11 +704,14 @@ class Sam3DenseTrackingDemoMultiGPU(Sam3DemoMixin, Sam3DenseTrackingMultiGPU):
             dynamic=False,
         )
 
-        self.sam2_predictor.transformer.encoder.forward = compile_wrapper(
-            self.sam2_predictor.transformer.encoder.forward,
-            mode="max-autotune",
-            fullgraph=True,
-            dynamic=True,  # Num. of memories varies
+        self.sam2_predictor.transformer.encoder.forward = shape_logging_wrapper(
+            compile_wrapper(
+                self.sam2_predictor.transformer.encoder.forward,
+                mode="max-autotune-no-cudagraphs",
+                fullgraph=True,
+                dynamic=True,
+            ),
+            keep_kwargs=["src", "src_pos", "prompt", "prompt_pos"],
         )
 
         self.sam2_predictor.sam_mask_decoder.forward = compile_wrapper(
@@ -575,6 +722,153 @@ class Sam3DenseTrackingDemoMultiGPU(Sam3DemoMixin, Sam3DenseTrackingMultiGPU):
         )
 
         self._model_is_compiled = True
+
+    def _warm_up_vg_propagation(self, inference_state, start_frame_idx=0):
+        # use different tracking score thresholds for each round to simulate different number of output objects
+        num_objects_list = range(self.num_obj_for_compile + 1)
+        new_det_score_thresh_list = [0.3, 0.5, 0.7]
+        num_rounds = len(new_det_score_thresh_list)
+        orig_new_det_thresh = self.new_det_thresh
+
+        for i, thresh in enumerate(new_det_score_thresh_list):
+            self.new_det_thresh = thresh
+            for num_objects in num_objects_list:
+                logger.info(f"{i+1}/{num_rounds} warming up model compilation")
+                self.add_prompt(
+                    inference_state, frame_idx=start_frame_idx, text_str="cat"
+                )
+                logger.info(
+                    f"{i+1}/{num_rounds} warming up model compilation -- simulating {num_objects}/{self.num_obj_for_compile} objects"
+                )
+                inference_state = self.add_fake_objects_to_inference_state(
+                    inference_state, num_objects, frame_idx=start_frame_idx
+                )
+                inference_state["sam2_metadata"]["rank0_metadata"].update(
+                    {
+                        "masklet_confirmation": {
+                            "status": np.zeros(num_objects, dtype=np.int64),
+                            "consecutive_det_num": np.zeros(
+                                num_objects, dtype=np.int64
+                            ),
+                        }
+                    }
+                )
+                for _ in self.propagate_in_video(
+                    inference_state, start_frame_idx, reverse=False
+                ):
+                    pass
+                for _ in self.propagate_in_video(
+                    inference_state, start_frame_idx, reverse=True
+                ):
+                    pass
+                self.reset_state(inference_state)
+                logger.info(
+                    f"{i+1}/{num_rounds} warming up model compilation -- completed round {i+1} out of {num_rounds}"
+                )
+
+        # Warm up SAM2 memory encoder with varying input shapes
+        num_iters = 3
+        feat_size = self.sam2_predictor.sam_image_embedding_size**2  # 72 * 72 = 5184
+        hidden_dim = self.sam2_predictor.hidden_dim  # 256
+        mem_dim = self.sam2_predictor.mem_dim  # 64
+        for _ in tqdm(range(num_iters)):
+            for b in range(1, self.num_obj_for_compile + 1):
+                for i in range(
+                    1,
+                    self.sam2_predictor.max_cond_frames_in_attn
+                    + self.sam2_predictor.num_maskmem,
+                ):
+                    for j in range(
+                        self.sam2_predictor.max_cond_frames_in_attn
+                        + self.sam2_predictor.max_obj_ptrs_in_encoder
+                    ):
+                        num_obj_ptr_tokens = (hidden_dim // mem_dim) * j
+                        src = torch.randn(feat_size, b, hidden_dim, device=self.device)
+                        src_pos = torch.randn(
+                            feat_size, b, hidden_dim, device=self.device
+                        )
+                        prompt = torch.randn(
+                            feat_size * i + num_obj_ptr_tokens,
+                            b,
+                            mem_dim,
+                            device=self.device,
+                        )
+                        prompt_pos = torch.randn(
+                            feat_size * i + num_obj_ptr_tokens,
+                            b,
+                            mem_dim,
+                            device=self.device,
+                        )
+
+                        self.sam2_predictor.transformer.encoder.forward(
+                            src=src,
+                            src_pos=src_pos,
+                            prompt=prompt,
+                            prompt_pos=prompt_pos,
+                            num_obj_ptr_tokens=num_obj_ptr_tokens,
+                        )
+
+        self.new_det_thresh = orig_new_det_thresh
+        return inference_state
+
+    def add_fake_objects_to_inference_state(
+        self, inference_state, num_objects, frame_idx
+    ):
+        new_det_obj_ids_local = np.arange(num_objects)
+        high_res_H, high_res_W = (
+            self.sam2_predictor.maskmem_backbone.mask_downsampler.interpol_size
+        )
+        new_det_masks = torch.ones(
+            len(new_det_obj_ids_local), high_res_H, high_res_W
+        ).to(self.device)
+
+        inference_state["sam2_inference_states"] = self._sam2_add_new_objects(
+            frame_idx=frame_idx,
+            num_frames=inference_state["num_frames"],
+            new_obj_ids=new_det_obj_ids_local,
+            new_obj_masks=new_det_masks,
+            sam2_states_local=inference_state["sam2_inference_states"],
+            orig_vid_height=inference_state["orig_height"],
+            orig_vid_width=inference_state["orig_width"],
+            feature_cache=inference_state["feature_cache"],
+        )
+
+        # Synthesize obj_id_to_mask data for cached_frame_outputs to support _build_sam2_output during warmup
+        obj_id_to_mask = {}
+        if num_objects > 0:
+            H_video = inference_state["orig_height"]
+            W_video = inference_state["orig_width"]
+
+            video_res_masks = F.interpolate(
+                new_det_masks.unsqueeze(1),  # Add channel dimension for interpolation
+                size=(H_video, W_video),
+                mode="bilinear",
+                align_corners=False,
+            )  # (num_objects, 1, H_video, W_video)
+            for i, obj_id in enumerate(new_det_obj_ids_local):
+                obj_id_to_mask[obj_id] = (video_res_masks[i] > 0.0).to(torch.bool)
+        if self.rank == 0:
+            for fidx in range(inference_state["num_frames"]):
+                self._cache_frame_outputs(inference_state, fidx, obj_id_to_mask)
+
+        inference_state["sam2_metadata"].update(
+            {
+                "obj_ids_per_gpu": [np.arange(num_objects)],
+                "obj_ids_all_gpu": np.arange(num_objects),  # Same as 1 GPU
+                "num_obj_per_gpu": [num_objects],
+                "obj_id_to_score": {i: 1.0 for i in range(num_objects)},
+                "max_obj_id": num_objects,
+                "rank0_metadata": {
+                    "masklet_confirmation": {
+                        "status": np.zeros(num_objects, dtype=np.int64),
+                        "consecutive_det_num": np.zeros(num_objects, dtype=np.int64),
+                    },
+                    "removed_obj_ids": set(),
+                    "suppressed_obj_ids": defaultdict(set),
+                },
+            }
+        )
+        return inference_state
 
     @torch.inference_mode()
     @torch.autocast(device_type="cuda", dtype=torch.bfloat16)
@@ -596,75 +890,24 @@ class Sam3DenseTrackingDemoMultiGPU(Sam3DemoMixin, Sam3DenseTrackingMultiGPU):
         orig_world_size = self.world_size
         self.rank = self.sam3_model.rank = 0
         self.world_size = self.sam3_model.world_size = 1
+        orig_recondition_every_nth_frame = self.recondition_every_nth_frame
+        # self.recondition_every_nth_frame = 2
 
         # Get a random video
-        orig_new_det_thresh = self.new_det_thresh
         inference_state = self.init_state(resource_path="<load-dummy-video-30>")
-        # use different tracking score thresholds for each round to simulate different number of output objects
-        num_objects_list = range(self.num_obj_for_compile + 1)
-        new_det_score_thresh_list = [0.3, 0.5, 0.7]
-        num_rounds = len(new_det_score_thresh_list)
-        for i, thresh in enumerate(new_det_score_thresh_list):
-            self.new_det_thresh = thresh
-            for num_objects in num_objects_list:
-                # start at different locations for each round
-                start_frame_idx = 0
-                logger.info(f"{i+1}/{num_rounds} warming up model compilation")
-                self.add_prompt(
-                    inference_state, frame_idx=start_frame_idx, text_str="cat"
-                )
-                logger.info(
-                    f"{i+1}/{num_rounds} warming up model compilation -- simulating {num_objects} objects"
-                )
-                new_det_obj_ids_local = np.arange(num_objects)
-                new_det_masks = torch.ones(
-                    len(new_det_obj_ids_local),
-                    self.sam2_predictor.low_res_mask_size,
-                    self.sam2_predictor.low_res_mask_size,
-                ).to(self.device)
-                sam2_states_local = self._sam2_add_new_objects(
-                    frame_idx=start_frame_idx,
-                    num_frames=inference_state["num_frames"],
-                    new_obj_ids=new_det_obj_ids_local,
-                    new_obj_masks=new_det_masks,
-                    sam2_states_local=inference_state["sam2_inference_states"],
-                    orig_vid_height=inference_state["orig_height"],
-                    orig_vid_width=inference_state["orig_width"],
-                    feature_cache=inference_state["feature_cache"],
-                )
-                inference_state["sam2_inference_states"] = sam2_states_local
+        start_frame_idx = 0
 
-                inference_state["sam2_metadata"].update(
-                    {
-                        "obj_ids_per_gpu": [np.array(list(range(num_objects)))],
-                        "obj_ids_all_gpu": np.array(
-                            list(range(num_objects))
-                        ),  # Same as 1 GPU
-                        "num_obj_per_gpu": [num_objects],
-                        "obj_id_to_score": [num_objects] * (num_objects),
-                        "max_obj_id": num_objects,
-                    }
-                )
-                for _ in self.propagate_in_video(
-                    inference_state, start_frame_idx, reverse=False
-                ):
-                    pass
-                for _ in self.propagate_in_video(
-                    inference_state, start_frame_idx, reverse=True
-                ):
-                    pass
-                self.reset_state(inference_state)
-                logger.info(
-                    f"{i+1}/{num_rounds} warming up model compilation -- completed round {i+1} out of {num_rounds}"
-                )
+        # Run basic propagation warm-up
+        inference_state = self._warm_up_vg_propagation(inference_state, start_frame_idx)
 
-        self.new_det_thresh = orig_new_det_thresh
         logger.info("Warm-up compilation completed.")
 
         # revert to the original GPU and rank
         self.rank = self.sam3_model.rank = orig_rank
         self.world_size = self.sam3_model.world_size = orig_world_size
+        self.recondition_every_nth_frame = orig_recondition_every_nth_frame
         self._warm_up_complete = True
+        self.sam2_predictor.transformer.encoder.forward.set_logging(True)
 
     @torch.inference_mode()
     def add_prompt(
@@ -700,6 +943,15 @@ class Sam3DenseTrackingDemoMultiGPU(Sam3DemoMixin, Sam3DenseTrackingMultiGPU):
             0 <= frame_idx < num_frames
         ), f"{frame_idx=} is out of range for a total of {num_frames} frames"
 
+        assert clear_old_boxes, "clear old boxes must be True"
+
+        assert (
+            points is None and clear_old_points is True and point_labels is None
+        ), "Point prompts not accepted"
+
+        # since it's a semantic prompt, we start over
+        self.reset_state(inference_state)
+
         # 1) add text prompt
         if text_str is not None:
             inference_state["text_prompt"] = text_str
@@ -709,36 +961,7 @@ class Sam3DenseTrackingDemoMultiGPU(Sam3DemoMixin, Sam3DenseTrackingMultiGPU):
                 text_id = self.TEXT_ID_FOR_TEXT
                 inference_state["input_batch"].find_inputs[t].text_ids[...] = text_id
 
-        # 2) add geometric prompt (points or boxes)
-        # start with an empty geometric_prompt (we later add previous point and box prompts
-        # from "per_frame_raw_point_input" and "per_frame_raw_box_input" below)
-        geometric_prompt = inference_state["constants"][
-            "empty_geometric_prompt"
-        ].clone()
-
-        # 2.1) handle point prompt
-        assert (points is not None) == (point_labels is not None)
-        if points is not None:
-            points = torch.as_tensor(points, dtype=torch.float32)
-            point_labels = torch.as_tensor(point_labels, dtype=torch.long)
-            assert points.dim() == 2
-            assert points.size(0) > 0 and points.size(-1) == 2
-            assert point_labels.dim() == 1 and point_labels.size(0) == points.size(0)
-            assert torch.all(points >= 0).item() and torch.all(points <= 1).item()
-            # append previous points under `clear_old_points=False`
-            prev_point_input = inference_state["per_frame_raw_point_input"][frame_idx]
-            if prev_point_input is not None and not clear_old_points:
-                prev_points, prev_point_labels = prev_point_input
-                points = torch.cat([prev_points, points], dim=0)
-                point_labels = torch.cat([prev_point_labels, point_labels], dim=0)
-            new_point_input = points, point_labels
-            inference_state["per_frame_raw_point_input"][frame_idx] = new_point_input
-            # add a batch dimensions (note that it's sequence first)
-            points = points.unsqueeze(1).to(device)
-            point_labels = point_labels.unsqueeze(1).to(device)
-            geometric_prompt.append_points(points=points, labels=point_labels)
-
-        # 2.2) handle box prompt
+        # 2) handle box prompt
         assert (boxes_xywh is not None) == (box_labels is not None)
         if boxes_xywh is not None:
             boxes_xywh = torch.as_tensor(boxes_xywh, dtype=torch.float32)
@@ -751,47 +974,18 @@ class Sam3DenseTrackingDemoMultiGPU(Sam3DemoMixin, Sam3DenseTrackingMultiGPU):
             boxes_cxcywh = box_xywh_to_cxcywh(boxes_xywh)
             assert (boxes_xywh >= 0).all().item() and (boxes_xywh <= 1).all().item()
             assert (boxes_cxcywh >= 0).all().item() and (boxes_cxcywh <= 1).all().item()
-            # append previous boxes under `clear_old_boxes=False`
-            prev_box_input = inference_state["per_frame_raw_box_input"][frame_idx]
-            if prev_box_input is not None and not clear_old_boxes:
-                prev_boxes_cxcywh, prev_box_labels = prev_box_input
-                boxes_cxcywh = torch.cat([prev_boxes_cxcywh, boxes_cxcywh], dim=0)
-                box_labels = torch.cat([prev_box_labels, box_labels], dim=0)
+
             new_box_input = boxes_cxcywh, box_labels
             inference_state["per_frame_raw_box_input"][frame_idx] = new_box_input
 
             # handle the case of visual prompt (also added as an input box from the UI)
-            boxes_cxcywh, box_labels, new_visual_prompt = self._get_visual_prompt(
+            boxes_cxcywh, box_labels, geometric_prompt = self._get_visual_prompt(
                 inference_state, frame_idx, boxes_cxcywh, box_labels
             )
-            # add a batch dimensions (note that it's sequence first)
-            boxes_cxcywh = boxes_cxcywh.unsqueeze(1).to(device)
-            box_labels = box_labels.unsqueeze(1).to(device)
-            geometric_prompt.append_boxes(boxes=boxes_cxcywh, labels=box_labels)
-        else:
-            new_visual_prompt = None
 
-        inference_state["per_frame_geometric_prompt"][frame_idx] = geometric_prompt
+            inference_state["per_frame_geometric_prompt"][frame_idx] = geometric_prompt
 
-        # 3) run inference on this frame
         inference_state["backbone_out"] = self._init_backbone_out(inference_state)
-        if new_visual_prompt is not None:
-            # add the visual prompt into the input batch and encode it (currently the added
-            # visual prompt is applied to *all* frames, i.e. not just this prompted frame)
-            for t in range(inference_state["num_frames"]):
-                text_id = self.TEXT_ID_FOR_VISUAL
-                inference_state["input_batch"].find_inputs[t].text_ids[...] = text_id
-            # currently visual prompt is encoded the same way (`_encode_prompt`) as geometric prompt
-            visual_prompt_embed, visual_prompt_mask, _backbone_out = (
-                self._encode_prompt(
-                    backbone_out=inference_state["backbone_out"],
-                    find_input=inference_state["input_batch"].find_inputs[frame_idx],
-                    geometric_prompt=new_visual_prompt,
-                )
-            )
-            inference_state["visual_prompt_embed"] = visual_prompt_embed
-            inference_state["visual_prompt_mask"] = visual_prompt_mask
-
         out = self._run_single_frame_inference(
             inference_state, frame_idx, reverse=False
         )
@@ -871,17 +1065,23 @@ class Sam3DenseTrackingDemoMultiGPUWithInstanceInteractivity(
     def __init__(
         self,
         use_prev_mem_frame=False,
-        refinement_removal_iou_thd=0.5,
+        use_stateless_refinement=False,
+        refinement_detector_cond_frame_removal_window=16,
         **kwargs,
     ):
         """
         use_prev_mem_frame: bool, whether to condition on previous memory frames for adding points
-        refinement_removal_iou_thd: float, in range (0, 1), remove an object if it overlaps
-            (iou > `refinement_removal_iou_thd`) with a refined object
+        use_stateless_refinement: bool, whether to enable stateless refinement behavior
+        refinement_detector_cond_frame_removal_window: int, we remove a detector conditioning frame if it
+            is within this many frames of a user refined frame. Set to a large value (e.g. 10000) to
+            always remove detector conditioning frames if there is any user refinement in the video.
         """
         super().__init__(**kwargs)
         self.use_prev_mem_frame = use_prev_mem_frame
-        self.refinement_removal_iou_thd = refinement_removal_iou_thd
+        self.use_stateless_refinement = use_stateless_refinement
+        self.refinement_detector_cond_frame_removal_window = (
+            refinement_detector_cond_frame_removal_window
+        )
 
     @torch.inference_mode()
     def init_state(
@@ -971,11 +1171,41 @@ class Sam3DenseTrackingDemoMultiGPUWithInstanceInteractivity(
             max_frame_num_to_track=max_frame_num_to_track,
             reverse=reverse,
         )
+
+        sam2_metadata = inference_state["sam2_metadata"]
+
+        # if fetch just return from output
+        if propagation_type == "propagation_fetch":
+            for frame_idx in tqdm(processing_order):
+                if self.rank == 0:
+                    obj_id_to_mask = inference_state["cached_frame_outputs"][frame_idx]
+                    # post processing - remove suppressed obj_ids
+                    obj_id_to_score = sam2_metadata["obj_id_to_score"]
+                    suppressed_obj_ids = sam2_metadata["rank0_metadata"][
+                        "suppressed_obj_ids"
+                    ][frame_idx]
+                    obj_id_to_sam2_score = sam2_metadata[
+                        "obj_id_to_sam2_score_frame_wise"
+                    ][frame_idx]
+
+                    out = {
+                        "obj_id_to_mask": obj_id_to_mask,
+                        "obj_id_to_score": obj_id_to_score,
+                        "obj_id_to_sam2_score": obj_id_to_sam2_score,
+                    }
+                    yield (
+                        frame_idx,
+                        self._postprocess_output(
+                            inference_state, out, suppressed_obj_ids=suppressed_obj_ids
+                        ),
+                    )
+                else:
+                    yield frame_idx, None
+
+            return
+
         # get SAM2 inference states containing selected obj_ids
         if propagation_type == "propagation_partial":
-            assert (
-                obj_ids is not None
-            ), "obj_ids must be provided for partial propagation"
             # can be empty for GPUs where objects are not in their inference states
             sam2_states_local = self._get_sam2_inference_states_by_obj_ids(
                 inference_state, obj_ids
@@ -985,168 +1215,108 @@ class Sam3DenseTrackingDemoMultiGPUWithInstanceInteractivity(
                     sam2_state, run_mem_encoder=True
                 )
 
-        all_overlap_obj_ids = set()
-        sam2_metadata = inference_state["sam2_metadata"]
         for frame_idx in tqdm(processing_order):
-            # get existing VG outputs for the current frame
-            obj_id_to_mask_local = self.get_sam2_output_per_frame(
-                inference_state, frame_idx, resize_to_video_res=False
-            )
             # run SAM2 propagation
             if propagation_type == "propagation_partial":
                 self._prepare_backbone_feats(inference_state, frame_idx, reverse)
-                # TODO: to be optimized by running inference only on selected objects
-                _obj_ids, _low_res_masks = self._propogate_sam2_one_frame_local_gpu(
-                    sam2_states_local,
-                    frame_idx=frame_idx,
-                    reverse=reverse,
-                    run_mem_encoder=True,
-                )
-                if len(_obj_ids) > 0:
-                    obj_id_to_mask_local.update(dict(zip(_obj_ids, _low_res_masks)))
-
-            # concatenate the output masklets from all local inference states
-            H_mask = W_mask = self.sam2_predictor.low_res_mask_size
-            obj_ids_local = sam2_metadata["obj_ids_per_gpu"][self.rank]
-            low_res_masks_local = []
-            for obj_id in obj_ids_local:
-                if obj_id in obj_id_to_mask_local:
-                    low_res_masks_local.append(obj_id_to_mask_local[obj_id])
-                else:
-                    low_res_masks_local.append(
-                        torch.full((H_mask, W_mask), -1024.0, device=self.device)
+                obj_ids_local, low_res_masks_local, sam2_scores_local = (
+                    self._propogate_sam2_one_frame_local_gpu(
+                        sam2_states_local,
+                        frame_idx=frame_idx,
+                        reverse=reverse,
+                        run_mem_encoder=True,
                     )
-            if len(low_res_masks_local) > 0:
-                low_res_masks_local = torch.stack(
-                    low_res_masks_local, dim=0
-                )  # (N, H, W)
-                assert low_res_masks_local.shape[1:] == (H_mask, W_mask)
-            else:
-                low_res_masks_local = torch.zeros(0, H_mask, W_mask, device=self.device)
-
-            # all-gather `low_res_masks_local` into `low_res_masks_global`
-            # - low_res_masks_global: Tensor -- (num_global_obj, H_mask, W_mask)
-            if self.world_size > 1:
-                low_res_masks_local = low_res_masks_local.contiguous()
-                low_res_masks_peers = [
-                    low_res_masks_local.new_empty(num_obj, H_mask, W_mask)
-                    for num_obj in sam2_metadata["num_obj_per_gpu"]
-                ]
-                dist.all_gather(low_res_masks_peers, low_res_masks_local)
-                low_res_masks_global = torch.cat(low_res_masks_peers, dim=0)
-            else:
-                low_res_masks_global = low_res_masks_local
-
-            # format data for output
-            existing_masklet_obj_ids = sam2_metadata["obj_ids_all_gpu"]
-            existing_masklet_video_res_masks = F.interpolate(
-                low_res_masks_global.unsqueeze(1),
-                size=(inference_state["orig_height"], inference_state["orig_width"]),
-                mode="bilinear",
-                align_corners=False,
-            )  # (num_obj, 1, H_video, W_video)
-            existing_masklet_binary = existing_masklet_video_res_masks > 0
-            assert len(existing_masklet_obj_ids) == len(existing_masklet_binary)
-            obj_id_to_mask = dict(
-                zip(existing_masklet_obj_ids, existing_masklet_binary)
-            )  # obj_id -> (1, H_video, W_video)
-            obj_id_to_score = sam2_metadata["obj_id_to_score"]
-
-            # remove overlapping objects (with high IoU) with refined objects to avoid duplicates
-            if obj_ids is not None and len(obj_ids) > 0:
-                obj_id_to_low_res_mask = dict(
-                    zip(existing_masklet_obj_ids, low_res_masks_global.unsqueeze(1) > 0)
-                )  # obj_id -> (1, H_mask, W_mask)
-                overlap_obj_ids = self.get_overlap_obj_ids(
-                    obj_id_to_low_res_mask,
-                    obj_ids,
-                    iou_thd=self.refinement_removal_iou_thd,
                 )
-                all_overlap_obj_ids.update(overlap_obj_ids)
-                # remove obj_id in all the following frames if an obj_id has been removed before.
-                obj_id_to_mask = {
-                    k: v
-                    for k, v in obj_id_to_mask.items()
-                    if k not in all_overlap_obj_ids
-                }
-                obj_id_to_score = {
-                    k: v
-                    for k, v in obj_id_to_score.items()
-                    if k not in all_overlap_obj_ids
-                }
 
-            # pack results
-            out = {"obj_id_to_mask": obj_id_to_mask, "obj_id_to_score": obj_id_to_score}
+                # broadcast refined object sam2 scores and masks to all GPUs
+                # handle multiple objects that can be located on different GPUs
+                refined_obj_data = {}  # obj_id -> (score, mask_video_res)
 
-            yield (
-                frame_idx,
-                self._postprocess_output(
-                    inference_state,
-                    out,
-                ),
-            )
+                # Collect data for objects on this GPU
+                local_obj_data = {}
+                for obj_id in obj_ids:
+                    obj_rank = self._get_gpu_id_by_obj_id(inference_state, obj_id)
+                    if self.rank == obj_rank and obj_id in obj_ids_local:
+                        refined_obj_idx = obj_ids_local.index(obj_id)
+                        refined_mask_low_res = low_res_masks_local[
+                            refined_obj_idx
+                        ]  # (H_low_res, W_low_res)
+                        refined_score = sam2_scores_local[refined_obj_idx]
 
-        all_overlap_obj_ids, sam2_metadata = self._gather_all_overlap_obj_ids(
-            all_overlap_obj_ids, sam2_metadata
-        )
-        inference_state["sam2_metadata"] = sam2_metadata
-        if len(all_overlap_obj_ids) > 0:
-            # Remove the overlapped objects. There is a chance that this would cause a discrepancy
-            # between online displayed masks and later on fetched masks, when the objects does not
-            # overlap with refined objects at its first appearance.
-            for obj_id in all_overlap_obj_ids:
-                self.remove_object(inference_state, obj_id, is_user_action=False)
-            logger.info(
-                f"Removed overlapping object IDs under thd={self.refinement_removal_iou_thd}: {all_overlap_obj_ids}"
-            )
+                        # Keep low resolution for broadcasting to reduce communication cost
+                        local_obj_data[obj_id] = (refined_score, refined_mask_low_res)
 
-    def _gather_all_overlap_obj_ids(self, all_overlap_obj_ids, sam2_metadata):
-        # gather overlap_obj_ids across all GPUs
-        assert isinstance(all_overlap_obj_ids, set)
-        if self.world_size > 1:
-            obj_list = [None] * self.world_size
-            self.all_gather_python_obj_cpu(obj_list, all_overlap_obj_ids)
-            all_overlap_obj_ids = reduce((lambda x, y: x | y), obj_list)
+                # Broadcast data from each GPU that has refined objects
+                if self.world_size > 1:
+                    for obj_id in obj_ids:
+                        obj_rank = self._get_gpu_id_by_obj_id(inference_state, obj_id)
+                        if self.rank == obj_rank:
+                            # This GPU has the object, broadcast its data
+                            data_to_broadcast = local_obj_data.get(obj_id, None)
+                            data_list = [data_to_broadcast]
+                            self.broadcast_python_obj_cpu(data_list, src=obj_rank)
+                            if data_to_broadcast is not None:
+                                refined_obj_data[obj_id] = data_to_broadcast
+                        elif self.rank != obj_rank:
+                            # This GPU doesn't have the object, receive data
+                            data_list = [None]
+                            self.broadcast_python_obj_cpu(data_list, src=obj_rank)
+                            if data_list[0] is not None:
+                                refined_obj_data[obj_id] = data_list[0]
+                else:
+                    # Single GPU case
+                    refined_obj_data = local_obj_data
 
-        # update the object list in metadata if we have new objects to remove
-        for rank in range(self.world_size):
-            obj_ids_this_gpu = sam2_metadata["obj_ids_per_gpu"][rank]
-            is_removed = np.isin(obj_ids_this_gpu, all_overlap_obj_ids)
-            obj_ids_this_gpu = obj_ids_this_gpu[~is_removed]
-            sam2_metadata["obj_ids_per_gpu"][rank] = obj_ids_this_gpu
-            sam2_metadata["num_obj_per_gpu"][rank] = len(obj_ids_this_gpu)
-        sam2_metadata["obj_ids_all_gpu"] = np.concatenate(
-            sam2_metadata["obj_ids_per_gpu"]
-        )
-        return all_overlap_obj_ids, sam2_metadata
+                # Update SAM2 scores for all refined objects
+                for obj_id, (refined_score, _) in refined_obj_data.items():
+                    sam2_metadata["obj_id_to_sam2_score_frame_wise"][frame_idx].update(
+                        {obj_id: refined_score.item()}
+                    )
 
-    def get_overlap_obj_ids(self, obj_id_to_mask, refined_obj_ids, iou_thd=0.75):
-        """Get obj_ids with high mask iou with `refined_obj_ids`.
+                if self.rank == 0:
+                    # get predictions from SAM2 inference states, it includes the original
+                    # VG predictions and the refined predictions from interactivity.
 
-        obj_id_to_mask: {obj_id: torch.bool tensor)}
-        refined_obj_ids: list of object ids that has updated masks.
-        iou_thd: IoU threshold to determine if a previous mask should be deleted.
-        """
-        refined_obj_ids = sorted(refined_obj_ids)
-        non_refined_obj_ids = sorted(set(obj_id_to_mask.keys()) - set(refined_obj_ids))
+                    # Prepare refined masks dictionary - upscale to video resolution after broadcast
+                    refined_obj_id_to_mask = {}
+                    for obj_id, (_, refined_mask_low_res) in refined_obj_data.items():
+                        refined_mask_video_res = (
+                            self._convert_low_res_mask_to_video_res(
+                                refined_mask_low_res, inference_state
+                            )
+                        )  # (1, H_video, W_video) bool
+                        refined_obj_id_to_mask[obj_id] = refined_mask_video_res
 
-        # if one of the obj_ids is empty, return
-        if len(refined_obj_ids) == 0 or len(non_refined_obj_ids) == 0:
-            return obj_id_to_mask
-
-        # compute IoUs between refined masks and non_refined masks
-        refined_masks = torch.cat(
-            [obj_id_to_mask[obj_id] for obj_id in refined_obj_ids], dim=0
-        )  # (M, H, W)
-        non_refined_masks = torch.cat(
-            [obj_id_to_mask[obj_id] for obj_id in non_refined_obj_ids], dim=0
-        )  # (N, H, W)
-        iou = mask_iou(non_refined_masks, refined_masks)  # (N, M)
-
-        # find the indices of masks in non_refined_masks that have high IoU with any refined_mask
-        high_iou_indices = torch.where((iou > iou_thd).any(dim=1))[0].tolist()  # (N,)
-        high_iou_obj_ids = [non_refined_obj_ids[e] for e in high_iou_indices]
-        return high_iou_obj_ids
+                    obj_id_to_mask = self._build_sam2_output(
+                        inference_state, frame_idx, refined_obj_id_to_mask
+                    )
+                    out = {
+                        "obj_id_to_mask": obj_id_to_mask,
+                        "obj_id_to_score": sam2_metadata["obj_id_to_score"],
+                        "obj_id_to_sam2_score": sam2_metadata[
+                            "obj_id_to_sam2_score_frame_wise"
+                        ][frame_idx],
+                    }
+                    suppressed_obj_ids = sam2_metadata["rank0_metadata"][
+                        "suppressed_obj_ids"
+                    ][frame_idx]
+                    self._cache_frame_outputs(
+                        inference_state,
+                        frame_idx,
+                        obj_id_to_mask,
+                        suppressed_obj_ids=suppressed_obj_ids,
+                    )
+                    suppressed_obj_ids = sam2_metadata["rank0_metadata"][
+                        "suppressed_obj_ids"
+                    ][frame_idx]
+                    yield (
+                        frame_idx,
+                        self._postprocess_output(
+                            inference_state, out, suppressed_obj_ids=suppressed_obj_ids
+                        ),
+                    )
+                else:
+                    yield frame_idx, None
 
     def add_action_history(
         self, inference_state, action_type, frame_idx=None, obj_ids=None
@@ -1170,6 +1340,16 @@ class Sam3DenseTrackingDemoMultiGPUWithInstanceInteractivity(
             "obj_ids": obj_ids,
         }
         inference_state["action_history"].append(action)
+
+    def _has_object_been_refined(self, inference_state, obj_id):
+        if "action_history" not in inference_state:
+            return False
+        action_history = inference_state["action_history"]
+        for action in action_history:
+            if action["type"] in ["add", "refine"] and action.get("obj_ids"):
+                if obj_id in action["obj_ids"]:
+                    return True
+        return False
 
     def parse_action_history_for_propagation(self, inference_state):
         """
@@ -1261,6 +1441,13 @@ class Sam3DenseTrackingDemoMultiGPUWithInstanceInteractivity(
         )
         sam2_metadata["obj_id_to_score"].pop(obj_id, None)
         # sam2_metadata["max_obj_id"] # we do not reuse the object id, so we do not update it here
+
+        # Clean up cached frame outputs to remove references to the deleted object
+        if "cached_frame_outputs" in inference_state:
+            for frame_idx in inference_state["cached_frame_outputs"]:
+                frame_cache = inference_state["cached_frame_outputs"][frame_idx]
+                if obj_id in frame_cache:
+                    del frame_cache[obj_id]
 
     def _get_gpu_id_by_obj_id(self, inference_state, obj_id):
         """
@@ -1367,6 +1554,8 @@ class Sam3DenseTrackingDemoMultiGPUWithInstanceInteractivity(
         """Add a new point prompt to SAM2. Suppporting instance refinement to existing
         objects by passing existing obj_id or adding a new object by passing a new obj_id.
         use_prev_mem_frame=False to disable cross attention to previous memory frames.
+        Every GPU returns the same results, and results should contain all masks including
+        these masks not refined or not added by the current user points.
         """
         assert obj_id is not None, "obj_id must be provided to add new points"
         sam2_metadata = inference_state["sam2_metadata"]
@@ -1379,7 +1568,21 @@ class Sam3DenseTrackingDemoMultiGPUWithInstanceInteractivity(
         # prepare feature
         self._prepare_backbone_feats(inference_state, frame_idx, reverse=False)
 
+        object_has_been_refined = self._has_object_been_refined(inference_state, obj_id)
+        if (
+            obj_rank is not None
+            and self.use_stateless_refinement
+            and not object_has_been_refined
+        ):
+            # The first time we start refinement on the object, we remove it.
+            logger.info(
+                f"[rank={self.rank}] Removing object {obj_id} before refinement."
+            )
+            self.remove_object(inference_state, obj_id, is_user_action=False)
+            obj_rank = None
+
         if obj_rank is None:
+            # new object, we assign it a GPU and create a new inference state if limit allows
             num_prev_obj = np.sum(sam2_metadata["num_obj_per_gpu"])
             if num_prev_obj >= self.max_num_objects:
                 logger.warning(
@@ -1394,21 +1597,20 @@ class Sam3DenseTrackingDemoMultiGPUWithInstanceInteractivity(
                 video_res_masks = torch.zeros(0, 1, H_video_res, W_video_res)
                 return frame_idx, obj_ids, low_res_masks, video_res_masks
 
-            # new object, we assign it a GPU and create a new inference state
             new_det_gpu_ids = self._assign_new_det_to_gpus(
                 new_det_num=1,
-                num_prev_obj_per_gpu=sam2_metadata["num_obj_per_gpu"],
+                prev_workload_per_gpu=sam2_metadata["num_obj_per_gpu"],
             )
             obj_rank = new_det_gpu_ids[0]
 
             # get sam2 inference state for the new object
             if self.rank == obj_rank:
                 if self.sam2_predictor.per_obj_inference:
-                    new_sam2_state = inference_state["sam2_inference_states"][0]
+                    sam2_state = inference_state["sam2_inference_states"][0]
                 else:
                     # for batched inference, we create a new inference state
-                    new_sam2_state = self._init_new_sam2_state(inference_state)
-                    inference_state["sam2_inference_states"].append(new_sam2_state)
+                    sam2_state = self._init_new_sam2_state(inference_state)
+                    inference_state["sam2_inference_states"].append(sam2_state)
 
             # update metadata
             sam2_metadata["obj_ids_per_gpu"][obj_rank] = np.concatenate(
@@ -1424,9 +1626,6 @@ class Sam3DenseTrackingDemoMultiGPUWithInstanceInteractivity(
                 sam2_metadata["obj_ids_per_gpu"]
             )
             sam2_metadata["max_obj_id"] = max(sam2_metadata["max_obj_id"], obj_id)
-            sam2_metadata["obj_id_to_score"][
-                obj_id
-            ] = 1.0  # assign a high score to user added object
 
             logger.info(
                 f"[rank={self.rank}] Adding new object with id {obj_id} at frame {frame_idx}."
@@ -1435,15 +1634,15 @@ class Sam3DenseTrackingDemoMultiGPUWithInstanceInteractivity(
                 inference_state, "add", frame_idx=frame_idx, obj_ids=[obj_id]
             )
         else:
-            # existing object
+            # existing object, for refinement
             if self.rank == obj_rank:
-                inference_states = self._get_sam2_inference_states_by_obj_ids(
+                sam2_states = self._get_sam2_inference_states_by_obj_ids(
                     inference_state, [obj_id]
                 )
                 assert (
-                    len(inference_states) == 1
+                    len(sam2_states) == 1
                 ), f"[rank={self.rank}] Multiple SAM2 inference states found for the same object id."
-                new_sam2_state = inference_states[0]
+                sam2_state = sam2_states[0]
 
             # log
             logger.info(
@@ -1453,10 +1652,35 @@ class Sam3DenseTrackingDemoMultiGPUWithInstanceInteractivity(
                 inference_state, "refine", frame_idx=frame_idx, obj_ids=[obj_id]
             )
 
+        # assign higher score to added/refined object
+        sam2_metadata["obj_id_to_score"][obj_id] = 1.0
+        sam2_metadata["obj_id_to_sam2_score_frame_wise"][frame_idx][obj_id] = 1.0
+
+        if self.rank == 0:
+            rank0_metadata = sam2_metadata.get("rank0_metadata", {})
+
+            if "removed_obj_ids" in rank0_metadata:
+                rank0_metadata["removed_obj_ids"].discard(obj_id)
+
+            if "suppressed_obj_ids" in rank0_metadata:
+                for frame_id in rank0_metadata["suppressed_obj_ids"]:
+                    rank0_metadata["suppressed_obj_ids"][frame_id].discard(obj_id)
+
+            if "masklet_confirmation" in rank0_metadata:
+                obj_ids_all_gpu = sam2_metadata["obj_ids_all_gpu"]
+                obj_indices = np.where(obj_ids_all_gpu == obj_id)[0]
+                if len(obj_indices) > 0:
+                    obj_idx = obj_indices[0]
+                    if obj_idx < len(rank0_metadata["masklet_confirmation"]["status"]):
+                        rank0_metadata["masklet_confirmation"]["status"][obj_idx] = 1
+                        rank0_metadata["masklet_confirmation"]["consecutive_det_num"][
+                            obj_idx
+                        ] = self.masklet_confirmation_consecutive_det_thresh
+
         if self.rank == obj_rank:
             frame_idx, obj_ids, low_res_masks, video_res_masks = (
                 self.sam2_predictor.add_new_points(
-                    inference_state=new_sam2_state,
+                    inference_state=sam2_state,
                     frame_idx=frame_idx,
                     obj_id=obj_id,
                     points=points,
@@ -1467,58 +1691,172 @@ class Sam3DenseTrackingDemoMultiGPUWithInstanceInteractivity(
                 )
             )
 
-        # broadcast results to all GPUs
-        if self.rank == obj_rank and self.world_size > 1:
-            output = [frame_idx, obj_ids, low_res_masks, video_res_masks]
-            self.broadcast_python_obj_cpu(output, src=obj_rank)
-        elif self.rank != obj_rank and self.world_size > 1:
-            output = [None] * 4
-            self.broadcast_python_obj_cpu(output, src=obj_rank)
-            frame_idx, obj_ids, low_res_masks, video_res_masks = output
-        # every GPU returns the same
-        return frame_idx, obj_ids, low_res_masks, video_res_masks
+            if video_res_masks is not None and len(video_res_masks) > 0:
+                video_res_masks = fill_holes_in_mask_scores(
+                    video_res_masks,  # shape (N, 1, H_video, W_video)
+                    max_area=self.fill_hole_area,
+                    fill_holes=True,
+                    remove_sprinkles=True,
+                )
 
-    def get_sam2_output_per_frame(
-        self, inference_state, frame_idx, resize_to_video_res=False
-    ):
-        """Get the SAM2 output for a particular frame."""
-        output = {}  # obj_id --> mask
-        for sam2_inference_state in inference_state["sam2_inference_states"]:
-            output.update(
-                self._get_sam2_output_per_frame(sam2_inference_state, frame_idx)
+            # TODO: will this cause issue when user switching to refine another object?
+            # Since the mem encoder has already run for the current input points?
+            self.sam2_predictor.propagate_in_video_preflight(
+                sam2_state, run_mem_encoder=True
             )
+            # Clear detector conditioning frames when user clicks are received to allow
+            # model updating masks on these frames. It is a noop if user is refining on the
+            # detector conditioning frames or adding new objects.
+            self.clear_detector_added_cond_frame_in_sam2(sam2_state, obj_id, frame_idx)
 
-        if resize_to_video_res and len(output) > 0:
-            # resize the masks to the original video resolution
-            all_obj_ids = list(output.keys())
-            if len(all_obj_ids) > 1:
-                all_pred_masks = torch.cat(
-                    [output[obj_id] for obj_id in all_obj_ids], dim=0
-                )
-            else:
-                all_pred_masks = output[all_obj_ids[0]]
-            _, video_res_masks = self.sam2_predictor._get_orig_video_res_output(
-                sam2_inference_state, all_pred_masks
-            )  # any sam2_inference_state works since they have the same resolution
-            output = {
-                obj_id: self._convert_mask(video_res_masks[idx])
-                for idx, obj_id in enumerate(all_obj_ids)
+        # fetch results from states and gather across GPUs
+        # Use optimized caching approach to avoid reprocessing unmodified objects
+        if self.rank == obj_rank and len(obj_ids) > 0:
+            new_mask_data = (video_res_masks[obj_ids.index(obj_id)] > 0.0).to(
+                torch.bool
+            )
+        else:
+            new_mask_data = None
+
+        # Broadcast the new mask data across all ranks for consistency
+        if self.world_size > 1:
+            data_list = [new_mask_data]
+            self.broadcast_python_obj_cpu(data_list, src=obj_rank)
+            new_mask_data = data_list[0]
+
+        if self.rank == 0:
+            obj_id_to_mask = self._build_sam2_output(
+                inference_state,
+                frame_idx,
+                {obj_id: new_mask_data} if new_mask_data is not None else None,
+            )
+            # post processing - remove suppressed obj_ids
+            obj_id_to_score = sam2_metadata["obj_id_to_score"]
+            suppressed_obj_ids = sam2_metadata["rank0_metadata"]["suppressed_obj_ids"][
+                frame_idx
+            ]
+            obj_id_to_sam2_score = sam2_metadata["obj_id_to_sam2_score_frame_wise"][
+                frame_idx
+            ]
+
+            out = {
+                "obj_id_to_mask": obj_id_to_mask,
+                "obj_id_to_score": obj_id_to_score,
+                "obj_id_to_sam2_score": obj_id_to_sam2_score,
             }
-        return output
+            self._cache_frame_outputs(
+                inference_state,
+                frame_idx,
+                obj_id_to_mask,
+                suppressed_obj_ids=suppressed_obj_ids,
+            )
+            return frame_idx, self._postprocess_output(
+                inference_state, out, suppressed_obj_ids=suppressed_obj_ids
+            )
+        else:
+            return frame_idx, None  # no output on other GPUs
 
-    def _get_sam2_output_per_frame(self, sam2_inference_state, frame_idx):
-        """Get the SAM2 output for a particular frame."""
-        output = {}  # obj_id --> mask
-        output_dict_per_obj = sam2_inference_state["output_dict_per_obj"]
-        for obj_idx, obj_out in output_dict_per_obj.items():
-            obj_id = sam2_inference_state["obj_idx_to_id"][obj_idx]
-            for storage_key in ["non_cond_frame_outputs", "cond_frame_outputs"]:
-                if storage_key not in obj_out:
-                    continue
-                if frame_idx not in obj_out[storage_key]:
-                    continue
-                output[obj_id] = obj_out[storage_key][frame_idx]["pred_masks"].squeeze(
-                    0, 1
+    def _gather_obj_id_to_mask_across_gpus(self, inference_state, obj_id_to_mask_local):
+        """Gather obj_id_to_mask from all GPUs. Optionally resize the masks to the video resolution."""
+        sam2_metadata = inference_state["sam2_metadata"]
+
+        # concatenate the output masklets from all local inference states
+        H_mask = W_mask = self.sam2_predictor.low_res_mask_size
+        obj_ids_local = sam2_metadata["obj_ids_per_gpu"][self.rank]
+        low_res_masks_local = []
+        for obj_id in obj_ids_local:
+            if obj_id in obj_id_to_mask_local:
+                low_res_masks_local.append(obj_id_to_mask_local[obj_id])
+            else:
+                low_res_masks_local.append(
+                    torch.full((H_mask, W_mask), -1024.0, device=self.device)
                 )
-                break
-        return output
+        if len(low_res_masks_local) > 0:
+            low_res_masks_local = torch.stack(low_res_masks_local, dim=0)  # (N, H, W)
+            assert low_res_masks_local.shape[1:] == (H_mask, W_mask)
+        else:
+            low_res_masks_local = torch.zeros(0, H_mask, W_mask, device=self.device)
+
+        # all-gather `low_res_masks_local` into `low_res_masks_global`
+        # - low_res_masks_global: Tensor -- (num_global_obj, H_mask, W_mask)
+        if self.world_size > 1:
+            low_res_masks_local = low_res_masks_local.float().contiguous()
+            low_res_masks_peers = [
+                low_res_masks_local.new_empty(num_obj, H_mask, W_mask)
+                for num_obj in sam2_metadata["num_obj_per_gpu"]
+            ]
+            dist.all_gather(low_res_masks_peers, low_res_masks_local)
+            low_res_masks_global = torch.cat(low_res_masks_peers, dim=0)
+        else:
+            low_res_masks_global = low_res_masks_local
+        return low_res_masks_global
+
+    def _convert_low_res_mask_to_video_res(self, low_res_mask, inference_state):
+        """
+        Convert a low-res mask to video resolution, matching the format expected by _build_sam2_output.
+
+        Args:
+            low_res_mask: Tensor of shape (H_low_res, W_low_res)
+            inference_state: Contains video dimensions
+
+        Returns:
+            video_res_mask: Tensor of shape (1, H_video, W_video) bool
+        """
+        if low_res_mask is None:
+            return None
+
+        # Convert to 3D for interpolation: (H_low_res, W_low_res) -> (1, H_low_res, W_low_res)
+        low_res_mask_3d = low_res_mask.unsqueeze(0).unsqueeze(0)
+
+        # Get video dimensions
+        H_video = inference_state["orig_height"]
+        W_video = inference_state["orig_width"]
+
+        video_res_mask = F.interpolate(
+            low_res_mask_3d.float(),
+            size=(H_video, W_video),
+            mode="bilinear",
+            align_corners=False,
+        )  # (1, H_video, W_video)
+
+        # Convert to boolean - already in the right shape!
+        return (video_res_mask.squeeze(0) > 0.0).to(torch.bool)
+
+    def clear_detector_added_cond_frame_in_sam2(
+        self, sam2_state, obj_id, refined_frame_idx
+    ):
+        """Clear detector added conditioning frame if it is within a predefined window
+        of the refined frame. This allow model to update masks on these frames."""
+        obj_idx = self.sam2_predictor._obj_id_to_idx(sam2_state, obj_id)
+
+        mask_only_cond_frame_indices = []
+        window = self.refinement_detector_cond_frame_removal_window
+        for frame_idx in sam2_state["mask_inputs_per_obj"][obj_idx]:
+            if frame_idx not in sam2_state["point_inputs_per_obj"][obj_idx]:
+                # clear conditioning frames within a window of the refined frame
+                if abs(frame_idx - refined_frame_idx) <= window:
+                    mask_only_cond_frame_indices.append(frame_idx)
+
+        # clear
+        if len(mask_only_cond_frame_indices) > 0:
+            for frame_idx in mask_only_cond_frame_indices:
+                # obj_ids_on_this_frame is essentially all obj_ids in the state
+                # since they are bucket batched
+                obj_ids_on_this_frame = sam2_state["obj_id_to_idx"].keys()
+                for obj_id2 in obj_ids_on_this_frame:
+                    self.sam2_predictor.clear_all_points_in_frame(
+                        sam2_state, frame_idx, obj_id2, need_output=False
+                    )
+            logger.info(
+                f"Cleared detector mask only conditioning frames ({mask_only_cond_frame_indices}) in SAM2."
+            )
+        return
+
+
+def is_image_type(resource_path: str) -> bool:
+    if resource_path.lower().endswith(
+        (".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp")
+    ):
+        return True
+
+    return False
