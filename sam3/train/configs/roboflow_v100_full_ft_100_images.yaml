@@ -237,6 +237,7 @@ scratch:
   # collate_fn:
   #   _target_: sam3.train.data.collator.collate_fn_api_with_chunking
   #   _partial_: true
+  #   num_chunks: ${scratch.gradient_accumulation_steps}
   #   input_box_embedding_dim: ${scratch.input_box_embedding_dim}
   #   repeats: ${scratch.hybrid_repeats}
   #   dict_key: roboflow100
