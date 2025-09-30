@@ -222,7 +222,7 @@ scratch:
   scheduler_cooldown: 20
 
   gradient_accumulation_steps: 1
-  collate_fn_train:
+  collate_fn:
     _target_: sam3.train.data.collator.collate_fn_api
     _partial_: true
     input_box_embedding_dim: ${scratch.input_box_embedding_dim}
@@ -232,7 +232,9 @@ scratch:
 
   # Note: usin this setting if using gradient accumulation
   # gradient_accumulation_steps: 2
-  # collate_fn_train:
+  # train_batch_size : ${scratch.gradient_accumulation_steps}
+  # val_batch_size: ${scratch.gradient_accumulation_steps}
+  # collate_fn:
   #   _target_: sam3.train.data.collator.collate_fn_api_with_chunking
   #   _partial_: true
   #   input_box_embedding_dim: ${scratch.input_box_embedding_dim}
@@ -292,7 +294,7 @@ trainer:
       num_workers: ${scratch.num_train_workers}
       pin_memory: True
       drop_last: True
-      collate_fn: ${scratch.collate_fn_train}
+      collate_fn: ${scratch.collate_fn}
 
     val:
       _target_: sam3.train.data.torch_dataset.TorchDataset
@@ -313,7 +315,8 @@ trainer:
       num_workers: ${scratch.num_val_workers}
       pin_memory: True
       drop_last: False
-      collate_fn:
+      collate_fn: ${scratch.collate_fn}
+
 
   # TODO (Kalyan): Expose more model parameters, droppath rate, dropout, etc
   # TODO (Kalyan): Add support for presence token.
