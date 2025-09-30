@@ -1234,95 +1234,7 @@ class Sam3Image(torch.nn.Module):
         return out
 
 
-class Sam3ImageOnVideo(Sam3Image):
-    """A wrapper class to run Sam3Image on videos for per-frame detection (no tracking)."""
-
-    def __init__(
-        self,
-        *args,
-        tracking_score_thresh: float = 0.0,
-        offload_outputs_to_cpu_for_eval: bool = False,
-        **kwargs,
-    ):
-        super().__init__(*args, **kwargs)
-        self.tracking_score_thresh = tracking_score_thresh
-        self.offload_outputs_to_cpu_for_eval = offload_outputs_to_cpu_for_eval
-        self.trim_outputs_for_eval = True  # dummy option -- it doesn't do anything
-
-    def forward(
-        self,
-        input: BatchedDatapoint,
-        is_inference=False,  # (a dummy parameter not used anymore)
-    ):
-        assert not self.training, "Sam3ImageOnVideo should only be used in eval mode."
-
-        device = self.device
-        backbone_out = {"img_batch_all_stages": input.img_batch}
-        text_outputs = self.backbone.forward_text(input.find_text_batch, device=device)
-        backbone_out.update(text_outputs)
-        num_frames = len(input.find_inputs)
-
-        previous_stages_out = SAM3Output(
-            iter_mode=SAM3Output.IterMode.LAST_STEP_PER_STAGE
-        )
-        for frame_idx in range(num_frames):
-            find_input = input.find_inputs[frame_idx]
-            find_target = input.find_targets[frame_idx]
-            geometric_prompt = self._get_geo_prompt_from_find_input(find_input)
-            cur_out, _ = self.forward_video_grounding(
-                backbone_out=backbone_out,
-                find_input=find_input,
-                find_target=find_target,
-                geometric_prompt=geometric_prompt,
-            )
-            # offload model outputs to CPU (to save GPU memory) for evaluation
-            if self.offload_outputs_to_cpu_for_eval:
-                cur_out = {k: v.cpu() for k, v in cur_out.items()}
-
-            previous_stages_out.append([cur_out])
-
-        get_queries = None
-        return previous_stages_out, get_queries
-
-    def forward_video_grounding(
-        self,
-        backbone_out,
-        find_input,
-        find_target,
-        geometric_prompt: Prompt,
-        **kwargs,
-    ):
-        # route this to the image grounding forward method
-        out = self.forward_grounding(
-            backbone_out=backbone_out,
-            find_input=find_input,
-            find_target=find_target,
-            geometric_prompt=geometric_prompt,
-        )
-        # trim the output to only include the necessary keys
-        out = {
-            "pred_logits": out["pred_logits"],
-            "pred_boxes": out["pred_boxes"],
-            "pred_boxes_xyxy": out["pred_boxes_xyxy"],
-            "pred_masks": out["pred_masks"],
-            "pred_object_ids": self._get_dummy_object_ids(out["pred_logits"]),
-        }
-        return out, backbone_out
-
-    def _get_dummy_object_ids(self, pred_logits):
-        """Generate dummy object IDs for the detected objects, based on their detection query indices."""
-        # Assuming pred_logits has shape [batch_size, num_queries, num_classes]
-        B, Q, _ = pred_logits.shape
-        is_above_thresh = pred_logits.squeeze(2) > self.tracking_score_thresh
-        dummy_obj_ids = torch.arange(Q, device=self.device).expand(B, -1)
-        dummy_obj_ids = torch.where(is_above_thresh, dummy_obj_ids, -1)
-        return dummy_obj_ids
-
-    def _trim_outputs(self, *args, **kwargs):
-        pass  # not needed for image-on-video
-
-
-class Sam3ImageOnVideoMultiGPU(Sam3ImageOnVideo):
+class Sam3ImageOnVideoMultiGPU(Sam3Image):
     def __init__(
         self, *args, async_all_gather=True, gather_backbone_out=None, **kwargs
     ):
@@ -1489,7 +1401,6 @@ class Sam3ImageOnVideoMultiGPU(Sam3ImageOnVideo):
             "pred_boxes": out_local["pred_boxes"],
             "pred_boxes_xyxy": out_local["pred_boxes_xyxy"],
             "pred_masks": out_local["pred_masks"],
-            "pred_object_ids": self._get_dummy_object_ids(out_local["pred_logits"]),
         }
 
         # gather the results: after this step, each GPU will receive FA outputs on
