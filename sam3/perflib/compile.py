@@ -58,3 +58,52 @@ def compile_wrapper(
             return cloned_result
 
     return compiled_fn_wrapper
+
+
+def shape_logging_wrapper(fn, keep_kwargs, enable_logging=False):
+    """
+    Wraps a function and prints the shapes of all tensor inputs.
+    Only prints when a new combination of shapes is seen.
+    Thread-safe.
+
+    Args:
+        fn: Function to wrap
+        enable_logging: Boolean flag to enable/disable logging
+    """
+    seen_shapes = set()
+
+    def get_shape(obj):
+        if isinstance(obj, torch.Tensor):
+            return obj.shape
+        elif isinstance(obj, (list, tuple)):
+            if len(obj) > 1:
+                return tuple(get_shape(x) for x in obj)
+            return get_shape(obj[0])
+        elif isinstance(obj, dict):
+            return tuple(sorted((k, get_shape(v)) for k, v in obj.items()))
+        else:
+            return type(obj).__name__
+
+    def wrapper(*args, **kwargs):
+        shapes = tuple(get_shape(arg) for arg in args) + tuple(
+            (k, get_shape(v))
+            for k, v in kwargs.items()
+            if isinstance(v, (torch.Tensor, list))
+            and (len(keep_kwargs) > 0 and k in keep_kwargs)
+        )
+        if shapes not in seen_shapes:
+            seen_shapes.add(shapes)
+            if enable_logging:
+                print(f"[ShapeLogger] New input shapes for {fn.__qualname__}: {shapes}")
+        return fn(*args, **kwargs)
+
+    # Allow toggling the flag at runtime
+    wrapper.enable_logging = enable_logging
+
+    def set_logging(enabled=False):
+        nonlocal enable_logging
+        enable_logging = enabled
+        wrapper.enable_logging = enable_logging
+
+    wrapper.set_logging = set_logging
+    return wrapper

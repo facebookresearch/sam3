@@ -4,7 +4,7 @@ import logging
 from collections import OrderedDict
 
 import torch
-from tqdm import tqdm
+from tqdm.auto import tqdm
 
 from sam3.model.model_misc import NestedTensor
 from sam3.model.video_tracking_with_prompt import (
@@ -519,6 +519,13 @@ class VideoTrackingWithPromptDemo(VideoTrackingWithPrompt):
                 device=inference_state["device"],
             ),
         }
+        if self.use_memory_selection:
+            consolidated_out["iou_score"] = torch.full(
+                size=(batch_size, 1),
+                fill_value=0.0,
+                dtype=torch.float32,
+                device=inference_state["device"],
+            )
         empty_mask_ptr = None
         for obj_idx in range(batch_size):
             obj_temp_output_dict = inference_state["temp_output_dict_per_obj"][obj_idx]
@@ -568,7 +575,8 @@ class VideoTrackingWithPromptDemo(VideoTrackingWithPrompt):
             consolidated_out["object_score_logits"][obj_idx : obj_idx + 1] = out[
                 "object_score_logits"
             ]
-
+            if self.use_memory_selection:
+                consolidated_out["iou_score"][obj_idx : obj_idx + 1] = out["iou_score"]
         # Optionally, apply non-overlapping constraints on the consolidated scores
         # and rerun the memory encoder
         if run_mem_encoder:
@@ -858,6 +866,8 @@ class VideoTrackingWithPromptDemo(VideoTrackingWithPrompt):
                 "obj_ptr": current_out["obj_ptr"][obj_slice],
                 "object_score_logits": current_out["object_score_logits"][obj_slice],
             }
+            if self.use_memory_selection:
+                obj_out["iou_score"] = current_out["iou_score"][obj_slice]
             if maskmem_features is not None:
                 obj_out["maskmem_features"] = maskmem_features[obj_slice]
             if maskmem_pos_enc is not None:
@@ -1079,6 +1089,12 @@ class VideoTrackingWithPromptDemo(VideoTrackingWithPrompt):
             "obj_ptr": obj_ptr,
             "object_score_logits": object_score_logits,
         }
+        if self.use_memory_selection:
+            iou_score = current_out["multistep_pred_ious"][0].max(-1)[0]
+            compact_current_out["iou_score"] = iou_score
+            compact_current_out["eff_iou_score"] = self.cal_mem_score(
+                object_score_logits, iou_score
+            )
         return compact_current_out, pred_masks_gpu
 
     def _run_memory_encoder(
@@ -1226,6 +1242,11 @@ class VideoTrackingWithPromptDemo(VideoTrackingWithPrompt):
                 out["object_score_logits"] = out["object_score_logits"][
                     remain_old_obj_inds
                 ]
+                if self.use_memory_selection:
+                    out["iou_score"] = out["iou_score"][remain_old_obj_inds]
+                    out["eff_iou_score"] = self.cal_mem_score(
+                        out["object_score_logits"], out["iou_score"]
+                    )  # recalculate the memory frame score
                 # also update the per-object slices
                 self._add_output_per_object(
                     inference_state, frame_idx, out, storage_key
@@ -1430,24 +1451,127 @@ class Sam3VideoTrackingWithPromptDemo(VideoTrackingWithPromptDemo):
         )
         return pred_masks_after
 
-    def _apply_non_overlapping_constraints(self, pred_masks):
-        # TODO: Try suppression based on IoM here as well.
-
+    def _suppress_object_pw_area_shrinkage(self, pred_masks):
+        """
+        This function suppresses masks that shrink in area after applying pixelwise non-overlapping constriants.
+        Note that the final output can still be overlapping.
+        """
         # Apply pixel-wise non-overlapping constraint based on mask scores
         pixel_level_non_overlapping_masks = super()._apply_non_overlapping_constraints(
             pred_masks
         )
-        # Fully suppress masks with high shrinkage (probably noisy)
+        # Fully suppress masks with high shrinkage (probably noisy) based on the pixel wise non-overlapping constraints
+        # NOTE: The output of this function can be a no op if none of the masks shrinked by a large factor.
         pred_masks = self._suppress_shrinked_masks(
             pred_masks, pixel_level_non_overlapping_masks
         )
         return pred_masks
 
-    def add_output_per_object(self, *args, **kwargs):
-        if self.per_obj_inference:
-            # nothing needs to be done as each object is already stored separately
-            return
+    def _apply_object_wise_non_overlapping_constraints(
+        self, pred_masks, obj_scores, background_value=-10.0
+    ):
+        """
+        Applies non-overlapping constraints object wise (i.e. only one object can claim the overlapping region)
+        """
+        # TODO: Try suppression based on IoM here as well.
+        # Replace pixel scores with object scores
+        pred_masks_single_score = torch.where(
+            pred_masks > 0, obj_scores[..., None, None], background_value
+        )
+        # Apply pixel-wise non-overlapping constraint based on mask scores
+        pixel_level_non_overlapping_masks = super()._apply_non_overlapping_constraints(
+            pred_masks_single_score
+        )
+        # Replace object scores with pixel scores. Note, that now only one object can claim the overlapping region
+        pred_masks = torch.where(
+            pixel_level_non_overlapping_masks > 0,
+            pred_masks,
+            torch.clamp(pred_masks, max=background_value),
+        )
+        return pred_masks
 
-        # for batched inference state, we also need to add per-object
-        # memory slides to support instance interactivity
-        self._add_output_per_object(*args, **kwargs)
+    @torch.inference_mode()
+    def propagate_in_video(
+        self,
+        inference_state,
+        start_frame_idx,
+        max_frame_num_to_track,
+        reverse,
+        tqdm_disable=False,
+        obj_ids=None,
+        run_mem_encoder=True,
+    ):
+        """Propagate the input points across frames to track in the entire video."""
+        # NOTE: This is a copy from the parent class, except that we return object scores as well.
+        output_dict = inference_state["output_dict"]
+        consolidated_frame_inds = inference_state["consolidated_frame_inds"]
+        if obj_ids is not None:
+            raise NotImplementedError(
+                "Per-object tracking yet for batched inference if not implemented."
+            )
+        obj_ids = inference_state["obj_ids"]
+        batch_size = self._get_obj_num(inference_state)
+        if len(output_dict["cond_frame_outputs"]) == 0:
+            raise RuntimeError("No points are provided; please add points first")
+        clear_non_cond_mem = self.clear_non_cond_mem_around_input and (
+            self.clear_non_cond_mem_for_multi_obj or batch_size <= 1
+        )
+
+        processing_order = self._get_processing_order(
+            inference_state,
+            start_frame_idx,
+            max_frame_num_to_track,
+            reverse,
+        )
+
+        for frame_idx in tqdm(
+            processing_order, desc="propagate in video", disable=tqdm_disable
+        ):
+            # We skip those frames already in consolidated outputs (these are frames
+            # that received input clicks or mask). Note that we cannot directly run
+            # batched forward on them via `_run_single_frame_inference` because the
+            # number of clicks on each object might be different.
+            if frame_idx in consolidated_frame_inds["cond_frame_outputs"]:
+                storage_key = "cond_frame_outputs"
+                current_out = output_dict[storage_key][frame_idx]
+                pred_masks = current_out["pred_masks"]
+                obj_scores = current_out["object_score_logits"]
+                if clear_non_cond_mem:
+                    # clear non-conditioning memory of the surrounding frames
+                    self._clear_non_cond_mem_around_input(inference_state, frame_idx)
+            elif frame_idx in consolidated_frame_inds["non_cond_frame_outputs"]:
+                storage_key = "non_cond_frame_outputs"
+                current_out = output_dict[storage_key][frame_idx]
+                pred_masks = current_out["pred_masks"]
+                obj_scores = current_out["object_score_logits"]
+            else:
+                storage_key = "non_cond_frame_outputs"
+                with torch.profiler.record_function(
+                    "VideoTrackingWithPromptDemo._run_single_frame_inference"
+                ):
+                    current_out, pred_masks = self._run_single_frame_inference(
+                        inference_state=inference_state,
+                        output_dict=output_dict,
+                        frame_idx=frame_idx,
+                        batch_size=batch_size,
+                        is_init_cond_frame=False,
+                        point_inputs=None,
+                        mask_inputs=None,
+                        reverse=reverse,
+                        run_mem_encoder=run_mem_encoder,
+                    )
+                    obj_scores = current_out["object_score_logits"]
+                output_dict[storage_key][frame_idx] = current_out
+            # Create slices of per-object outputs for subsequent interaction with each
+            # individual object after tracking.
+            self._add_output_per_object(
+                inference_state, frame_idx, current_out, storage_key
+            )
+            inference_state["frames_already_tracked"][frame_idx] = {"reverse": reverse}
+
+            # Resize the output mask to the original video resolution (we directly use
+            # the mask scores on GPU for output to avoid any CPU conversion in between)
+            low_res_masks, video_res_masks = self._get_orig_video_res_output(
+                inference_state, pred_masks
+            )
+            yield frame_idx, obj_ids, low_res_masks, video_res_masks, obj_scores

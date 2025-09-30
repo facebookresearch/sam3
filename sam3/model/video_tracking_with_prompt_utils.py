@@ -4,11 +4,12 @@ import contextlib
 import logging
 import os
 import queue
+import re
 import time
 from abc import ABC, abstractmethod
 from io import BytesIO
-from threading import Lock, Thread
-from typing import Tuple
+from threading import Condition, get_ident, Lock, Thread
+from typing import List, Optional, Tuple
 
 import numpy as np
 import torch
@@ -16,12 +17,15 @@ import torch.nn.functional as F
 import torchvision
 import torchvision.transforms.functional as TF
 from iopath.common.file_io import g_pathmgr
+from numpy.typing import NDArray
+
 from PIL import Image
 from tqdm import tqdm
 
 from .edt import edt_triton
 
 IS_MAIN_PROCESS = os.getenv("IS_MAIN_PROCESS", "1") == "1"
+RANK = int(os.getenv("RANK", "0"))
 
 
 def sample_box_points(
@@ -283,7 +287,9 @@ def get_next_point(gt_masks, pred_masks, method):
         raise ValueError(f"unknown sampling method {method}")
 
 
-def select_closest_cond_frames(frame_idx, cond_frame_outputs, max_cond_frame_num):
+def select_closest_cond_frames(
+    frame_idx, cond_frame_outputs, max_cond_frame_num, keep_first_cond_frame=False
+):
     """
     Select up to `max_cond_frame_num` conditioning frames from `cond_frame_outputs`
     that are temporally closest to the current frame at `frame_idx`. Here, we take
@@ -302,7 +308,17 @@ def select_closest_cond_frames(frame_idx, cond_frame_outputs, max_cond_frame_num
     else:
         assert max_cond_frame_num >= 2, "we should allow using 2+ conditioning frames"
         selected_outputs = {}
-
+        if keep_first_cond_frame:
+            idx_first = min(
+                (t for t in cond_frame_outputs if t < frame_idx), default=None
+            )
+            if idx_first is None:
+                # Maybe we are tracking in reverse
+                idx_first = max(
+                    (t for t in cond_frame_outputs if t > frame_idx), default=None
+                )
+            if idx_first is not None:
+                selected_outputs[idx_first] = cond_frame_outputs[idx_first]
         # the closest conditioning frame before `frame_idx` (if any)
         idx_before = max((t for t in cond_frame_outputs if t < frame_idx), default=None)
         if idx_before is not None:
@@ -398,8 +414,7 @@ class AsyncVideoFrameLoader:
             try:
                 for n in tqdm(
                     range(len(self.images)),
-                    desc="frame loading (JPEG)",
-                    disable=not IS_MAIN_PROCESS,
+                    desc=f"frame loading (JPEG) [rank={RANK}]",
                 ):
                     self.__getitem__(n)
             except Exception as e:
@@ -427,7 +442,7 @@ class AsyncVideoFrameLoader:
         img -= self.img_mean
         img /= self.img_std
         if not self.offload_video_to_cpu:
-            img = img.cuda(non_blocking=True)
+            img = img.cuda()
         self.images[index] = img
         return img
 
@@ -551,8 +566,8 @@ class AsyncVideoFileLoader:
 
     def _start_video_loading(self):
         self.num_loaded_frames = 0
-        desc = f"frame loading (MP4 w/ {'GPU' if self.gpu_acceleration else 'CPU'})"
-        self.pbar = tqdm(desc=desc, total=self.num_frames, disable=not IS_MAIN_PROCESS)
+        desc = f"frame loading (MP4 w/ {'GPU' if self.gpu_acceleration else 'CPU'}) [rank={RANK}]"
+        self.pbar = tqdm(desc=desc, total=self.num_frames)
         # load the first frame to cache it before the session is opened
         # (since it's most likely where the user will click)
         loaded_num, _ = self._load_chunk(self.async_reader, 0)
@@ -687,9 +702,9 @@ class TorchCodecDecoder:
 
         self._source = source  # hold a reference to the source to prevent it from GC
         if isinstance(source, str):
-            self._decoder = core.create_from_file(source)
+            self._decoder = core.create_from_file(source, "exact")
         elif isinstance(source, bytes):
-            self._decoder = core.create_from_bytes(source)
+            self._decoder = core.create_from_bytes(source, "exact")
         else:
             raise TypeError(f"Unknown source type: {type(source)}.")
         assert dimension_order in ("NCHW", "NHWC")
@@ -728,6 +743,37 @@ class TorchCodecDecoder:
         return frame_data
 
 
+class FIFOLock:
+    """A lock that ensures FIFO ordering of lock acquisitions."""
+
+    def __init__(self):
+        self._lock = Lock()
+        self._waiters = queue.Queue()
+        self._condition = Condition()
+
+    def acquire(self):
+        ident = get_ident()
+        with self._condition:
+            self._waiters.put(ident)
+            while self._waiters.queue[0] != ident or not self._lock.acquire(
+                blocking=False
+            ):
+                self._condition.wait()
+                # got the lock and it's our turn
+
+    def release(self):
+        with self._condition:
+            self._lock.release()
+            self._waiters.get()
+            self._condition.notify_all()
+
+    def __enter__(self):
+        self.acquire()
+
+    def __exit__(self, t, v, tb):
+        self.release()
+
+
 class AsyncVideoFileLoaderWithTorchCodec:
     """
     Loading frames from video files asynchronously without blocking session start.
@@ -746,6 +792,7 @@ class AsyncVideoFileLoaderWithTorchCodec:
         gpu_acceleration=True,
         gpu_device=torch.device("cuda:0"),
         use_rand_seek_in_loading=False,
+        load_frames_in_rank0_only=None,  # if None, will be inferred automatically
     ):
         # Check and possibly infer the output device (and also get its GPU id when applicable)
         assert gpu_device is None or gpu_device.type == "cuda"
@@ -775,13 +822,38 @@ class AsyncVideoFileLoaderWithTorchCodec:
             self.img_std = self.img_std.cpu()
             decoder_option = {"num_threads": 1}  # use a single thread to save memory
 
-        self.async_reader = TorchCodecDecoder(video_path_or_bytes, **decoder_option)
+        self.rank = int(os.environ.get("RANK", "0"))
+        self.world_size = int(os.environ.get("WORLD_SIZE", "1"))
+        if load_frames_in_rank0_only is None:
+            # if "load_frames_in_rank0_only" is not specified, we load frames
+            # in rank 0 only when running distributedly and without GPU acceleration
+            load_frames_in_rank0_only = (
+                torch.distributed.is_initialized() and not gpu_acceleration
+            )
+        self.load_frames_in_rank0_only = load_frames_in_rank0_only
+        if self.rank == 0 or not self.load_frames_in_rank0_only:
+            self.async_reader = TorchCodecDecoder(video_path_or_bytes, **decoder_option)
 
-        # `num_frames_from_content` is the true number of frames in the video content
-        # from the scan operation (rather than from the metadata, which could be wrong)
-        self.num_frames = self.async_reader.metadata.num_frames_from_content
-        self.video_height = self.async_reader.metadata.height
-        self.video_width = self.async_reader.metadata.width
+            # `num_frames_from_content` is the true number of frames in the video content
+            # from the scan operation (rather than from the metadata, which could be wrong)
+            self.num_frames = self.async_reader.metadata.num_frames_from_content
+            self.video_height = self.async_reader.metadata.height
+            self.video_width = self.async_reader.metadata.width
+        else:
+            self.async_reader = None
+
+        # broadcast video info from rank 0 to all other ranks
+        if self.world_size > 1 and self.load_frames_in_rank0_only:
+            logging.info(f"{self.rank=} video will be loaded on rank 0 only")
+            buffer = torch.zeros(3, dtype=torch.int32, device="cuda")
+            if self.rank == 0:
+                buffer[0] = self.num_frames
+                buffer[1] = self.video_height
+                buffer[2] = self.video_width
+            torch.distributed.broadcast(buffer, src=0)
+            if self.rank != 0:
+                self.num_frames, self.video_height, self.video_width = buffer.tolist()
+
         # items in `self._images` will be loaded asynchronously
         self.images_loaded = [False] * self.num_frames
         self.images = torch.zeros(
@@ -799,18 +871,36 @@ class AsyncVideoFileLoaderWithTorchCodec:
         # use a lock to avoid race condition between concurrent access to torchcodec
         # libs (which are not thread-safe); the lock is replaced with a nullcontext
         # when the video is fully loaded
-        self.torchcodec_access_lock = Lock()
+        self.torchcodec_access_lock = FIFOLock()
         self._start_video_loading()
+
+    def _load_one_frame(self, idx):
+        if self.rank == 0 or not self.load_frames_in_rank0_only:
+            frame_resized = self._transform_frame(self.async_reader[idx])
+
+        # broadcast video frames from rank 0 to all other ranks
+        if self.world_size > 1 and self.load_frames_in_rank0_only:
+            shape = (3, self.image_size, self.image_size)
+            if self.rank == 0:
+                assert frame_resized.shape == shape
+                assert frame_resized.dtype == torch.float16
+                buffer = frame_resized.cuda().contiguous()
+            else:
+                buffer = torch.zeros(*shape, dtype=torch.float16, device="cuda")
+            torch.distributed.broadcast(buffer, src=0)
+            if self.rank != 0:
+                frame_resized = buffer.to(device=self.out_device)
+
+        return frame_resized
 
     @torch.inference_mode()
     def _start_video_loading(self):
-        desc = f"frame loading (MP4 w/ {'GPU' if self.gpu_acceleration else 'CPU'})"
-        pbar = tqdm(desc=desc, total=self.num_frames, disable=not IS_MAIN_PROCESS)
+        desc = f"frame loading (MP4 w/ {'GPU' if self.gpu_acceleration else 'CPU'}) [rank={RANK}]"
+        pbar = tqdm(desc=desc, total=self.num_frames)
         self.num_loaded_frames = 0
         # load the first frame synchronously to cache it before the session is opened
         idx = self.num_loaded_frames
-        frame = self.async_reader[idx]
-        self.images[idx] = self._transform_frame(frame)
+        self.images[idx] = self._load_one_frame(idx)
         self.images_loaded[idx] = True
         self.num_loaded_frames += 1
         pbar.update(n=1)
@@ -826,8 +916,7 @@ class AsyncVideoFileLoaderWithTorchCodec:
                     for _ in range(chunk_size):
                         try:
                             idx = self.num_loaded_frames
-                            frame = self.async_reader[idx]
-                            self.images[idx] = self._transform_frame(frame)
+                            self.images[idx] = self._load_one_frame(idx)
                             self.images_loaded[idx] = True
                             self.num_loaded_frames += 1
                             pbar.update(n=1)
@@ -843,8 +932,7 @@ class AsyncVideoFileLoaderWithTorchCodec:
                         try:
                             idx = self.rand_seek_idx_queue.get_nowait()
                             if not self.images_loaded[idx]:
-                                frame = self.async_reader[idx]
-                                self.images[idx] = self._transform_frame(frame)
+                                self.images[idx] = self._load_one_frame(idx)
                                 self.images_loaded[idx] = True
                         except queue.Empty:
                             break
@@ -1051,6 +1139,57 @@ class StreamingFrameLoaderInterface(ABC):
         raise NotImplementedError
 
 
+class FrameLoader(StreamingFrameLoaderInterface):
+    def __init__(
+        self,
+        video_width: int,
+        video_height: int,
+        total_num_frames_override: Optional[int],
+    ) -> None:
+        self.frames: List[Optional[NDArray]] = []
+        self.video_width: int = video_width
+        self.video_height: int = video_height
+
+        # Set in streaming decoding setup to tell the model to initialize state for this many video frames
+        # This is because there are certain parts of the model that depends on the number of frames
+        # And when in streaming decoding setup, we don't know the number of frames
+        self.__total_num_frames_override = total_num_frames_override
+
+    def get_image(self, index: int) -> NDArray:
+        if index > len(self.frames):
+            raise Exception(f"Frame index {index} is out of range")
+        frame = self.frames[index]
+        if frame is None:
+            raise Exception(f"Frame {index} is not published yet")
+        return frame
+
+    def publish(self, frame_num: int, image_frame: NDArray) -> None:
+        if (
+            image_frame.shape[0] != self.video_height
+            or image_frame.shape[1] != self.video_width
+        ):
+            raise Exception(
+                f"FrameLoader.publish: Frame {frame_num} has incorrect shape {image_frame.shape}. Expected shape {self.video_height}x{self.video_width}"
+            )
+        if frame_num >= len(self.frames):
+            self.frames += [None] * (frame_num + 1 - len(self.frames))
+        self.frames[frame_num] = image_frame
+        self.video_height = image_frame.shape[0]
+        self.video_width = image_frame.shape[1]
+
+    def get_total_num_frames(self) -> int:
+        if self.__total_num_frames_override is None:
+            return len(self.frames)
+        else:
+            return self.__total_num_frames_override
+
+    def get_video_width(self) -> int:
+        return self.video_width
+
+    def get_video_height(self) -> int:
+        return self.video_height
+
+
 class StreamingVideoFrameLoader:
     def __init__(
         self,
@@ -1126,8 +1265,14 @@ def load_video_frames(
     is_str = isinstance(video_path, str)
     is_mp4_path = is_str and os.path.splitext(video_path)[-1] in [".mp4", ".MP4"]
     is_streaming = isinstance(video_path, StreamingFrameLoaderInterface)
-    if is_str and video_path in ["<load-dummy-video>", "<load-dummy-video-30>"]:
-        num_frames = 30 if video_path == "<load-dummy-video-30>" else 60
+    if is_str and video_path.startswith("<load-dummy-video"):
+        # Check for pattern <load-dummy-video-N> where N is an integer
+        match = re.match(r"<load-dummy-video-(\d+)>", video_path)
+        if match:
+            num_frames = int(match.group(1))
+        else:
+            # Default for original <load-dummy-video> path
+            num_frames = 60
         return load_dummy_video(image_size, offload_video_to_cpu, num_frames=num_frames)
     elif is_bytes or is_mp4_path:
         return load_video_frames_from_video_file(
@@ -1213,7 +1358,7 @@ def load_video_frames_from_jpg_images(
     # float16 precision should be sufficient for image tensor storage
     images = torch.zeros(num_frames, 3, image_size, image_size, dtype=torch.float16)
     for n, img_path in enumerate(
-        tqdm(img_paths, desc="frame loading (JPEG)", disable=not IS_MAIN_PROCESS)
+        tqdm(img_paths, desc=f"frame loading (JPEG) [rank={RANK}]")
     ):
         images[n], video_height, video_width = _load_img_as_tensor(img_path, image_size)
     if not offload_video_to_cpu:
@@ -1401,7 +1546,7 @@ def _yuv_to_rgb(frames, img_mean, img_std):
     return rgb
 
 
-def fill_holes_in_mask_scores(mask, max_area):
+def fill_holes_in_mask_scores(mask, max_area, fill_holes=True, remove_sprinkles=True):
     """
     A post processor to fill small holes in mask scores with area under `max_area`.
     Holes are those small connected components in either background or foreground.
@@ -1416,24 +1561,26 @@ def fill_holes_in_mask_scores(mask, max_area):
     if max_area <= 0:
         return mask  # nothing to fill in this case
 
-    # We remove small connected components in background by changing them to foreground
-    # with a small positive mask score (0.1).
-    mask_bg = mask <= 0
-    bg_area_thresh = max_area
-    _, areas_bg = _get_connected_components_with_padding(mask_bg)
-    small_components_bg = mask_bg & (areas_bg <= bg_area_thresh)
-    mask = torch.where(small_components_bg, 0.1, mask)
+    if fill_holes:
+        # We remove small connected components in background by changing them to foreground
+        # with a small positive mask score (0.1).
+        mask_bg = mask <= 0
+        bg_area_thresh = max_area
+        _, areas_bg = _get_connected_components_with_padding(mask_bg)
+        small_components_bg = mask_bg & (areas_bg <= bg_area_thresh)
+        mask = torch.where(small_components_bg, 0.1, mask)
 
-    # We remove small connected components in foreground by changing them to background
-    # with a small negative mask score (-0.1). Here we only remove connected components
-    # whose areas are under both `max_area` and half of the entire mask's area. This
-    # removes sprinkles while avoids filtering out tiny objects that we want to track.
-    mask_fg = mask > 0
-    fg_area_thresh = torch.sum(mask_fg, dim=(2, 3), keepdim=True, dtype=torch.int32)
-    fg_area_thresh.floor_divide_(2).clamp_(max=max_area)
-    _, areas_fg = _get_connected_components_with_padding(mask_fg)
-    small_components_fg = mask_fg & (areas_fg <= fg_area_thresh)
-    mask = torch.where(small_components_fg, -0.1, mask)
+    if remove_sprinkles:
+        # We remove small connected components in foreground by changing them to background
+        # with a small negative mask score (-0.1). Here we only remove connected components
+        # whose areas are under both `max_area` and half of the entire mask's area. This
+        # removes sprinkles while avoids filtering out tiny objects that we want to track.
+        mask_fg = mask > 0
+        fg_area_thresh = torch.sum(mask_fg, dim=(2, 3), keepdim=True, dtype=torch.int32)
+        fg_area_thresh.floor_divide_(2).clamp_(max=max_area)
+        _, areas_fg = _get_connected_components_with_padding(mask_fg)
+        small_components_fg = mask_fg & (areas_fg <= fg_area_thresh)
+        mask = torch.where(small_components_fg, -0.1, mask)
     return mask
 
 

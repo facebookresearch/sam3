@@ -79,6 +79,8 @@ class VideoTrackingWithPrompt(torch.nn.Module):
         # we only cross-attend to the temporally closest `max_cond_frames_in_attn` conditioning frames in the encoder when tracking each frame). This gives the model
         # a temporal locality when handling a large number of annotated frames (since closer frames should be more important) and also avoids GPU OOM.
         max_cond_frames_in_attn=-1,
+        # Whether to always keep the first conditioning frame in case we exceep the maximum number of conditioning frames allowed
+        keep_first_cond_frame=False,
         # if `add_all_frames_to_correct_as_cond` is True, we also append to the conditioning frame list any frame that receives a later correction click
         # if `add_all_frames_to_correct_as_cond` is False, we conditioning frame list to only use those initial conditioning frames
         add_all_frames_to_correct_as_cond=False,
@@ -179,6 +181,8 @@ class VideoTrackingWithPrompt(torch.nn.Module):
         sam_mask_decoder_extra_args=None,
         # whether to compile all the model compoents
         compile_all_components=False,
+        # select the frame with object existence
+        use_memory_selection=False,
     ):
         super().__init__()
 
@@ -336,6 +340,7 @@ class VideoTrackingWithPrompt(torch.nn.Module):
         self.rand_init_cond_frames_for_train = rand_init_cond_frames_for_train
         self.rand_init_cond_frames_for_eval = rand_init_cond_frames_for_eval
         self.max_cond_frames_in_attn = max_cond_frames_in_attn
+        self.keep_first_cond_frame = keep_first_cond_frame
         self.add_all_frames_to_correct_as_cond = add_all_frames_to_correct_as_cond
         self.num_correction_pt_per_frame = num_correction_pt_per_frame
         self.pt_sampling_for_eval = pt_sampling_for_eval
@@ -349,6 +354,9 @@ class VideoTrackingWithPrompt(torch.nn.Module):
             assert rnn is not None, "rnn cannot be None when recurrent_mem is enabled"
             logging.info("Using Recurrent Memory")
             self.rnn = rnn  # Expected to accept two inputs (input, recurrent_state)
+
+        # Use frame filtering according to SAM2Long
+        self.use_memory_selection = use_memory_selection
 
         # Compile all components of the model
         self.compile_all_components = compile_all_components
@@ -864,6 +872,54 @@ class VideoTrackingWithPrompt(torch.nn.Module):
 
         return image, vision_feats, vision_masks, vision_pos_embeds, feat_sizes
 
+    def cal_mem_score(self, object_score_logits, iou_score):
+        object_score_norm = torch.where(
+            object_score_logits > 0,
+            object_score_logits.sigmoid() * 2 - 1,  ## rescale to [0, 1]
+            torch.zeros_like(object_score_logits),
+        )
+        score_per_frame = (object_score_norm * iou_score).mean()
+        return score_per_frame
+
+    def frame_filter(self, output_dict, track_in_reverse, frame_idx, num_frames, r):
+        if (frame_idx == 0 and not track_in_reverse) or (
+            frame_idx == num_frames - 1 and track_in_reverse
+        ):
+            return []
+
+        max_num = min(
+            num_frames, self.max_obj_ptrs_in_encoder
+        )  ## maximum number of pointer memory frames to consider
+
+        if not track_in_reverse:
+            start = frame_idx - 1
+            end = 0
+            step = -r
+            must_include = frame_idx - 1
+        else:
+            start = frame_idx + 1
+            end = num_frames
+            step = r
+            must_include = frame_idx + 1
+
+        valid_indices = []
+        for i in range(start, end, step):
+            if i not in output_dict["non_cond_frame_outputs"]:
+                continue
+
+            score_per_frame = output_dict["non_cond_frame_outputs"][i]["eff_iou_score"]
+
+            if score_per_frame > 0.1:  # threshold
+                valid_indices.insert(0, i)
+
+            if len(valid_indices) >= max_num - 1:
+                break
+
+        if must_include not in valid_indices:
+            valid_indices.append(must_include)
+
+        return valid_indices
+
     def _prepare_memory_conditioned_features(
         self,
         frame_idx,
@@ -900,7 +956,10 @@ class VideoTrackingWithPrompt(torch.nn.Module):
             # Select a maximum number of temporally closest cond frames for cross attention
             cond_outputs = output_dict["cond_frame_outputs"]
             selected_cond_outputs, unselected_cond_outputs = select_closest_cond_frames(
-                frame_idx, cond_outputs, self.max_cond_frames_in_attn
+                frame_idx,
+                cond_outputs,
+                self.max_cond_frames_in_attn,
+                keep_first_cond_frame=self.keep_first_cond_frame,
             )
             t_pos_and_prevs = [
                 ((frame_idx - t) * tpos_sign_mul, out, True)
@@ -911,30 +970,42 @@ class VideoTrackingWithPrompt(torch.nn.Module):
             # We also allow taking the memory frame non-consecutively (with r>1), in which case
             # we take (self.num_maskmem - 2) frames among every r-th frames plus the last frame.
             r = 1 if self.training else self.memory_temporal_stride_for_eval
+
+            if self.use_memory_selection:
+                valid_indices = self.frame_filter(
+                    output_dict, track_in_reverse, frame_idx, num_frames, r
+                )
+
             for t_pos in range(1, self.num_maskmem):
                 t_rel = self.num_maskmem - t_pos  # how many frames before current frame
-                if t_rel == 1:
-                    # for t_rel == 1, we take the last frame (regardless of r)
-                    if not track_in_reverse:
-                        # the frame immediately before this frame (i.e. frame_idx - 1)
-                        prev_frame_idx = frame_idx - t_rel
-                    else:
-                        # the frame immediately after this frame (i.e. frame_idx + 1)
-                        prev_frame_idx = frame_idx + t_rel
+                if self.use_memory_selection:
+                    if t_rel > len(valid_indices):
+                        continue
+                    prev_frame_idx = valid_indices[-t_rel]
                 else:
-                    # for t_rel >= 2, we take the memory frame from every r-th frames
-                    if not track_in_reverse:
-                        # first find the nearest frame among every r-th frames before this frame
-                        # for r=1, this would be (frame_idx - 2)
-                        prev_frame_idx = ((frame_idx - 2) // r) * r
-                        # then seek further among every r-th frames
-                        prev_frame_idx = prev_frame_idx - (t_rel - 2) * r
+                    if t_rel == 1:
+                        # for t_rel == 1, we take the last frame (regardless of r)
+                        if not track_in_reverse:
+                            # the frame immediately before this frame (i.e. frame_idx - 1)
+                            prev_frame_idx = frame_idx - t_rel
+                        else:
+                            # the frame immediately after this frame (i.e. frame_idx + 1)
+                            prev_frame_idx = frame_idx + t_rel
                     else:
-                        # first find the nearest frame among every r-th frames after this frame
-                        # for r=1, this would be (frame_idx + 2)
-                        prev_frame_idx = -(-(frame_idx + 2) // r) * r
-                        # then seek further among every r-th frames
-                        prev_frame_idx = prev_frame_idx + (t_rel - 2) * r
+                        # for t_rel >= 2, we take the memory frame from every r-th frames
+                        if not track_in_reverse:
+                            # first find the nearest frame among every r-th frames before this frame
+                            # for r=1, this would be (frame_idx - 2)
+                            prev_frame_idx = ((frame_idx - 2) // r) * r
+                            # then seek further among every r-th frames
+                            prev_frame_idx = prev_frame_idx - (t_rel - 2) * r
+                        else:
+                            # first find the nearest frame among every r-th frames after this frame
+                            # for r=1, this would be (frame_idx + 2)
+                            prev_frame_idx = -(-(frame_idx + 2) // r) * r
+                            # then seek further among every r-th frames
+                            prev_frame_idx = prev_frame_idx + (t_rel - 2) * r
+
                 out = output_dict["non_cond_frame_outputs"].get(prev_frame_idx, None)
                 if out is None:
                     # If an unselected conditioning frame is among the last (self.num_maskmem - 1)
@@ -1028,9 +1099,19 @@ class VideoTrackingWithPrompt(torch.nn.Module):
 
                 # Add up to (max_obj_ptrs_in_encoder - 1) non-conditioning frames before current frame
                 for t_diff in range(1, max_obj_ptrs_in_encoder):
-                    t = frame_idx + t_diff if track_in_reverse else frame_idx - t_diff
-                    if t < 0 or (num_frames is not None and t >= num_frames):
-                        break
+                    if not self.use_memory_selection:
+                        t = (
+                            frame_idx + t_diff
+                            if track_in_reverse
+                            else frame_idx - t_diff
+                        )
+                        if t < 0 or (num_frames is not None and t >= num_frames):
+                            break
+                    else:
+                        if -t_diff <= -len(valid_indices):
+                            break
+                        t = valid_indices[-t_diff]
+
                     out = output_dict["non_cond_frame_outputs"].get(
                         t, unselected_cond_outputs.get(t, None)
                     )
@@ -1470,6 +1551,13 @@ class VideoTrackingWithPrompt(torch.nn.Module):
         current_out["pred_masks"] = low_res_masks
         current_out["pred_masks_high_res"] = high_res_masks
         current_out["obj_ptr"] = obj_ptr
+        if self.use_memory_selection:
+            current_out["object_score_logits"] = object_score_logits
+            iou_score = current_out["multistep_pred_ious"][0].max(-1)[0]
+            current_out["iou_score"] = iou_score
+            current_out["eff_iou_score"] = self.cal_mem_score(
+                object_score_logits, iou_score
+            )
         if not self.training:
             # Only add this in inference (to avoid unused param in activation checkpointing;
             # it's mainly used in the demo to encode spatial memories w/ consolidated masks)
@@ -1520,12 +1608,19 @@ class VideoTrackingWithPrompt(torch.nn.Module):
             if run_mem_encoder and self.num_maskmem > 0:
                 trimmed_out["maskmem_features"] = maskmem_features.cpu()
                 trimmed_out["maskmem_pos_enc"] = [x.cpu() for x in maskmem_pos_enc]
+            if self.use_memory_selection:
+                trimmed_out["iou_score"] = current_out["iou_score"]
+                trimmed_out["eff_iou_score"] = current_out["eff_iou_score"]
             current_out = trimmed_out
 
         # Optionally, trim the output of past non-conditioning frame (r * num_maskmem frames
         # before the current frame) during evaluation. This is intended to save GPU or CPU
         # memory for semi-supervised VOS eval, where only the first frame receives prompts.
-        if self.trim_past_non_cond_mem_for_eval and not self.training:
+        if (
+            self.trim_past_non_cond_mem_for_eval
+            and not self.training
+            and not self.use_memory_selection
+        ):
             r = self.memory_temporal_stride_for_eval
             past_frame_idx = frame_idx - r * self.num_maskmem
             past_out = output_dict["non_cond_frame_outputs"].get(past_frame_idx, None)
