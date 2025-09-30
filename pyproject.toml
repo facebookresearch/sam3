@@ -71,6 +71,7 @@ download = [
     "yt-dlp",
     "pandas",
     "opencv-python",
+    "pycocotools",
 ]
 
 [project.urls]

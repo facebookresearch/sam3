@@ -1,6 +1,7 @@
 import argparse
 import logging
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -13,232 +14,420 @@ import yt_dlp
 from tqdm import tqdm
 
 
-logger = logging.getLogger(__name__)
+class YtVideoPrep:
+    def __init__(
+        self,
+        saco_yt1b_id: str,
+        data_dir: str,
+        cookies_file: str,
+        id_and_frame_map_path: str,
+    ):
+        self.saco_yt1b_id = saco_yt1b_id  # saco_yt1b_id is like saco_yt1b_000000
+        self.data_dir = data_dir
+        self.cookies_file = cookies_file
 
+        self.id_and_frame_map_df = pd.read_json(id_and_frame_map_path)
+        (
+            self.yt_video_id,
+            self.yt_video_id_w_timestamps,
+            self.start_timestamp,
+            self.end_timestamp,
+            self.frame_matching,
+        ) = self._get_yt_video_id_map_info()
 
-def download_youtube_video(
-    video_id, cookies_file="cookies.txt", output_dir="./downloads"
-):
-    video_url = f"https://youtube.com/watch?v={video_id}"
-
-    assert os.path.exists(
-        cookies_file
-    ), f"Cookies file '{cookies_file}' not found. Must have it to download videos."
-    os.makedirs(output_dir, exist_ok=True)
-    outtmpl = os.path.join(output_dir, f"{video_id}.mp4")
-
-    # Check if the output file already exists
-    if os.path.exists(outtmpl) and os.path.isfile(outtmpl):
-        logger.info(f"Video {video_id} already exists at {outtmpl}")
-        return "already exists"
-
-    ydl_opts = {
-        # "format": "bestvideo[height<=720]/bestvideo",  # Video only, 720p or lower
-        "format": "best[height<=720]/best",  # Best available format, 720p or lower
-        "outtmpl": outtmpl,
-        "merge_output_format": "mp4",
-        "noplaylist": True,
-        "quiet": True,
-        "cookiefile": cookies_file,
-    }
-
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            print(f"Downloading video from {video_url} to {outtmpl}...")
-            ydl.download([video_url])
-            print("Download completed successfully!")
-            return "success"
-    except Exception as e:
-        logger.error(f"Error downloading video {video_id}: {e}")
-        return f"error {e}"
-
-
-def download():
-    df = pd.read_json(
-        "saco_veval_data/saco_id_map/yt_id_to_saco_yt1b_id_map.json", orient="records"
-    )
-    yt_video_ids = df.yt_video_id.unique()
-
-    status_file = "saco_yt1b_video_download_status.csv"
-    with open(status_file, "w") as f:
-        f.write("yt_video_id,download_status\n")
-
-    for video_id in tqdm(yt_video_ids):
-        status = download_youtube_video(
-            video_id=video_id, cookies_file="cookies.txt", output_dir="./downloads"
+        self.raw_video_dir = os.path.join(self.data_dir, "raw_videos")
+        self.raw_video_path = os.path.join(
+            self.raw_video_dir, f"{self.yt_video_id}.mp4"
         )
 
-        with open(status_file, "a") as f:
-            f.write(f"{video_id},{status}\n")
+        self.raw_frames_resized_width_1080_dir = os.path.join(
+            self.data_dir, "raw_frames_resized_width_1080", self.saco_yt1b_id
+        )
+        self.raw_frames_resized_width_1080_pattern = os.path.join(
+            self.raw_frames_resized_width_1080_dir, "%05d.jpg"
+        )
+        self.frames_by_frame_matching_dir = os.path.join(
+            self.data_dir, "frames_by_frame_matching", self.saco_yt1b_id
+        )
+
+        self.frames_by_start_end_timestamp_one_step_dir = os.path.join(
+            self.data_dir, "frames_by_start_end_timestamp_one_step", self.saco_yt1b_id
+        )
+        self.frames_by_start_end_timestamp_one_step_pattern = os.path.join(
+            self.frames_by_start_end_timestamp_one_step_dir, "%05d.jpg"
+        )
+
+        self.video_by_start_end_timestamp_two_step_dir = os.path.join(
+            self.data_dir, "video_by_start_end_timestamp_two_step", self.saco_yt1b_id
+        )
+        self.video_by_start_end_timestamp_two_step_path = os.path.join(
+            self.video_by_start_end_timestamp_two_step_dir, f"{self.yt_video_id}.mp4"
+        )
+        self.frames_by_start_end_timestamp_two_step_dir = os.path.join(
+            self.data_dir, "frames_by_start_end_timestamp_two_step", self.saco_yt1b_id
+        )
+        self.frames_by_start_end_timestamp_two_step_pattern = os.path.join(
+            self.frames_by_start_end_timestamp_two_step_dir, "%05d.jpg"
+        )
+
+        os.makedirs(self.raw_video_dir, exist_ok=True)
+        os.makedirs(self.raw_frames_resized_width_1080_dir, exist_ok=True)
+        os.makedirs(self.frames_by_frame_matching_dir, exist_ok=True)
+        os.makedirs(self.frames_by_start_end_timestamp_one_step_dir, exist_ok=True)
+        os.makedirs(self.video_by_start_end_timestamp_two_step_dir, exist_ok=True)
+        os.makedirs(self.frames_by_start_end_timestamp_two_step_dir, exist_ok=True)
+
+    def _get_yt_video_id_map_info(self):
+        df = self.id_and_frame_map_df[
+            self.id_and_frame_map_df.saco_yt1b_id == self.saco_yt1b_id
+        ]
+        assert (
+            len(df) == 1
+        ), f"Expected exactly 1 row for saco_yt1b_id: {self.saco_yt1b_id}, found {len(df)}"
+        id_and_frame_map_row = df.iloc[0]
+
+        yt_video_id = (
+            id_and_frame_map_row.yt_video_id
+        )  # yt_video_id is like -06NgWyZxC0
+        yt_video_id_w_timestamps = id_and_frame_map_row.yt_video_id_w_timestamps
+        start_timestamp, end_timestamp = self._parse_timestamp(yt_video_id_w_timestamps)
+        frame_matching = id_and_frame_map_row.frame_matching
+
+        return (
+            yt_video_id,
+            yt_video_id_w_timestamps,
+            start_timestamp,
+            end_timestamp,
+            frame_matching,
+        )
+
+    def _get_total_frame_count(self):
+        """Get the total number of frames in the raw video using ffprobe for accuracy."""
+        if not os.path.exists(self.raw_video_path):
+            return 0
+
+        try:
+            # Use ffprobe for more accurate frame counting
+            result = subprocess.run([
+                "ffprobe", "-v", "quiet", "-select_streams", "v:0",
+                "-count_frames", "-show_entries", "stream=nb_read_frames",
+                "-of", "csv=p=0", self.raw_video_path
+            ], capture_output=True, text=True, timeout=60)
+            
+            if result.returncode == 0 and result.stdout.strip():
+                total_frames = int(result.stdout.strip())
+                print(f"ffprobe reports {total_frames} frames")
+                return total_frames
+        except (subprocess.TimeoutExpired, ValueError, FileNotFoundError):
+            raise ValueError("ffprobe failed or not available")
 
 
-def get_video_metadata(video_path):
-    cap = cv2.VideoCapture(video_path)
+    def _parse_timestamp(self, yt_video_id_w_timestamps):
+        # In id_and_frame_map_path, we expect the pattern of {video_id}_start_{float}_end_{float} for column yt_video_id_w_timestamps
+        pattern = r"^(.+)_start_(\d+(?:\.\d+)?)_end_(\d+(?:\.\d+)?)$"
+        match = re.match(pattern, yt_video_id_w_timestamps)
+        if not match:
+            raise ValueError(
+                f"Invalid format: {yt_video_id_w_timestamps}. Expected format: {{video_id}}_start_{{start_time}}_end_{{end_time}}"
+            )
 
-    if not cap.isOpened():
-        raise ValueError(f"Could not open video file: {video_path}")
+        # Extract start and end timestamps from the regex groups
+        start_timestamp = match.group(2)
+        end_timestamp = match.group(3)
 
-    # Get video properties
-    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    fps = cap.get(cv2.CAP_PROP_FPS)
-    frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    duration = frame_count / fps if fps > 0 else 0
+        return start_timestamp, end_timestamp
 
-    cap.release()
+    def download_youtube_video(self):
+        video_url = f"https://youtube.com/watch?v={self.yt_video_id}"
 
-    return {
-        "height": height,
-        "width": width,
-        "num_frames": frame_count,
-        "fps": fps,
-        "duration": duration,
-    }
+        assert os.path.exists(
+            self.cookies_file
+        ), f"Cookies file '{self.cookies_file}' not found. Must have it to download videos."
 
+        outtmpl = self.raw_video_path
 
-def check_downloaded_video_metadata():
-    for video_path in tqdm(glob.glob("./downloads/*.mp4")):
-        metadata = get_video_metadata(video_path)
+        # Check if the output file already exists
+        if os.path.exists(outtmpl) and os.path.isfile(outtmpl):
+            print(f"Video {self.yt_video_id} already exists at {outtmpl}")
+            return "already exists"
+
+        ydl_opts = {
+            "format": "best[height<=720]/best",  # 720p or lower
+            "outtmpl": outtmpl,
+            "merge_output_format": "mp4",
+            "noplaylist": True,
+            "quiet": True,
+            "cookiefile": self.cookies_file,
+        }
+
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                print(f"Downloading video from {video_url} to {outtmpl}...")
+                ydl.download([video_url])
+                print("Download completed successfully!")
+                return "success"
+        except Exception as e:
+            print(f"Error downloading video {self.yt_video_id}: {e}")
+            return f"error {e}"
+
+    def generate_all_raw_frames(self):
+        """
+        Extract all frames from the raw video to raw_frames_resized_width_1080_dir.
+        This is the first step before frame matching.
+        """
+        if not os.path.exists(self.raw_video_path):
+            print(f"Error: Raw video file not found at {self.raw_video_path}")
+            return False
+
+        # Check if frames already exist and match video frame count
+        existing_frames = glob(
+            os.path.join(self.raw_frames_resized_width_1080_dir, "*.jpg")
+        )
+        total_video_frames = self._get_total_frame_count()
+
+        if existing_frames:
+            existing_count = len(existing_frames)
+            print(
+                f"Found {existing_count} existing raw frames in {self.raw_frames_resized_width_1080_dir}"
+            )
+            print(f"Video has {total_video_frames} total frames")
+
+            if existing_count == total_video_frames:
+                print("Frame count matches video frame count. Using existing frames.")
+                return True
+            else:
+                print(
+                    f"Frame count mismatch ({existing_count} != {total_video_frames}). Re-generating frames."
+                )
+                # Remove existing frames before regenerating
+                print(f"Removing {existing_count} existing frames...")
+                for frame_file in existing_frames:
+                    try:
+                        os.remove(frame_file)
+                    except OSError as e:
+                        print(f"Warning: Could not remove {frame_file}: {e}")
+                print("Existing frames cleared.")
+                
+
         print(
-            f"{os.path.basename(video_path)}: height={metadata['height']}, width={metadata['width']}, num_frames={metadata['num_frames']}, fps={metadata['fps']:.2f}, duration={metadata['duration']:.2f}s"
+            f"Extracting all frames from {self.raw_video_path} to {self.raw_frames_resized_width_1080_dir}"
         )
 
+        args = [
+            "-nostdin",
+            "-y",
+            "-i",
+            self.raw_video_path,
+            # set output video resolution to be at most 1080p and fps to 6
+            "-vf",
+            "scale=1080:-2",
+            "-vsync",
+            "0",  # passthrough mode - no frame duplication/dropping
+            "-q:v",
+            "2",  # high quality JPEG output
+            "-start_number",
+            "0",  # start frame numbering from 0
+            self.raw_frames_resized_width_1080_pattern,
+        ]
 
-def check_video_frame_metadata():
-    jpeg_paths = glob(
-        "/fsx-onevision-auto-sync/tym/sam3_video/release/media/release_09242025/*yt1b*/*/00000.jpg"
-    )
-    for jpeg_path in tqdm(jpeg_paths):
-        # Load image to get height and width only
-        img = cv2.imread(jpeg_path)
-        if img is None:
-            raise ValueError(f"Could not load image file: {jpeg_path}")
-        height, width = img.shape[:2]
-        metadata = {"height": height, "width": width}
+        result = subprocess.run(
+            ["ffmpeg"] + args,
+            timeout=300,  # 5 minute timeout
+            capture_output=True,
+            text=True,
+        )
+
+        if result.returncode != 0:
+            print(f"Failed to extract raw frames: {result.stderr}")
+            return False
+
+        extracted_frames = glob(
+            os.path.join(self.raw_frames_resized_width_1080_dir, "*.jpg")
+        )
         print(
-            f"{os.path.basename(jpeg_path)}: height={metadata['height']}, width={metadata['width']}"
+            f"Successfully extracted {len(extracted_frames)} frames to {self.raw_frames_resized_width_1080_dir}"
+        )
+        return True
+
+    def generate_frames_by_frame_matching(self):
+        """
+        Copy and rename specific frames from raw_frames_resized_width_1080_dir to frames_by_frame_matching_dir
+        based on the frame_matching list of [dst_frame_num, src_frame_num] pairs.
+        """
+        # First ensure all raw frames are extracted
+        if not self.generate_all_raw_frames():
+            return False
+
+        frame_matching = self.frame_matching
+        total_frames = len(frame_matching)
+
+        print(f"Copying {total_frames} frames based on frame matching")
+
+        success_count = 0
+        for dst_frame_num, src_frame_num in tqdm(frame_matching, desc="Copying frames"):
+            # Source frame file (from raw frames)
+            src_file = os.path.join(
+                self.raw_frames_resized_width_1080_dir, f"{src_frame_num:05d}.jpg"
+            )
+
+            # Destination frame file (renamed according to dst_frame_num)
+            dst_file = os.path.join(
+                self.frames_by_frame_matching_dir, f"{dst_frame_num:05d}.jpg"
+            )
+
+            # Skip if destination file already exists
+            if os.path.exists(dst_file):
+                success_count += 1
+                continue
+
+            # Check if source frame exists
+            assert os.path.exists(
+                src_file
+            ), f"Source frame {src_frame_num:05d}.jpg not found"
+
+            try:
+                shutil.copy2(src_file, dst_file)
+                success_count += 1
+            except Exception as e:
+                raise ValueError(
+                    f"Error copying frame {src_frame_num} -> {dst_frame_num}: {e}"
+                )
+
+        print(
+            f"Successfully copied {success_count}/{total_frames} frames to {self.frames_by_frame_matching_dir}"
+        )
+        return success_count == total_frames
+
+    def generate_frames_by_start_end_timestamp_one_step(self):
+        args = [
+            "-nostdin",
+            "-y",
+            # select video segment
+            "-ss",
+            self.start_timestamp,
+            "-to",
+            self.end_timestamp,
+            "-i",
+            self.raw_video_path,
+            # set output video resolution to be at most 1080p and fps to 6
+            "-vf",
+            "fps=6,scale=1080:-2",
+            "-vsync",
+            "0",  # passthrough mode - no frame duplication/dropping
+            # high quality JPEG output
+            "-q:v",
+            "2",
+            # start frame numbering from 0 instead of 1
+            "-start_number",
+            "0",
+            self.frames_by_start_end_timestamp_one_step_pattern,
+        ]
+
+        result = subprocess.run(
+            ["ffmpeg"] + args, timeout=1000, capture_output=True, text=True
         )
 
+        if result.returncode != 0:
+            print(
+                f"Generate frames by start end timestamp one step failed - FFmpeg failed with error: {result.stderr}"
+            )
+            return False
 
-def preprocess_video(input_video_path, output_video_path, ffmpeg_path="ffmpeg"):
-    """
-    Preprocess video by converting it to specified format.
+        print(
+            f"Successfully extracted frames to {self.frames_by_start_end_timestamp_one_step_dir}"
+        )
+        return True
 
-    Args:
-        input_video_path (str): Path to input video file
-        output_video_path (str): Path to output video file
-        ffmpeg_path (str): Path to ffmpeg executable (default: "ffmpeg")
+    def generate_frames_by_start_end_timestamp_two_step(self):
+        video_args = [
+            "-nostdin",
+            "-y",
+            # select video segment
+            "-ss",
+            self.start_timestamp,
+            "-to",
+            self.end_timestamp,
+            "-i",
+            self.raw_video_path,
+            # set output video resolution to be at most 1080p and fps to 6
+            "-vf",
+            "fps=6,scale=1080:-2",
+            "-vsync",
+            "0",  # passthrough mode - no frame duplication/dropping
+            # specify output format
+            "-c:v",
+            "libx264",
+            "-c:a",
+            "aac",
+            self.video_by_start_end_timestamp_two_step_path,
+        ]
 
-    Returns:
-        bool: True if successful, False otherwise
-    """
-    # Create output directory if it doesn't exist
-    os.makedirs(os.path.dirname(output_video_path), exist_ok=True)
-
-    args = [
-        "-nostdin",
-        "-y",
-        "-i",
-        input_video_path,
-        # set output video resolution to be at most 1080p
-        "-vf",
-        f"scale={1080}:-2",
-        # specify output format
-        "-c:v",
-        "libx264",
-        "-c:a",
-        "aac",
-        output_video_path,
-    ]
-
-    logger.info(f"Processing full video from {input_video_path}")
-    _ = subprocess.run(
-        [ffmpeg_path] + args, timeout=1000, capture_output=True, text=True
-    )
-
-
-def preprocess_video_to_frames(input_video_path, output_dir, ffmpeg_path="ffmpeg"):
-    """
-    Extract all frames from video at original frame rate and save as JPEG files.
-
-    Args:
-        input_video_path (str): Path to input video file
-        output_dir (str): Directory to save output JPEG frames
-        ffmpeg_path (str): Path to ffmpeg executable (default: "ffmpeg")
-
-    Returns:
-        bool: True if successful, False otherwise
-    """
-    # Create output directory if it doesn't exist
-    os.makedirs(output_dir, exist_ok=True)
-
-    # Define output pattern with 5-digit zero-padded frame numbers
-    output_pattern = os.path.join(output_dir, "%05d.jpg")
-
-    args = [
-        "-nostdin",
-        "-y",
-        "-i",
-        input_video_path,
-        "-q:v",
-        "2",
-        output_pattern,
-    ]
-
-    logger.info(f"Extracting frames from {input_video_path} to {output_dir}")
-    result = subprocess.run(
-        [ffmpeg_path] + args, timeout=1000, capture_output=True, text=True
-    )
-
-
-def preprocess_saco_yt1b_frames(yt_video_id):
-    """
-    Copy frames from yt_video_id folder to saco_yt1b_id folder based on frame mapping.
-
-    Args:
-        yt_video_id (str): YouTube video ID
-    """
-    df = pd.read_json("saco_veval_data/saco_id_map/yt_id_to_saco_yt1b_id_map.json")
-
-    matching_rows = df[df["yt_video_id"] == yt_video_id]
-    if len(matching_rows) != 1:
-        raise ValueError(
-            f"Expected exactly 1 mapping for yt_video_id: {yt_video_id}, found {len(matching_rows)}"
+        result = subprocess.run(
+            ["ffmpeg"] + video_args, timeout=1000, capture_output=True, text=True
         )
 
-    row = matching_rows.iloc[0]
-    saco_yt1b_id = row["saco_yt1b_id"]
-    frame_matching = row["frame_matching"]
+        if result.returncode != 0:
+            print(f"Step 1 failed - FFmpeg failed with error: {result.stderr}")
+            return False
 
-    logger.info(f"Processing frames for {yt_video_id} -> {saco_yt1b_id}")
+        frame_args = [
+            "-nostdin",
+            "-y",
+            "-i",
+            self.video_by_start_end_timestamp_two_step_path,
+            "-vsync",
+            "0",  # passthrough mode - no frame duplication/dropping
+            # high quality JPEG output
+            "-q:v",
+            "2",
+            # start frame numbering from 0 instead of 1
+            "-start_number",
+            "0",
+            self.frames_by_start_end_timestamp_two_step_pattern,
+        ]
 
-    source_dir = f"JPEGImages/{yt_video_id}"
-    dest_dir = f"saco_veval_data/09242025/JPEGImages/{saco_yt1b_id}"
-    os.makedirs(dest_dir, exist_ok=True)
+        result = subprocess.run(
+            ["ffmpeg"] + frame_args, timeout=1000, capture_output=True, text=True
+        )
 
-    for saco_frame_num, yt_frame_num in tqdm(frame_matching, desc="Copying frames"):
-        source_file = os.path.join(source_dir, f"{yt_frame_num:05d}.jpg")
-        dest_filename = f"{saco_frame_num:05d}.jpg"
-        dest_file = os.path.join(dest_dir, dest_filename)
-        shutil.copy2(source_file, dest_file)
-        
-    logger.info(
-        f"Successfully copied {len(frame_matching)} frames from {yt_video_id} to {saco_yt1b_id}"
-    )
+        if result.returncode != 0:
+            print(f"Step 2 failed - FFmpeg failed with error: {result.stderr}")
+            return False
+
+        print(
+            f"Successfully extracted frames to {self.frames_by_start_end_timestamp_two_step_dir}"
+        )
+        return True
 
 
 def main():
-    logger.warning(
-        "This script uses yt_dlp to donwload videos. Check the risk of account banning at https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies."
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--saco_yt1b_id", type=str, required=True)
+    parser.add_argument(
+        "--data_dir",
+        type=str,
+        default="/home/tym/code/git_clone/sam3_and_data/data/media/saco_yt1b",
     )
-    # check_downloaded_video_metadata()
-    # check_video_frame_metadata()
-    # download()
-    # download_youtube_video()
-    yt_video_id = "-06NgWyZxC0"
-    preprocess_video(input_video_path=f"downloads/{yt_video_id}.mp4", output_video_path=f"processed_downloads/{yt_video_id}.mp4")
-    preprocess_video_to_frames(input_video_path=f"processed_downloads/{yt_video_id}.mp4", output_dir=f"JPEGImages/{yt_video_id}")
-    preprocess_saco_yt1b_frames(yt_video_id)
+    parser.add_argument(
+        "--cookies_file",
+        type=str,
+        default="/home/tym/code/git_clone/sam3_and_data/data/media/saco_yt1b/cookies.txt",
+    )
+    parser.add_argument(
+        "--id_and_frame_map_path",
+        type=str,
+        default="/home/tym/code/git_clone/sam3_and_data/data/media/saco_yt1b/id_and_frame_map.json",
+    )
+    args = parser.parse_args()
+
+    video_prep = YtVideoPrep(
+        args.saco_yt1b_id, args.data_dir, args.cookies_file, args.id_and_frame_map_path
+    )
+    video_prep.download_youtube_video()
+    video_prep.generate_all_raw_frames()
+    video_prep.generate_frames_by_frame_matching()
+    video_prep.generate_frames_by_start_end_timestamp_one_step()
+    video_prep.generate_frames_by_start_end_timestamp_two_step()
 
 
 if __name__ == "__main__":
