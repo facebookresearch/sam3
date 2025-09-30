@@ -18,8 +18,8 @@ from torch import nn, Tensor
 from sam3 import perflib
 from sam3.model.data_misc import BatchedDatapoint
 from sam3.model.model_misc import NestedTensor
+from sam3.model.nms_utils import mask_iou
 from sam3.model.sam3_image import Sam3ImageOnVideoMultiGPU
-from sam3.model.sam3_image_on_video_multigpu_utils import mask_iou
 
 from sam3.model.video_tracking_with_prompt_utils import (
     fill_holes_in_mask_scores,

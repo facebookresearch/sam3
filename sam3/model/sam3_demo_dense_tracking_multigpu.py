@@ -25,9 +25,9 @@ from sam3.model.data_misc import (
 )
 from sam3.model.geometry_encoders import Prompt
 from sam3.model.model_misc import NestedTensor
+from sam3.model.nms_utils import mask_iou
 
 from sam3.model.sam3_dense_shared_multigpu import Sam3DenseTrackingMultiGPU
-from sam3.model.sam3_image_on_video_multigpu_utils import mask_iou
 
 # Sam3DemoMixin functionality - using sam3 imports
 from sam3.model.video_tracking_with_prompt_utils import load_resource_as_video_frames
