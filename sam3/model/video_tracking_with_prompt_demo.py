@@ -10,7 +10,7 @@ from sam3.model.model_misc import NestedTensor
 from sam3.model.video_tracking_with_prompt import (
     concat_points,
     NO_OBJ_SCORE,
-    VideoTrackingWithPrompt,
+    Sam3TrackerBase,
 )
 from sam3.model.video_tracking_with_prompt_utils import (
     fill_holes_in_mask_scores,
@@ -18,9 +18,9 @@ from sam3.model.video_tracking_with_prompt_utils import (
 )
 
 
-class VideoTrackingWithPromptDemo(VideoTrackingWithPrompt):
+class Sam3TrackerPredictor(Sam3TrackerBase):
     """
-    The demo class that extends the `VideoTrackingWithPrompt` to handle user interactions
+    The demo class that extends the `Sam3TrackerBase` to handle user interactions
     and manage inference states, with support for multi-object tracking.
     """
 
@@ -60,31 +60,16 @@ class VideoTrackingWithPromptDemo(VideoTrackingWithPrompt):
     @torch.inference_mode()
     def init_state(
         self,
-        video_path,
-        offload_video_to_cpu,
-        offload_state_to_cpu,
-        async_loading_frames=False,
-        use_torchcodec=False,
+        video_height,
+        video_width,
+        num_frames,
+        cached_features=None,
+        offload_video_to_cpu=False,
+        offload_state_to_cpu=False,
     ):
         """Initialize a inference state."""
-        # Make sure that sigmoid is used on mask logits (should be True for all our recent models).
-        # Since we rely on large negative values as scores for missing objects, the raw logits
-        # cannot be consumed directly and must be converted into 0~1 range via sigmoid first.
-        if not self.apply_sigmoid_to_mask_logits_for_mem_enc:
-            raise NotImplementedError(
-                "Multi-object tracking requires sigmoid in memory encoder for non-overlapping constraints."
-            )
-
-        images, video_height, video_width = load_video_frames(
-            video_path=video_path,
-            image_size=self.image_size,
-            offload_video_to_cpu=offload_video_to_cpu,
-            async_loading_frames=async_loading_frames,
-            use_torchcodec=use_torchcodec,
-        )
         inference_state = {}
-        inference_state["images"] = images
-        inference_state["num_frames"] = len(images)
+        inference_state["num_frames"] = num_frames
         # whether to offload the video frames to CPU memory
         # turning on this option saves the GPU memory with only a very small overhead
         inference_state["offload_video_to_cpu"] = offload_video_to_cpu
@@ -105,7 +90,9 @@ class VideoTrackingWithPromptDemo(VideoTrackingWithPrompt):
         inference_state["point_inputs_per_obj"] = {}
         inference_state["mask_inputs_per_obj"] = {}
         # visual features on a small number of recently visited frames for quick interactions
-        inference_state["cached_features"] = {}
+        inference_state["cached_features"] = (
+            {} if cached_features is None else cached_features
+        )
         # values that don't change across frames (so we only need to hold one copy of them)
         inference_state["constants"] = {}
         # mapping between client-side object id and model-side object index
@@ -133,17 +120,6 @@ class VideoTrackingWithPromptDemo(VideoTrackingWithPrompt):
         # metadata for each tracking frame (e.g. which direction it's tracked)
         inference_state["tracking_has_started"] = False
         inference_state["frames_already_tracked"] = {}
-        # Warm up the whole model and cache the image feature on frame 0
-        # by making a dummy click on the first frame (and then cleaning it up)
-        self.add_new_points(
-            inference_state=inference_state,
-            frame_idx=0,
-            obj_id=1,
-            points=torch.tensor([[0.5, 0.5]], dtype=torch.float32),
-            labels=torch.tensor([1], dtype=torch.int32),
-            clear_old_points=True,
-            rel_coordinates=True,
-        )
         self.clear_all_points_in_video(inference_state)
         return inference_state
 
@@ -773,6 +749,7 @@ class VideoTrackingWithPromptDemo(VideoTrackingWithPrompt):
         run_mem_encoder=True,
     ):
         """Propagate the input points across frames to track in the entire video."""
+        # NOTE: This is a copy from the parent class, except that we return object scores as well.
         output_dict = inference_state["output_dict"]
         consolidated_frame_inds = inference_state["consolidated_frame_inds"]
         if obj_ids is not None:
@@ -805,6 +782,7 @@ class VideoTrackingWithPromptDemo(VideoTrackingWithPrompt):
                 storage_key = "cond_frame_outputs"
                 current_out = output_dict[storage_key][frame_idx]
                 pred_masks = current_out["pred_masks"]
+                obj_scores = current_out["object_score_logits"]
                 if clear_non_cond_mem:
                     # clear non-conditioning memory of the surrounding frames
                     self._clear_non_cond_mem_around_input(inference_state, frame_idx)
@@ -812,22 +790,21 @@ class VideoTrackingWithPromptDemo(VideoTrackingWithPrompt):
                 storage_key = "non_cond_frame_outputs"
                 current_out = output_dict[storage_key][frame_idx]
                 pred_masks = current_out["pred_masks"]
+                obj_scores = current_out["object_score_logits"]
             else:
                 storage_key = "non_cond_frame_outputs"
-                with torch.profiler.record_function(
-                    "VideoTrackingWithPromptDemo._run_single_frame_inference"
-                ):
-                    current_out, pred_masks = self._run_single_frame_inference(
-                        inference_state=inference_state,
-                        output_dict=output_dict,
-                        frame_idx=frame_idx,
-                        batch_size=batch_size,
-                        is_init_cond_frame=False,
-                        point_inputs=None,
-                        mask_inputs=None,
-                        reverse=reverse,
-                        run_mem_encoder=run_mem_encoder,
-                    )
+                current_out, pred_masks = self._run_single_frame_inference(
+                    inference_state=inference_state,
+                    output_dict=output_dict,
+                    frame_idx=frame_idx,
+                    batch_size=batch_size,
+                    is_init_cond_frame=False,
+                    point_inputs=None,
+                    mask_inputs=None,
+                    reverse=reverse,
+                    run_mem_encoder=run_mem_encoder,
+                )
+                obj_scores = current_out["object_score_logits"]
                 output_dict[storage_key][frame_idx] = current_out
             # Create slices of per-object outputs for subsequent interaction with each
             # individual object after tracking.
@@ -841,7 +818,7 @@ class VideoTrackingWithPromptDemo(VideoTrackingWithPrompt):
             low_res_masks, video_res_masks = self._get_orig_video_res_output(
                 inference_state, pred_masks
             )
-            yield frame_idx, obj_ids, low_res_masks, video_res_masks
+            yield frame_idx, obj_ids, low_res_masks, video_res_masks, obj_scores
 
     def _add_output_per_object(
         self, inference_state, frame_idx, current_out, storage_key
@@ -981,17 +958,16 @@ class VideoTrackingWithPromptDemo(VideoTrackingWithPrompt):
 
     def _get_image_feature(self, inference_state, frame_idx, batch_size):
         """Compute the image features on a given frame."""
-        # Look up in the cache first
+        # Look up in the cache
         image, backbone_out = inference_state["cached_features"].get(
             frame_idx, (None, None)
         )
         if backbone_out is None:
-            # Cache miss -- we will run inference on a single image
-            image = inference_state["images"][frame_idx].cuda().float().unsqueeze(0)
-            backbone_out = self.forward_image(NestedTensor(tensors=image, mask=None))
-            # Cache the most recent frame's feature (for repeated interactions with
-            # a frame; we can use an LRU cache for more frames in the future).
-            inference_state["cached_features"] = {frame_idx: (image, backbone_out)}
+            raise RuntimeError(
+                f"Image features for frame {frame_idx} are not cached. "
+                "Please run inference on this frame first."
+            )
+        backbone_out = backbone_out["sam2_backbone_out"]  # Extract SAM2 backbone output
 
         # expand the features to have the same dimension as the number of objects
         expanded_image = image.expand(batch_size, -1, -1, -1)
@@ -1033,37 +1009,33 @@ class VideoTrackingWithPromptDemo(VideoTrackingWithPrompt):
     ):
         """Run tracking on a single frame based on current inputs and previous memory."""
         # Retrieve correct image features
-        with torch.profiler.record_function(
-            "VideoTrackingWithPromptDemo._get_image_feature"
-        ):
-            (
-                image,
-                _,
-                current_vision_feats,
-                current_vision_pos_embeds,
-                current_vision_masks,
-                feat_sizes,
-            ) = self._get_image_feature(inference_state, frame_idx, batch_size)
+        (
+            image,
+            _,
+            current_vision_feats,
+            current_vision_pos_embeds,
+            current_vision_masks,
+            feat_sizes,
+        ) = self._get_image_feature(inference_state, frame_idx, batch_size)
 
         # point and mask should not appear as input simultaneously on the same frame
         assert point_inputs is None or mask_inputs is None
-        with torch.profiler.record_function("VideoTrackingWithPromptDemo.track_step"):
-            current_out = self.track_step(
-                frame_idx=frame_idx,
-                is_init_cond_frame=is_init_cond_frame,
-                current_vision_feats=current_vision_feats,
-                current_vision_pos_embeds=current_vision_pos_embeds,
-                feat_sizes=feat_sizes,
-                image=image,
-                point_inputs=point_inputs,
-                mask_inputs=mask_inputs,
-                output_dict=output_dict,
-                num_frames=inference_state["num_frames"],
-                track_in_reverse=reverse,
-                run_mem_encoder=run_mem_encoder,
-                prev_sam_mask_logits=prev_sam_mask_logits,
-                use_prev_mem_frame=use_prev_mem_frame,
-            )
+        current_out = self.track_step(
+            frame_idx=frame_idx,
+            is_init_cond_frame=is_init_cond_frame,
+            current_vision_feats=current_vision_feats,
+            current_vision_pos_embeds=current_vision_pos_embeds,
+            feat_sizes=feat_sizes,
+            image=image,
+            point_inputs=point_inputs,
+            mask_inputs=mask_inputs,
+            output_dict=output_dict,
+            num_frames=inference_state["num_frames"],
+            track_in_reverse=reverse,
+            run_mem_encoder=run_mem_encoder,
+            prev_sam_mask_logits=prev_sam_mask_logits,
+            use_prev_mem_frame=use_prev_mem_frame,
+        )
 
         # optionally offload the output to CPU memory to save GPU space
         storage_device = inference_state["storage_device"]
@@ -1294,138 +1266,6 @@ class VideoTrackingWithPromptDemo(VideoTrackingWithPrompt):
             for obj_output_dict in inference_state["output_dict_per_obj"].values():
                 obj_output_dict["non_cond_frame_outputs"].pop(t, None)
 
-    @torch.inference_mode()
-    @torch.autocast(device_type="cuda", dtype=torch.bfloat16)
-    def warm_up_compilation(
-        self, offload_video_to_cpu=False, offload_state_to_cpu=False
-    ):
-        """
-        Warm up the model by running a dummy inference to compile the model. This is
-        useful to avoid the compilation overhead in the first inference call.
-        """
-        if not self.compile_all_components:
-            return
-
-        raise NotImplementedError(
-            "Please use `VideoTrackingWithPromptDemoPerObjInference` instead for full model compilation."
-        )
-
-
-class Sam3VideoTrackingWithPromptDemo(VideoTrackingWithPromptDemo):
-    @torch.inference_mode()
-    def init_state(
-        self,
-        video_height,
-        video_width,
-        num_frames,
-        cached_features=None,
-        offload_video_to_cpu=False,
-        offload_state_to_cpu=False,
-    ):
-        """Initialize a inference state."""
-        inference_state = {}
-        inference_state["num_frames"] = num_frames
-        # whether to offload the video frames to CPU memory
-        # turning on this option saves the GPU memory with only a very small overhead
-        inference_state["offload_video_to_cpu"] = offload_video_to_cpu
-        # whether to offload the inference state to CPU memory
-        # turning on this option saves the GPU memory at the cost of a lower tracking fps
-        # (e.g. in a test case of 768x768 model, fps dropped from 27 to 24 when tracking one object
-        # and from 24 to 21 when tracking two objects)
-        inference_state["offload_state_to_cpu"] = offload_state_to_cpu
-        # the original video height and width, used for resizing final output scores
-        inference_state["video_height"] = video_height
-        inference_state["video_width"] = video_width
-        inference_state["device"] = torch.device("cuda")
-        if offload_state_to_cpu:
-            inference_state["storage_device"] = torch.device("cpu")
-        else:
-            inference_state["storage_device"] = torch.device("cuda")
-        # inputs on each frame
-        inference_state["point_inputs_per_obj"] = {}
-        inference_state["mask_inputs_per_obj"] = {}
-        # visual features on a small number of recently visited frames for quick interactions
-        inference_state["cached_features"] = (
-            {} if cached_features is None else cached_features
-        )
-        # values that don't change across frames (so we only need to hold one copy of them)
-        inference_state["constants"] = {}
-        # mapping between client-side object id and model-side object index
-        inference_state["obj_id_to_idx"] = OrderedDict()
-        inference_state["obj_idx_to_id"] = OrderedDict()
-        inference_state["obj_ids"] = []
-        # A storage to hold the model's tracking results and states on each frame
-        inference_state["output_dict"] = {
-            "cond_frame_outputs": {},  # dict containing {frame_idx: <out>}
-            "non_cond_frame_outputs": {},  # dict containing {frame_idx: <out>}
-        }
-        # The index of the frame that received the first annotation
-        inference_state["first_ann_frame_idx"] = None
-        # Slice (view) of each object tracking results, sharing the same memory with "output_dict"
-        inference_state["output_dict_per_obj"] = {}
-        # A temporary storage to hold new outputs when user interact with a frame
-        # to add clicks or mask (it's merged into "output_dict" before propagation starts)
-        inference_state["temp_output_dict_per_obj"] = {}
-        # Frames that already holds consolidated outputs from click or mask inputs
-        # (we directly use their consolidated outputs during tracking)
-        inference_state["consolidated_frame_inds"] = {
-            "cond_frame_outputs": set(),  # set containing frame indices
-            "non_cond_frame_outputs": set(),  # set containing frame indices
-        }
-        # metadata for each tracking frame (e.g. which direction it's tracked)
-        inference_state["tracking_has_started"] = False
-        inference_state["frames_already_tracked"] = {}
-        # Warm up the whole model and cache the image feature on frame 0
-        # by making a dummy click on the first frame (and then cleaning it up)
-        # self.add_new_points(
-        #     inference_state=inference_state,
-        #     frame_idx=0,
-        #     obj_id=1,
-        #     points=torch.tensor([[0.5, 0.5]], dtype=torch.float32),
-        #     labels=torch.tensor([1], dtype=torch.int32),
-        #     clear_old_points=True,
-        #     rel_coordinates=True,
-        # )
-        self.clear_all_points_in_video(inference_state)
-        return inference_state
-
-    def _get_image_feature(self, inference_state, frame_idx, batch_size):
-        """Compute the image features on a given frame."""
-        # Look up in the cache
-        image, backbone_out = inference_state["cached_features"].get(
-            frame_idx, (None, None)
-        )
-        if backbone_out is None:
-            raise RuntimeError(
-                f"Image features for frame {frame_idx} are not cached. "
-                "Please run inference on this frame first."
-            )
-        backbone_out = backbone_out["sam2_backbone_out"]  # Extract SAM2 backbone output
-
-        # expand the features to have the same dimension as the number of objects
-        expanded_image = image.expand(batch_size, -1, -1, -1)
-        expanded_backbone_out = {
-            "backbone_fpn": backbone_out["backbone_fpn"].copy(),
-            "vision_pos_enc": backbone_out["vision_pos_enc"].copy(),
-        }
-        for i, feat in enumerate(expanded_backbone_out["backbone_fpn"]):
-            feat = NestedTensor(
-                tensors=feat.tensors.expand(batch_size, -1, -1, -1),
-                mask=(
-                    feat.mask.expand(batch_size, -1, -1, -1)
-                    if feat.mask is not None
-                    else None
-                ),
-            )
-            expanded_backbone_out["backbone_fpn"][i] = feat
-        for i, pos in enumerate(expanded_backbone_out["vision_pos_enc"]):
-            pos = pos.expand(batch_size, -1, -1, -1)
-            expanded_backbone_out["vision_pos_enc"][i] = pos
-
-        features = self._prepare_backbone_features(expanded_backbone_out)
-        features = (expanded_image,) + features
-        return features
-
     def _suppress_shrinked_masks(
         self, pred_masks, new_pred_masks, shrink_threshold=0.3
     ):
@@ -1478,89 +1318,3 @@ class Sam3VideoTrackingWithPromptDemo(VideoTrackingWithPromptDemo):
             torch.clamp(pred_masks, max=background_value),
         )
         return pred_masks
-
-    @torch.inference_mode()
-    def propagate_in_video(
-        self,
-        inference_state,
-        start_frame_idx,
-        max_frame_num_to_track,
-        reverse,
-        tqdm_disable=False,
-        obj_ids=None,
-        run_mem_encoder=True,
-    ):
-        """Propagate the input points across frames to track in the entire video."""
-        # NOTE: This is a copy from the parent class, except that we return object scores as well.
-        output_dict = inference_state["output_dict"]
-        consolidated_frame_inds = inference_state["consolidated_frame_inds"]
-        if obj_ids is not None:
-            raise NotImplementedError(
-                "Per-object tracking yet for batched inference if not implemented."
-            )
-        obj_ids = inference_state["obj_ids"]
-        batch_size = self._get_obj_num(inference_state)
-        if len(output_dict["cond_frame_outputs"]) == 0:
-            raise RuntimeError("No points are provided; please add points first")
-        clear_non_cond_mem = self.clear_non_cond_mem_around_input and (
-            self.clear_non_cond_mem_for_multi_obj or batch_size <= 1
-        )
-
-        processing_order = self._get_processing_order(
-            inference_state,
-            start_frame_idx,
-            max_frame_num_to_track,
-            reverse,
-        )
-
-        for frame_idx in tqdm(
-            processing_order, desc="propagate in video", disable=tqdm_disable
-        ):
-            # We skip those frames already in consolidated outputs (these are frames
-            # that received input clicks or mask). Note that we cannot directly run
-            # batched forward on them via `_run_single_frame_inference` because the
-            # number of clicks on each object might be different.
-            if frame_idx in consolidated_frame_inds["cond_frame_outputs"]:
-                storage_key = "cond_frame_outputs"
-                current_out = output_dict[storage_key][frame_idx]
-                pred_masks = current_out["pred_masks"]
-                obj_scores = current_out["object_score_logits"]
-                if clear_non_cond_mem:
-                    # clear non-conditioning memory of the surrounding frames
-                    self._clear_non_cond_mem_around_input(inference_state, frame_idx)
-            elif frame_idx in consolidated_frame_inds["non_cond_frame_outputs"]:
-                storage_key = "non_cond_frame_outputs"
-                current_out = output_dict[storage_key][frame_idx]
-                pred_masks = current_out["pred_masks"]
-                obj_scores = current_out["object_score_logits"]
-            else:
-                storage_key = "non_cond_frame_outputs"
-                with torch.profiler.record_function(
-                    "VideoTrackingWithPromptDemo._run_single_frame_inference"
-                ):
-                    current_out, pred_masks = self._run_single_frame_inference(
-                        inference_state=inference_state,
-                        output_dict=output_dict,
-                        frame_idx=frame_idx,
-                        batch_size=batch_size,
-                        is_init_cond_frame=False,
-                        point_inputs=None,
-                        mask_inputs=None,
-                        reverse=reverse,
-                        run_mem_encoder=run_mem_encoder,
-                    )
-                    obj_scores = current_out["object_score_logits"]
-                output_dict[storage_key][frame_idx] = current_out
-            # Create slices of per-object outputs for subsequent interaction with each
-            # individual object after tracking.
-            self._add_output_per_object(
-                inference_state, frame_idx, current_out, storage_key
-            )
-            inference_state["frames_already_tracked"][frame_idx] = {"reverse": reverse}
-
-            # Resize the output mask to the original video resolution (we directly use
-            # the mask scores on GPU for output to avoid any CPU conversion in between)
-            low_res_masks, video_res_masks = self._get_orig_video_res_output(
-                inference_state, pred_masks
-            )
-            yield frame_idx, obj_ids, low_res_masks, video_res_masks, obj_scores

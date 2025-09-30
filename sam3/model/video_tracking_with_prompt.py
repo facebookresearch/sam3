@@ -25,7 +25,7 @@ from sam3.train.data.collator import BatchedDatapoint
 NO_OBJ_SCORE = -1024.0
 
 
-class VideoTrackingWithPrompt(torch.nn.Module):
+class Sam3TrackerBase(torch.nn.Module):
     def __init__(
         self,
         backbone,
@@ -437,7 +437,9 @@ class VideoTrackingWithPrompt(torch.nn.Module):
 
     def forward_image(self, img_batch):
         """Get the image feature on the input batch."""
-        backbone_out = self.backbone.forward_image(img_batch)
+        # This line is the only change from the parent class
+        # to use the SAM3 backbone instead of the SAM2 backbone.
+        backbone_out = self.backbone.forward_image(img_batch)["sam2_backbone_out"]
         # precompute projected level 0 and level 1 features in SAM decoder
         # to avoid running it again on every SAM click
         backbone_out["backbone_fpn"][0].tensors = self.sam_mask_decoder.conv_s0(
@@ -780,19 +782,16 @@ class VideoTrackingWithPrompt(torch.nn.Module):
         prompt = torch.cat(to_cat_prompt, dim=0)
         prompt_mask = None  # For now, we always masks are zeros anyways
         prompt_pos_embed = torch.cat(to_cat_prompt_pos_embed, dim=0)
-        with torch.profiler.record_function(
-            "VideoTrackingWithPrompt.transformer_encoder"
-        ):
-            encoder_out = self.transformer.encoder(
-                src=current_vision_feats,
-                src_key_padding_mask=[None],
-                src_pos=current_vision_pos_embeds,
-                prompt=prompt,
-                prompt_pos=prompt_pos_embed,
-                prompt_key_padding_mask=prompt_mask,
-                feat_sizes=feat_sizes,
-                num_obj_ptr_tokens=num_obj_ptr_tokens,
-            )
+        encoder_out = self.transformer.encoder(
+            src=current_vision_feats,
+            src_key_padding_mask=[None],
+            src_pos=current_vision_pos_embeds,
+            prompt=prompt,
+            prompt_pos=prompt_pos_embed,
+            prompt_key_padding_mask=prompt_mask,
+            feat_sizes=feat_sizes,
+            num_obj_ptr_tokens=num_obj_ptr_tokens,
+        )
         # reshape the output (HW)BC => BCHW
         pix_feat_with_mem = encoder_out["memory"].permute(1, 2, 0).view(B, C, H, W)
         return pix_feat_with_mem
@@ -833,14 +832,13 @@ class VideoTrackingWithPrompt(torch.nn.Module):
         if self.sigmoid_bias_for_mem_enc != 0.0:
             mask_for_mem = mask_for_mem + self.sigmoid_bias_for_mem_enc
 
-        with torch.profiler.record_function("VideoTrackingWithPrompt.maskmem_backbone"):
-            if isinstance(self.maskmem_backbone, SimpleMaskEncoder):
-                pix_feat = pix_feat.view_as(pix_feat)
-                maskmem_out = self.maskmem_backbone(
-                    pix_feat, mask_for_mem, skip_mask_sigmoid=True
-                )
-            else:
-                maskmem_out = self.maskmem_backbone(image, pix_feat, mask_for_mem)
+        if isinstance(self.maskmem_backbone, SimpleMaskEncoder):
+            pix_feat = pix_feat.view_as(pix_feat)
+            maskmem_out = self.maskmem_backbone(
+                pix_feat, mask_for_mem, skip_mask_sigmoid=True
+            )
+        else:
+            maskmem_out = self.maskmem_backbone(image, pix_feat, mask_for_mem)
         # Clone the feats and pos_enc to enable compilation
         maskmem_features = self._maybe_clone(maskmem_out["vision_features"])
         maskmem_pos_enc = [self._maybe_clone(m) for m in maskmem_out["vision_pos_enc"]]
@@ -1172,35 +1170,6 @@ class VideoTrackingWithPrompt(torch.nn.Module):
     def _maybe_clone(self, x):
         """Clone a tensor if and only if `self.compile_all_components` is True."""
         return x.clone() if self.compile_all_components else x
-
-
-class Sam2WithSAM3Backbone(VideoTrackingWithPrompt):
-    """
-    SAM2 model trained with SAM3 frozen backbone features
-    """
-
-    def forward_image(self, img_batch):
-        """Get the image feature on the input batch."""
-        # This line is the only change from the parent class
-        # to use the SAM3 backbone instead of the SAM2 backbone.
-        backbone_out = self.backbone.forward_image(img_batch)["sam2_backbone_out"]
-        # precompute projected level 0 and level 1 features in SAM decoder
-        # to avoid running it again on every SAM click
-        backbone_out["backbone_fpn"][0].tensors = self.sam_mask_decoder.conv_s0(
-            backbone_out["backbone_fpn"][0].tensors
-        )
-        backbone_out["backbone_fpn"][1].tensors = self.sam_mask_decoder.conv_s1(
-            backbone_out["backbone_fpn"][1].tensors
-        )
-        # Clone to help torch.compile
-        for i in range(len(backbone_out["backbone_fpn"])):
-            backbone_out["backbone_fpn"][i].tensors = self._maybe_clone(
-                backbone_out["backbone_fpn"][i].tensors
-            )
-            backbone_out["vision_pos_enc"][i] = self._maybe_clone(
-                backbone_out["vision_pos_enc"][i]
-            )
-        return backbone_out
 
 
 def concat_points(old_point_inputs, new_points, new_labels):

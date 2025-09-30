@@ -39,7 +39,7 @@ from sam3.model.sam3_demo_dense_tracking_multigpu import Sam3DenseTrackingDemoMu
 from sam3.model.sam3_image import Sam3ImageOnVideoMultiGPU
 from sam3.model.text_encoder_ve import VETextEncoder
 from sam3.model.tokenizer_ve import SimpleTokenizer
-from sam3.model.video_tracking_with_prompt_demo import Sam3VideoTrackingWithPromptDemo
+from sam3.model.video_tracking_with_prompt_demo import Sam3TrackerPredictor
 from sam3.model.vitdet import ViT
 from sam3.model.vl_combiner import SAM3VLBackbone
 from sam3.sam_original.transformer import RoPEAttention
@@ -83,7 +83,7 @@ class Sam2Predictor(nn.Module):
     def forward(self, *args, **kwargs):
         """Forward pass is not implemented - use predictor APIs instead."""
         raise NotImplementedError(
-            "Use the sam2 predictor APIs instead. Check VideoTrackingWithPromptDemo class for details."
+            "Use the sam2 predictor APIs instead. Check Sam3TrackerPredictor class for details."
         )
 
     def __getattr__(self, name):
@@ -207,7 +207,7 @@ def build_sam2_model() -> Sam2Predictor:
     transformer = _create_sam2_transformer()
 
     # Create the main SAM2 model
-    model = Sam3VideoTrackingWithPromptDemo(
+    model = Sam3TrackerPredictor(
         image_size=1008,
         num_maskmem=7,
         backbone=None,
