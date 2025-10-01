@@ -121,27 +121,3 @@ def remove_overlapping_masks(sample: Dict, iom_thresh: float = 0.3) -> Dict:
     out["removed_indices"] = [i for i in range(N) if i not in set(kept_idx_sorted)]
     out["iom_threshold"] = float(iom_thresh)
     return out
-
-# ---------------------- Main ----------------------
-
-def main():
-    # As requested: load the JSON from this exact path and process it
-    json_path = "/fsx-onevision/yuzhou1/code/out/sam_out/-fsx-onevision-yuzhou1-datasets-refcoco-refer-data-images-mscoco-images-train2014-COCO_train2014_000000416948.jpg/cow.json"
-    if not os.path.exists(json_path):
-        raise FileNotFoundError(f"Input file not found: {json_path}")
-
-    with open(json_path, "r") as f:
-        sample = json.load(f)
-
-    iom_thresh = 0.3  # you can adjust as needed
-    pruned = remove_overlapping_masks(sample, iom_thresh)
-
-    # Print a concise summary and the pruned JSON to stdout
-    kept = pruned.get("kept_indices", [])
-    removed = pruned.get("removed_indices", [])
-    print(f"[Summary] Kept: {len(kept)} | Removed: {len(removed)} | IoM threshold: {iom_thresh}")
-    print(json.dumps(pruned, indent=2))
-
-
-if __name__ == "__main__":
-    main()
