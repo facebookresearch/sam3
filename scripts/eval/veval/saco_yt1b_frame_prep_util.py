@@ -5,6 +5,7 @@ import shutil
 import subprocess
 from glob import glob
 
+import cv2
 import pandas as pd
 import yt_dlp
 
@@ -76,37 +77,29 @@ class YtVideoPrep:
         )
 
     def _get_total_frame_count(self):
-        """Get the total number of frames in the raw video using ffprobe for accuracy."""
+        """Get the total number of frames in the raw video using cv2 for speed and reliability."""
         if not os.path.exists(self.raw_video_path):
             return 0
 
         try:
-            # Use ffprobe for more accurate frame counting
-            result = subprocess.run(
-                [
-                    "ffprobe",
-                    "-v",
-                    "quiet",
-                    "-select_streams",
-                    "v:0",
-                    "-count_frames",
-                    "-show_entries",
-                    "stream=nb_read_frames",
-                    "-of",
-                    "csv=p=0",
-                    self.raw_video_path,
-                ],
-                capture_output=True,
-                text=True,
-                timeout=60,
-            )
-
-            if result.returncode == 0 and result.stdout.strip():
-                total_frames = int(result.stdout.strip())
-                print(f"ffprobe reports {total_frames} frames")
+            # Use cv2 for fast and reliable frame counting
+            cap = cv2.VideoCapture(self.raw_video_path)
+            if not cap.isOpened():
+                raise ValueError(f"Could not open video: {self.raw_video_path}")
+            
+            # Get frame count from video metadata
+            total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            cap.release()
+            
+            if total_frames > 0:
+                print(f"cv2 reports {total_frames} frames")
                 return total_frames
-        except (subprocess.TimeoutExpired, ValueError, FileNotFoundError):
-            raise ValueError("ffprobe failed or not available")
+            else:
+                raise ValueError("cv2 could not determine frame count")
+                
+        except Exception as e:
+            print(f"Error getting frame count with cv2: {e}")
+            raise ValueError("cv2 failed to get frame count")
 
     def _parse_timestamp(self, yt_video_id_w_timestamps):
         # In id_and_frame_map_path, we expect the pattern of {video_id}_start_{float}_end_{float} for column yt_video_id_w_timestamps
