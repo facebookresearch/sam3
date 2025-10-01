@@ -8,6 +8,10 @@
 * SA-FARI: videos are from wildlife cameras, partnership with [Conservation X Labs](https://www.conservationxlabs.com/)
 
 ## Usage
+Install the SA-Co/VEVal required environment
+```
+pip install -e ".[veval]"
+```
 ### Download annotations
 The GT annotations can be downloaded from the following [location](https://drive.google.com/drive/folders/1BadVFUfENo5JsehDWKuYbTllS20JtmiX) [TODO: update to HF]
 

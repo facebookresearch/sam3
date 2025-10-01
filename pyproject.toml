@@ -73,6 +73,8 @@ veval = [
     "pandas",
     "opencv-python",
     "pycocotools",
+    "numba",
+    "python-rapidjson",
 ]
 
 [project.urls]
