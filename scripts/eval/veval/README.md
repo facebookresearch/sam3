@@ -33,17 +33,18 @@ media/
         └── JPEGImages_24fps [merged from the two JPEGImages_24fps above]
 ```
 #### SA-Co/VEval - YT1B
-Run `saco_yt1b_frame_prep.py` to download youtube videos used in the SA-Co/VEVal - YT1B dataset. [TODO: also provide a batch downloading script]
+Run `saco_yt1b_downloader.py` to download youtube videos used in the SA-Co/VEVal - YT1B dataset.
 ```
-python saco_yt1b_frame_prep.py \
---saco_yt1b_id saco_yt1b_000000 \
+python saco_yt1b_downloader.py \
 --data_dir /fsx-onevision/tym/sam3_and_data/data/media/saco_yt1b \
 --cookies_file /fsx-onevision/tym/sam3_and_data/data/media/saco_yt1b/cookies.txt \
---id_map_file /fsx-onevision/tym/sam3_and_data/data/media/saco_yt1b/id_and_frame_map.json
+--id_map_file /fsx-onevision/tym/sam3_and_data/data/media/saco_yt1b/id_and_frame_map.json \
+--download_result /fsx-onevision/tym/sam3_and_data/data/media/saco_yt1b/download_result.txt
 ```
 * data_dir: The directoy where to store the downloaded youtube videos
 * cookies_file: This is required to download youtube videos. See instructions from yt-dlp [exporting-youtube-cookies](https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies) and [pass-cookies-to-yt-dlp](https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp) to prepare the cookies_file
 * id_map_file: download from [location](https://drive.google.com/drive/folders/1BadVFUfENo5JsehDWKuYbTllS20JtmiX) `id_and_frame_map.json`
+* download_result: a log file to track if the youtube videos are still downloadable or not
 #### SA-Co/VEval - SmartGlasses
 [TODO: HF setup]
 
