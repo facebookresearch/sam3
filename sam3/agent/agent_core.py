@@ -10,7 +10,7 @@ import copy
 from PIL import Image
 import random
 #from num2words import num2words
-from client_llama4 import send_generate_request
+from client_llm import send_generate_request
 from client_sam3 import call_sam_service
 from viz import visualize_masks_from_result_json, zoom_in_and_visualize
 import getpass
@@ -353,6 +353,7 @@ def agent_inference(img_path: str, initial_text_prompt: str, debug: bool = False
             print("🔍 Calling select_masks_and_return tool...")
             current_outputs = json.load(open(PATH_TO_LATEST_OUTPUT_JSON, 'r'))
                
+            
 
             assert list(tool_call["parameters"].keys()) == ["final_answer_masks"]
             masks_to_keep = tool_call["parameters"]["final_answer_masks"]

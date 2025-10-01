@@ -8,7 +8,7 @@ import json
 import os
 import copy
 from PIL import Image
-from client_llama4 import send_generate_request as send_llama_request
+from client_llm import send_generate_request as send_llama_request
 from client_sam3 import call_sam_service as call_sam_service_orig
 from viz import visualize, visualize_masks_from_result_json
 import tempfile
@@ -24,10 +24,8 @@ USER = getpass.getuser()
 
 # Model name mapping from short names to full model strings
 MODEL_NAME_MAPPING = {
-    "qwen3b": "Qwen/Qwen2.5-VL-3B-Instruct",
-    "qwen7b": "Qwen/Qwen2.5-VL-7B-Instruct",
-    "qwen72b": "Qwen/Qwen2.5-VL-72B-Instruct",
-    "qwen3_235b": "Qwen/Qwen3-VL-235B-A22B-Instruct",
+    "qwen2.5_7b": "Qwen/Qwen2.5-VL-7B-Instruct",
+    "qwen2.5_72b": "Qwen/Qwen2.5-VL-72B-Instruct",
     "llama4_maverick": "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8",
     "llama4_scout": "meta-llama/Llama-4-Scout-17B-16E-Instruct"
 }
@@ -38,7 +36,7 @@ def get_full_model_name(short_name: str) -> str:
         return MODEL_NAME_MAPPING[short_name]
     else:
         # If it's already a full model name, return as is
-        return short_name
+        raise ValueError(f"Unknown model name: {short_name}")
 
 def get_cluster_type():
     host_name = os.uname()[1]
@@ -149,8 +147,8 @@ def main():
     parser.add_argument(
         '--model',
         type=str,
-        default="qwen7b",
-        help="Version of the LLM model to use (e.g., qwen72b, llama4scout)"
+        default="qwen2.5_7b",
+        help="Version of the LLM model to use (e.g., qwen2.5_72b, llama4scout)"
     )
     parser.add_argument(
         "--sam3-host",

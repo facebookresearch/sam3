@@ -82,30 +82,3 @@ def send_generate_request(messages, server_url=None, model="meta-llama/Llama-4-M
     except requests.RequestException as e:
         print(f"Request failed: {e}")
         return None
-
-def extract_components(response_text):
-    """
-    Extracts thought and tool call components from the response text.
-    
-    Args:
-        response_text (str): The full response text
-        
-    Returns:
-        tuple: (thought, tool_call) extracted from the response
-    """
-    thought = ""
-    tool_call = {}
-    
-    # Extract thought if present
-    if "<think>" in response_text and "</think>" in response_text:
-        thought = response_text.split("<think>")[-1].split("</think>")[0].strip()
-    
-    # Extract tool call if present
-    if "<tool>" in response_text and "</tool>" in response_text:
-        tool_call_str = response_text.split("<tool>")[-1].split("</tool>")[0].strip()
-        try:
-            tool_call = json.loads(tool_call_str)
-        except json.JSONDecodeError:
-            print(f"Failed to parse tool call: {tool_call_str}")
-    
-    return thought, tool_call
