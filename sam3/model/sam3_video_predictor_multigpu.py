@@ -1,9 +1,13 @@
 # Copyright (c) Meta, Inc. and its affiliates. All Rights Reserved
 
 import datetime
+import multiprocessing as mp
 import os
 import queue
+import socket
 import sys
+import uuid
+from contextlib import closing
 
 # get the list of all GPUs available for this model based on "CUDA_VISIBLE_DEVICES"
 # caller should set "CUDA_VISIBLE_DEVICES" to specify which GPUs are available to this model
@@ -14,35 +18,17 @@ if IS_MAIN_PROCESS:
     # (the worker processes will also override "CUDA_VISIBLE_DEVICES" again to run on other GPUs)
     os.environ["CUDA_VISIBLE_DEVICES"] = f"{AVAILABLE_GPUS[0]}"
 
-import multiprocessing as mp
-import socket
-import uuid
-from contextlib import closing
 
 import psutil
 import torch
 
 from sam3.logger import get_logger
-from sam3.model.sam3_video_predictor import Sam3Model
+from sam3.model.sam3_video_predictor import Sam3VideoPredictor
 
 logger = get_logger(__name__)
 
-if IS_MAIN_PROCESS:
-    logger.info(f"setting up MultiGPU inference with {AVAILABLE_GPUS=}")
 
-
-def find_free_port() -> int:
-    """
-    Find a free port (a random free port from 1024 to 65535 will be selected)
-    https://stackoverflow.com/questions/1365265/on-localhost-how-do-i-pick-a-free-port-number)
-    """
-    with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as s:
-        s.bind(("", 0))
-        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        return s.getsockname()[1]
-
-
-class Sam3ModelMultiGPU(Sam3Model):
+class Sam3VideoPredictorMultiGPU(Sam3VideoPredictor):
     def __init__(self, *model_args, **model_kwargs):
         if IS_MAIN_PROCESS:
             self.available_gpus = AVAILABLE_GPUS
@@ -116,7 +102,7 @@ class Sam3ModelMultiGPU(Sam3Model):
                 f"{os.environ['RANK']=}, {os.environ['WORLD_SIZE']=}, {os.environ['CUDA_VISIBLE_DEVICES']=}",
             )
             worker_process = mp_ctx.Process(
-                target=_worker_process_command_loop,
+                target=worker_process_command_loop,
                 args=(
                     rank,
                     world_size,
@@ -156,7 +142,18 @@ class Sam3ModelMultiGPU(Sam3Model):
         logger.info(f"started NCCL process group on {rank=} with {world_size=}")
 
 
-def _worker_process_command_loop(
+def find_free_port() -> int:
+    """
+    Find a free port (a random free port from 1024 to 65535 will be selected)
+    https://stackoverflow.com/questions/1365265/on-localhost-how-do-i-pick-a-free-port-number)
+    """
+    with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as s:
+        s.bind(("", 0))
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        return s.getsockname()[1]
+
+
+def worker_process_command_loop(
     rank,
     world_size,
     command_queue,
@@ -180,7 +177,7 @@ def _worker_process_command_loop(
     assert int(os.environ["RANK"]) == rank
     assert int(os.environ["WORLD_SIZE"]) == world_size
     assert int(os.environ["CUDA_VISIBLE_DEVICES"]) == available_gpus[rank]
-    model_wrapper = Sam3ModelMultiGPU(*model_args, **model_kwargs)
+    model_wrapper = Sam3VideoPredictorMultiGPU(*model_args, **model_kwargs)
     logger.info(f"started worker {rank=} with {world_size=}")
 
     # keep listening to commands from the main process
