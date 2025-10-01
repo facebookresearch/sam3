@@ -180,6 +180,39 @@ def add_ptrs_to_stage(
         stage_ptrs.ptr_types.append(ptr_type.value)
 
 
+def collate_fn_api_with_chunking(
+    batch,
+    num_chunks,
+    dict_key,
+    with_seg_masks=False,
+    input_box_embedding_dim=258,  # Historical default
+    input_points_embedding_dim=257,
+    repeats: int = 0,
+    ptr_behaviour: PointerExtractBehaviour = PointerExtractBehaviour(),
+    load_image_in_fp16: bool = False,
+):
+    assert num_chunks >= 1, "num_chunks must be >= 1"
+
+    # split the batch into num_chunks chunks
+    batch_chunks = [batch[i::num_chunks] for i in range(num_chunks)]
+
+    # collate each chunk
+    collated_chunks = [
+        collate_fn_api(
+            chunk,
+            dict_key,
+            with_seg_masks,
+            input_box_embedding_dim,
+            input_points_embedding_dim,
+            repeats,
+            ptr_behaviour,
+            load_image_in_fp16,
+        )
+        for chunk in batch_chunks
+    ]
+    return collated_chunks
+
+
 def collate_fn_api(
     batch: List[Datapoint],
     dict_key,
