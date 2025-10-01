@@ -74,4 +74,29 @@ data/
         └── JPEGImages_6fps
 ```
 ## Annotation Format
-[TODO: finish writing here]
+The format is similar to the [YTVIS](https://youtube-vos.org/dataset/vis/) format.
+If we load a json, e.g. `saco_veval_sav_test.json` it will have 5 fields:
+* info:
+    * A dict containing the dataset info
+    * E.g. {'version': 'v1', 'date': '2025-09-24', 'description': 'SA-Co/VEval SA-V Test'}
+* videos
+    * A list of videos that are used in the current annotation json
+    * It contains {id, file_names, height, width, length}
+* annotations
+    * A list of **positive** masklets and their related info
+    * It contains {id, segmentations, bboxes, areas, iscrowd, video_id, height, width, category_id, noun_phrase}
+        * video_id should match the `videos - id` above
+        * category_id should match the `categories - id` below
+        * segmentations is a list of [RLE](https://github.com/cocodataset/cocoapi/blob/master/PythonAPI/pycocotools/mask.py)
+* categories
+    * A list of noun phrases that are **globally** used, e.g. not only containing the noun phrases are used in the current annotation json but also covering all the others.
+        * That being said, all 7 datasets in SA-Co/VEval and SA-FARI share the exact same categories.
+    * It contains {id, name}
+        * name is the noun phrase
+* video_np_pairs
+    * A list of video-np pairs, including both **positive** and **negative** used in the current annotation json
+    * It contains {id, video_id, category_id, noun_phrase}
+        * video_id should match the `videos - id` above
+        * category_id should match the `categories - id` above
+
+In `veval/saco_veval_example.ipynb` we can find more concrete examples.
