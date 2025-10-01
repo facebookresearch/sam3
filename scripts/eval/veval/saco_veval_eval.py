@@ -80,6 +80,8 @@ def main():
     gt_ann_file = args.gt_ann_file
     pred_file = args.pred_file
 
+    print(f"=== Running evaluation for Pred {pred_file} vs GT {gt_ann_file} ===")
+
     res_dict = run_eval(gt_ann_file, pred_file)
 
     # Save results to a JSON file
@@ -87,7 +89,7 @@ def main():
     with open(output_json_file, "w") as f:
         json.dump(res_dict, f, indent=4)
 
-    print(f"Results saved to {output_json_file}")
+    print(f"=== Results saved to {output_json_file} ===")
 
 
 if __name__ == "__main__":
