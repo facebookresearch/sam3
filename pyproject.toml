@@ -68,7 +68,7 @@ train = [
     "cc_torch @ git+https://github.com/ronghanghu/cc_torch.git",
     "torch_generic_nms @ git+https://github.com/ronghanghu/torch_generic_nms.git",
 ]
-download = [
+veval = [
     "yt-dlp",
     "pandas",
     "opencv-python",

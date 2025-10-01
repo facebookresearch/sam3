@@ -1,16 +1,13 @@
 import argparse
-import logging
 import os
 import re
 import shutil
 import subprocess
-import sys
 from glob import glob
-
-import cv2
 
 import pandas as pd
 import yt_dlp
+
 from tqdm import tqdm
 
 
@@ -47,35 +44,12 @@ class YtVideoPrep:
             self.raw_frames_resized_width_1080_dir, "%05d.jpg"
         )
         self.frames_by_frame_matching_dir = os.path.join(
-            self.data_dir, "frames_by_frame_matching", self.saco_yt1b_id
-        )
-
-        self.frames_by_start_end_timestamp_one_step_dir = os.path.join(
-            self.data_dir, "frames_by_start_end_timestamp_one_step", self.saco_yt1b_id
-        )
-        self.frames_by_start_end_timestamp_one_step_pattern = os.path.join(
-            self.frames_by_start_end_timestamp_one_step_dir, "%05d.jpg"
-        )
-
-        self.video_by_start_end_timestamp_two_step_dir = os.path.join(
-            self.data_dir, "video_by_start_end_timestamp_two_step", self.saco_yt1b_id
-        )
-        self.video_by_start_end_timestamp_two_step_path = os.path.join(
-            self.video_by_start_end_timestamp_two_step_dir, f"{self.yt_video_id}.mp4"
-        )
-        self.frames_by_start_end_timestamp_two_step_dir = os.path.join(
-            self.data_dir, "frames_by_start_end_timestamp_two_step", self.saco_yt1b_id
-        )
-        self.frames_by_start_end_timestamp_two_step_pattern = os.path.join(
-            self.frames_by_start_end_timestamp_two_step_dir, "%05d.jpg"
+            self.data_dir, "JPEGImages_6fps", self.saco_yt1b_id
         )
 
         os.makedirs(self.raw_video_dir, exist_ok=True)
         os.makedirs(self.raw_frames_resized_width_1080_dir, exist_ok=True)
         os.makedirs(self.frames_by_frame_matching_dir, exist_ok=True)
-        os.makedirs(self.frames_by_start_end_timestamp_one_step_dir, exist_ok=True)
-        os.makedirs(self.video_by_start_end_timestamp_two_step_dir, exist_ok=True)
-        os.makedirs(self.frames_by_start_end_timestamp_two_step_dir, exist_ok=True)
 
     def _get_yt_video_id_map_info(self):
         df = self.id_and_frame_map_df[
@@ -108,19 +82,31 @@ class YtVideoPrep:
 
         try:
             # Use ffprobe for more accurate frame counting
-            result = subprocess.run([
-                "ffprobe", "-v", "quiet", "-select_streams", "v:0",
-                "-count_frames", "-show_entries", "stream=nb_read_frames",
-                "-of", "csv=p=0", self.raw_video_path
-            ], capture_output=True, text=True, timeout=60)
-            
+            result = subprocess.run(
+                [
+                    "ffprobe",
+                    "-v",
+                    "quiet",
+                    "-select_streams",
+                    "v:0",
+                    "-count_frames",
+                    "-show_entries",
+                    "stream=nb_read_frames",
+                    "-of",
+                    "csv=p=0",
+                    self.raw_video_path,
+                ],
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+
             if result.returncode == 0 and result.stdout.strip():
                 total_frames = int(result.stdout.strip())
                 print(f"ffprobe reports {total_frames} frames")
                 return total_frames
         except (subprocess.TimeoutExpired, ValueError, FileNotFoundError):
             raise ValueError("ffprobe failed or not available")
-
 
     def _parse_timestamp(self, yt_video_id_w_timestamps):
         # In id_and_frame_map_path, we expect the pattern of {video_id}_start_{float}_end_{float} for column yt_video_id_w_timestamps
@@ -207,7 +193,6 @@ class YtVideoPrep:
                     except OSError as e:
                         print(f"Warning: Could not remove {frame_file}: {e}")
                 print("Existing frames cleared.")
-                
 
         print(
             f"Extracting all frames from {self.raw_video_path} to {self.raw_frames_resized_width_1080_dir}"
@@ -298,130 +283,6 @@ class YtVideoPrep:
         )
         return success_count == total_frames
 
-    def generate_frames_by_start_end_timestamp_one_step(self):
-        args = [
-            "-nostdin",
-            "-y",
-            # select video segment
-            "-ss",
-            self.start_timestamp,
-            "-to",
-            self.end_timestamp,
-            "-i",
-            self.raw_video_path,
-            # set output video resolution to be at most 1080p and fps to 6
-            "-vf",
-            "fps=6,scale=1080:-2",
-            "-vsync",
-            "0",  # passthrough mode - no frame duplication/dropping
-            # high quality JPEG output
-            "-q:v",
-            "2",
-            # start frame numbering from 0 instead of 1
-            "-start_number",
-            "0",
-            self.frames_by_start_end_timestamp_one_step_pattern,
-        ]
-
-        result = subprocess.run(
-            ["ffmpeg"] + args, timeout=1000, capture_output=True, text=True
-        )
-
-        if result.returncode != 0:
-            print(
-                f"Generate frames by start end timestamp one step failed - FFmpeg failed with error: {result.stderr}"
-            )
-            return False
-
-        print(
-            f"Successfully extracted frames to {self.frames_by_start_end_timestamp_one_step_dir}"
-        )
-        return True
-
-    def generate_frames_by_start_end_timestamp_two_step(self):
-        video_args = [
-            "-nostdin",
-            "-y",
-            # select video segment
-            "-ss",
-            self.start_timestamp,
-            "-to",
-            self.end_timestamp,
-            "-i",
-            self.raw_video_path,
-            # set output video resolution to be at most 1080p and fps to 6
-            "-vf",
-            "fps=6,scale=1080:-2",
-            "-vsync",
-            "0",  # passthrough mode - no frame duplication/dropping
-            # specify output format
-            "-c:v",
-            "libx264",
-            "-c:a",
-            "aac",
-            self.video_by_start_end_timestamp_two_step_path,
-        ]
-
-        result = subprocess.run(
-            ["ffmpeg"] + video_args, timeout=1000, capture_output=True, text=True
-        )
-
-        if result.returncode != 0:
-            print(f"Step 1 failed - FFmpeg failed with error: {result.stderr}")
-            return False
-
-        frame_args = [
-            "-nostdin",
-            "-y",
-            "-i",
-            self.video_by_start_end_timestamp_two_step_path,
-            "-vsync",
-            "0",  # passthrough mode - no frame duplication/dropping
-            # high quality JPEG output
-            "-q:v",
-            "2",
-            # start frame numbering from 0 instead of 1
-            "-start_number",
-            "0",
-            self.frames_by_start_end_timestamp_two_step_pattern,
-        ]
-
-        result = subprocess.run(
-            ["ffmpeg"] + frame_args, timeout=1000, capture_output=True, text=True
-        )
-
-        if result.returncode != 0:
-            print(f"Step 2 failed - FFmpeg failed with error: {result.stderr}")
-            return False
-
-        print(
-            f"Successfully extracted frames to {self.frames_by_start_end_timestamp_two_step_dir}"
-        )
-        return True
-
-
-def batch_video_prep():
-    id_and_frame_map_path = "/home/tym/code/git_clone/sam3_and_data/data/media/saco_yt1b/id_and_frame_map.json"
-    data_dir="/home/tym/code/git_clone/sam3_and_data/data/media/saco_yt1b"
-    cookies_file="/home/tym/code/git_clone/sam3_and_data/data/media/saco_yt1b/cookies.txt"
-
-    id_map_df = pd.read_json(id_and_frame_map_path)
-    saco_yt1b_ids = id_map_df.saco_yt1b_id.unique()
-
-    for saco_yt1b_id in tqdm(saco_yt1b_ids, desc="Processing videos"):
-        print(f"Processing {saco_yt1b_id}...")
-        video_prep = YtVideoPrep(
-            saco_yt1b_id=saco_yt1b_id,
-            data_dir=data_dir,
-            cookies_file=cookies_file,
-            id_and_frame_map_path=id_and_frame_map_path,
-        )
-        video_prep.download_youtube_video()
-        video_prep.generate_all_raw_frames()
-        video_prep.generate_frames_by_frame_matching()
-        video_prep.generate_frames_by_start_end_timestamp_one_step()
-        video_prep.generate_frames_by_start_end_timestamp_two_step()
-
 
 def main():
     parser = argparse.ArgumentParser()
@@ -429,30 +290,27 @@ def main():
     parser.add_argument(
         "--data_dir",
         type=str,
-        default="/home/tym/code/git_clone/sam3_and_data/data/media/saco_yt1b",
+        required=True,
     )
     parser.add_argument(
         "--cookies_file",
         type=str,
-        default="/home/tym/code/git_clone/sam3_and_data/data/media/saco_yt1b/cookies.txt",
+        required=True,
     )
     parser.add_argument(
-        "--id_and_frame_map_path",
+        "--id_map_file",
         type=str,
-        default="/home/tym/code/git_clone/sam3_and_data/data/media/saco_yt1b/id_and_frame_map.json",
+        required=True,
     )
     args = parser.parse_args()
 
     video_prep = YtVideoPrep(
-        args.saco_yt1b_id, args.data_dir, args.cookies_file, args.id_and_frame_map_path
+        args.saco_yt1b_id, args.data_dir, args.cookies_file, args.id_map_file
     )
     video_prep.download_youtube_video()
     video_prep.generate_all_raw_frames()
     video_prep.generate_frames_by_frame_matching()
-    video_prep.generate_frames_by_start_end_timestamp_one_step()
-    video_prep.generate_frames_by_start_end_timestamp_two_step()
 
 
 if __name__ == "__main__":
-    batch_video_prep()
-    # main()
+    main()
