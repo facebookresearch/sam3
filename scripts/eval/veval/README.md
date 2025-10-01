@@ -1,19 +1,58 @@
-python saco_yt1b_frame_prep.py --saco_yt1b_id saco_yt1b_000403 --data_dir /fsx-onevision/tym/sam3_and_data/data/media/saco_yt1b --cookies_file /fsx-onevision/tym/sam3_and_data/data/media/saco_yt1b/cookies.txt --id_map_file /fsx-onevision/tym/sam3_and_data/data/media/saco_yt1b/id_and_frame_map.json
+# SA-Co/VEval and SA-FARI Dataset
+**SA-Co/VEval** is an evaluation dataset comprising of 3 domains and 6 subests, each domain has a val and test.
+* SA-Co/VEval - SAV: videos are from the [SA-V dataset](https://ai.meta.com/datasets/segment-anything-video/)
+* SA-Co/VEval - YT1B: videos are from the [YT-Temporal-1B](https://cove.thecvf.com/datasets/704)
+* SA-Co/VEval - SmartGlasses: egocentric videos from smart glasses
 
-python saco_yt1b_frame_prep.py --saco_yt1b_id saco_yt1b_000189 --data_dir /fsx-onevision/tym/sam3_and_data/data/media/saco_yt1b --cookies_file /fsx-onevision/tym/sam3_and_data/data/media/saco_yt1b/cookies.txt --id_map_file /fsx-onevision/tym/sam3_and_data/data/media/saco_yt1b/id_and_frame_map.json
+**SA-FARI** is an evaluation dataset comprising 1 domain and 1 subset.
+* SA-FARI: videos are from wildlife cameras, partnership with [Conservation X Labs](https://www.conservationxlabs.com/)
 
+## Usage
+### Download annotations
+The GT annotations can be downloaded from the following [location](https://drive.google.com/drive/folders/1BadVFUfENo5JsehDWKuYbTllS20JtmiX) [TODO: update to HF]
 
-tar -xf sav_test.tar -C .
+### Download videos or frames
+#### SA-Co/VEval - SAV
+Follow instructions in [SA-V dataset](https://ai.meta.com/datasets/segment-anything-video/). Only the following two datasets are needed:
+* sav_test.tar
+* sav_val.tar
 
-mv /fsx-onevision/tym/sam3_and_data/data/media/saco_sav/sav_val/JPEGImages_24fps /fsx-onevision/tym/sam3_and_data/data/media/saco_sav/JPEGImages_24fps
+After untar:
+```
+sav_test/
+├── Annotations_6fps [ignore this is the SAM 2 annotation]
+├── JPEGImages_24fps
+sav_val/
+├── Annotations_6fps [ignore this is the SAM 2 annotation]
+└── JPEGImages_24fps
+```
+We recommend to merge the two JPEGImages_24fps together e.g.
+```
+media/
+    └── saco_sav
+        └── JPEGImages_24fps [merged from the two JPEGImages_24fps above]
+```
+#### SA-Co/VEval - YT1B
+Run `saco_yt1b_frame_prep.py` to download youtube videos used in the SA-Co/VEVal - YT1B dataset. [TODO: also provide a batch downloading script]
+```
+python saco_yt1b_frame_prep.py \
+--saco_yt1b_id saco_yt1b_000000 \
+--data_dir /fsx-onevision/tym/sam3_and_data/data/media/saco_yt1b \
+--cookies_file /fsx-onevision/tym/sam3_and_data/data/media/saco_yt1b/cookies.txt \
+--id_map_file /fsx-onevision/tym/sam3_and_data/data/media/saco_yt1b/id_and_frame_map.json
+```
+* data_dir: The directoy where to store the downloaded youtube videos
+* cookies_file: This is required to download youtube videos. See instructions from yt-dlp [exporting-youtube-cookies](https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies) and [pass-cookies-to-yt-dlp](https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp) to prepare the cookies_file
+* id_map_file: download from [location](https://drive.google.com/drive/folders/1BadVFUfENo5JsehDWKuYbTllS20JtmiX) `id_and_frame_map.json`
+#### SA-Co/VEval - SmartGlasses
+[TODO: HF setup]
 
+#### SA-Co/VEval - SA-FARI
+[TODO: CXL setup]
 
-chmod -R u+w sav_test/JPEGImages_24fps/
-chmod -R u+w sav_val/JPEGImages_24fps/
-
-mv the jpegimages to the following structure (so vis code can properly locate them)
-
-the ending media folder strcuture will be:
+### The folder structure
+The following folder structure is expected after finishing all the downloads and pre-processing:
+```
 data/
 ├── annotation/
 │   ├── sa_fari_test.json
@@ -32,9 +71,6 @@ data/
     │   └── JPEGImages_6fps
     └── sa_yt1b
         └── JPEGImages_6fps
-
-
-they all shared the same categories
-
-video np pair contains both positives and negatives
-where annotations only has postivies with masklets
+```
+## Annotation Format
+[TODO: finish writing here]
