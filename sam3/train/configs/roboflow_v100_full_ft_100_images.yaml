@@ -232,10 +232,9 @@ scratch:
   scheduler_warmup: 20
   scheduler_cooldown: 20
 
-  gradient_accumulation_steps: 1
-  train_batch_size: 1
+  train_batch_size : ${scratch.gradient_accumulation_steps}
   val_batch_size: 1
-  collate_fn:
+  collate_fn_val:
     _target_: sam3.train.data.collator.collate_fn_api
     _partial_: true
     input_box_embedding_dim: ${scratch.input_box_embedding_dim}
@@ -243,19 +242,26 @@ scratch:
     dict_key: roboflow100
     with_seg_masks: ${scratch.enable_segmentation} # Note: Set this to true if using segmentation masks!
 
+  gradient_accumulation_steps: 1
+  train_batch_size: 1
+  collate_fn:
+    _target_: sam3.train.data.collator.collate_fn_api
+    _partial_: true
+    input_box_embedding_dim: ${scratch.input_box_embedding_dim}
+    repeats: ${scratch.hybrid_repeats}
+    dict_key: all
+    with_seg_masks: ${scratch.enable_segmentation} # Note: Set this to true if using segmentation masks!
+
   # Note: usin this setting if using gradient accumulation
   # gradient_accumulation_steps: 2
-  # train_batch_size : ${scratch.gradient_accumulation_steps}
-  # val_batch_size: ${scratch.gradient_accumulation_steps}
   # collate_fn:
   #   _target_: sam3.train.data.collator.collate_fn_api_with_chunking
   #   _partial_: true
   #   num_chunks: ${scratch.gradient_accumulation_steps}
   #   input_box_embedding_dim: ${scratch.input_box_embedding_dim}
   #   repeats: ${scratch.hybrid_repeats}
-  #   dict_key: roboflow100
+  #   dict_key: all
   #   with_seg_masks:  ${scratch.enable_segmentation} # Note: Set this to true if using segmentation masks!
-
 
 # ============================================================================
 # Trainer Configuration
@@ -281,7 +287,6 @@ trainer:
 
   loss:
     all: ${roboflow_train.loss}
-    roboflow100: ${roboflow_train.loss}
     default:
       _target_: sam3.train.loss.sam3_loss.DummyLoss
 
@@ -331,7 +336,7 @@ trainer:
       num_workers: ${scratch.num_val_workers}
       pin_memory: True
       drop_last: False
-      collate_fn: ${scratch.collate_fn}
+      collate_fn: ${scratch.collate_fn_val}
 
 
   # TODO (Kalyan): Expose more model parameters, droppath rate, dropout, etc

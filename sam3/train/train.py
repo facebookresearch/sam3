@@ -60,7 +60,7 @@ def single_proc_run(local_rank, main_port, cfg, world_size):
 
 def single_node_runner(cfg, main_port: int):
     assert cfg.launcher.num_nodes == 1
-    assert cfg.launcher.gpus_per_node == 1
+    # assert cfg.launcher.gpus_per_node == 1
     num_proc = cfg.launcher.gpus_per_node
     torch.multiprocessing.set_start_method(
         "spawn"
