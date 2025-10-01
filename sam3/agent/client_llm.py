@@ -22,6 +22,29 @@ def send_generate_request(messages, server_url=None, model="meta-llama/Llama-4-M
     # OpenAI-compatible API endpoint
     endpoint = f"{server_url}/v1/chat/completions"
     
+    def get_image_base64_and_mime(image_path):
+        """Convert image file to base64 string and get MIME type"""
+        try:
+            # Get MIME type based on file extension
+            ext = os.path.splitext(image_path)[1].lower()
+            mime_types = {
+                '.jpg': 'image/jpeg',
+                '.jpeg': 'image/jpeg',
+                '.png': 'image/png',
+                '.gif': 'image/gif',
+                '.webp': 'image/webp',
+                '.bmp': 'image/bmp'
+            }
+            mime_type = mime_types.get(ext, 'image/jpeg')  # Default to JPEG
+              
+            # Convert image to base64
+            with open(image_path, "rb") as image_file:
+                base64_data = base64.b64encode(image_file.read()).decode('utf-8')
+                return base64_data, mime_type
+        except Exception as e:
+            print(f"Error converting image to base64: {e}")
+            return None, None
+    
     for message in messages:
         if message["role"] == "user":
             for c in message["content"]:
@@ -34,10 +57,16 @@ def send_generate_request(messages, server_url=None, model="meta-llama/Llama-4-M
                     
                     # Read the image file and convert to base64
                     try:
-                        # Create the proper image_url structure
+                        base64_image, mime_type = get_image_base64_and_mime(new_image_path)
+                        if base64_image is None:
+                            print(f"Warning: Could not convert image to base64: {new_image_path}")
+                            continue
+                          
+                        # Create the proper image_url structure with base64 data
                         c["image_url"] = {
                             #"url": f"data:{mime_type};base64,{base64_image}",
-                            'url': f"file://{new_image_path}",  # Use file URL for resized images
+                            #'url': f"file://{new_image_path}",  # Use file URL for resized images
+                            "url": f"data:{mime_type};base64,{base64_image}",
                             "detail": "high"
                         }
                         c["type"] = "image_url"
