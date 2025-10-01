@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pycocotools.mask as mask_utils
 
-from helpers.som_utils import (
+from .som_utils import (
     ColorPalette,
     draw_box,
     draw_mask,

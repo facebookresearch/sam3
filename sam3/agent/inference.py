@@ -8,9 +8,9 @@ import json
 import os
 import copy
 from PIL import Image
-from client_llm import send_generate_request as send_llama_request
-from client_sam3 import call_sam_service as call_sam_service_orig
-from viz import visualize, visualize_masks_from_result_json
+from .client_llm import send_generate_request as send_llama_request
+from .client_sam3 import call_sam_service as call_sam_service_orig
+from .viz import visualize, visualize_masks_from_result_json
 import tempfile
 import matplotlib.pyplot as plt
 import shutil
@@ -74,7 +74,7 @@ sam_server_url = None
 llm_server_url = None
 
 # ----------------- Define the version of SAM3 Agent to use -----------------
-from agent_core import agent_inference
+from .agent_core import agent_inference
 
 
 

@@ -2,9 +2,9 @@ import numpy as np
 from PIL import Image
 import json
 import cv2
-from helpers.visualizer import Visualizer
+from .helpers.visualizer import Visualizer
 import pycocotools.mask as mask_utils    
-from helpers.improving_check_each_mask import save_single_mask_para_visualization_zoomin
+from .helpers.improving_check_each_mask import save_single_mask_para_visualization_zoomin
 
 
 

@@ -6,7 +6,7 @@ import torch
 
 # from detectron2.layers.rotated_boxes import pairwise_iou_rotated
 
-from helpers.boxes import Boxes
+from .boxes import Boxes
 
 
 

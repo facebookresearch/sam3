@@ -10,17 +10,22 @@ import copy
 from PIL import Image
 import random
 #from num2words import num2words
-from client_llm import send_generate_request
-from client_sam3 import call_sam_service
-from viz import visualize_masks_from_result_json, zoom_in_and_visualize
+from .client_llm import send_generate_request
+from .client_sam3 import call_sam_service
+from .viz import visualize_masks_from_result_json, zoom_in_and_visualize
 import getpass
 USER = getpass.getuser()
 
 
 # -------------- Define the server URLs and output directories --------------
-mllm_system_prompt_path = "system_prompt.txt"
-iterative_checking_system_prompt_path = "system_prompt_iterative_checking.txt"
-mask_selection_system_prompt_path = "system_prompt_mask_selection.txt"
+import pkg_resources
+import os.path as osp
+
+# Get the path to this module's directory to locate the system prompt files
+current_dir = osp.dirname(osp.abspath(__file__))
+mllm_system_prompt_path = osp.join(current_dir, "system_prompt.txt")
+iterative_checking_system_prompt_path = osp.join(current_dir, "system_prompt_iterative_checking.txt")
+mask_selection_system_prompt_path = osp.join(current_dir, "system_prompt_mask_selection.txt")
 
 
 def get_cluster_type():

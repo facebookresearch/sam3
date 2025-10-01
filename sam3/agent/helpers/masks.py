@@ -7,10 +7,10 @@ import pycocotools.mask as mask_util
 import torch
 from torch import device
 
-from helpers.roi_align import ROIAlign
-from helpers.memory import retry_if_cuda_oom
+from .roi_align import ROIAlign
+from .memory import retry_if_cuda_oom
 
-from helpers.boxes import Boxes
+from .boxes import Boxes
 
 
 def polygon_area(x, y):

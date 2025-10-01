@@ -15,22 +15,22 @@ import torch
 
 # from catalog import MetadataCatalog
 
-from helpers.boxes import (
+from .boxes import (
     Boxes,
     BoxMode,
 )
-from helpers.masks import (
+from .masks import (
     BitMasks,
     PolygonMasks,
 )
-from helpers.keypoints import (
+from .keypoints import (
     Keypoints,
 )
-from helpers.rotated_boxes import (
+from .rotated_boxes import (
     RotatedBoxes,
 )
 
-from helpers.color_map import random_color
+from .color_map import random_color
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 from PIL import Image
 

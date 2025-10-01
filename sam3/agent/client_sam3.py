@@ -5,9 +5,9 @@ import json
 from typing import List
 import numpy as np
 import requests
-from viz import visualize
+from .viz import visualize
 import pycocotools.mask as mask_utils
-from helpers.mask_overlap_removal import remove_overlapping_masks
+from .helpers.mask_overlap_removal import remove_overlapping_masks
 import cv2
 import getpass
 
