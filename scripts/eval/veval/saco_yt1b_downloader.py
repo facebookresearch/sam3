@@ -58,7 +58,8 @@ def main():
                 )
                 continue
 
-            video_prep.generate_all_raw_frames()
+            # Use longer timeout for large videos (2 hours)
+            video_prep.generate_all_raw_frames(timeout_seconds=7200)
             video_prep.generate_frames_by_frame_matching()
 
 

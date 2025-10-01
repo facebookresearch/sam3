@@ -149,10 +149,13 @@ class YtVideoPrep:
             print(f"Error downloading video {self.yt_video_id}: {e}")
             return f"error {e}"
 
-    def generate_all_raw_frames(self):
+    def generate_all_raw_frames(self, timeout_seconds=3600):
         """
         Extract all frames from the raw video to raw_frames_resized_width_1080_dir.
         This is the first step before frame matching.
+        
+        Args:
+            timeout_seconds: Timeout for ffmpeg operation in seconds (default: 3600 = 1 hour)
         """
         if not os.path.exists(self.raw_video_path):
             print(f"Error: Raw video file not found at {self.raw_video_path}")
@@ -171,12 +174,44 @@ class YtVideoPrep:
             )
             print(f"Video has {total_video_frames} total frames")
 
-            if existing_count == total_video_frames:
-                print("Frame count matches video frame count. Using existing frames.")
-                return True
+            # Allow 1-frame tolerance buffer for frame count comparison
+            frame_diff = abs(existing_count - total_video_frames)
+            if frame_diff <= 1:
+                print(f"cv2 frame count and the already extracted frame count differ by less than 1 frame. double checking by the precise ffprobe method")
+                
+                # Use ffprobe to get precise frame count
+                try:
+                    cmd = [
+                        "ffprobe",
+                        "-v", "error",
+                        "-select_streams", "v:0",
+                        "-count_frames",
+                        "-show_entries", "stream=nb_read_frames",
+                        "-of", "csv=p=0",
+                        self.raw_video_path
+                    ]
+                    
+                    result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout_seconds)
+                    if result.returncode == 0:
+                        precise_frames = int(result.stdout.strip())
+                        print(f"ffprobe precise count: {precise_frames} frames")
+                        
+                        # Check if existing frames match the precise count
+                        precise_diff = abs(existing_count - precise_frames)
+                        if precise_diff <= 1:
+                            print(f"Existing frames match precise count (within 1-frame tolerance: {existing_count} vs {precise_frames}). Using existing frames.")
+                            return True
+                        else:
+                            print(f"Precise count mismatch ({existing_count} vs {precise_frames}, diff: {precise_diff}). Re-generating frames.")
+                    else:
+                        print("ffprobe precise count failed, can't confirm the frame count matching, re-generating frames")
+                        return False
+                except Exception as e:
+                    print(f"ffprobe precise count error: {e}, can't confirm the frame count matching, re-generating frames")
+                    return False
             else:
                 print(
-                    f"Frame count mismatch ({existing_count} != {total_video_frames}). Re-generating frames."
+                    f"Frame count mismatch ({existing_count} != {total_video_frames}, diff: {frame_diff}). Re-generating frames."
                 )
                 # Remove existing frames before regenerating
                 print(f"Removing {existing_count} existing frames...")
@@ -190,13 +225,15 @@ class YtVideoPrep:
         print(
             f"Extracting all frames from {self.raw_video_path} to {self.raw_frames_resized_width_1080_dir}"
         )
+        print(f"Video has {total_video_frames} frames. This may take several minutes...")
 
+        # Optimize ffmpeg args for large videos
         args = [
             "-nostdin",
             "-y",
             "-i",
             self.raw_video_path,
-            # set output video resolution to be at most 1080p and fps to 6
+            # set output video resolution to be at most 1080p
             "-vf",
             "scale=1080:-2",
             "-vsync",
@@ -205,18 +242,24 @@ class YtVideoPrep:
             "2",  # high quality JPEG output
             "-start_number",
             "0",  # start frame numbering from 0
+            # Add progress reporting for long operations
+            "-progress",
+            "pipe:1",  # Send progress to stdout
             self.raw_frames_resized_width_1080_pattern,
         ]
 
+        print(f"Starting ffmpeg with {timeout_seconds}s timeout...")
         result = subprocess.run(
             ["ffmpeg"] + args,
-            timeout=300,  # 5 minute timeout
+            timeout=timeout_seconds,
             capture_output=True,
             text=True,
         )
 
         if result.returncode != 0:
             print(f"Failed to extract raw frames: {result.stderr}")
+            if "TimeoutExpired" in str(result.stderr):
+                print(f"Operation timed out after {timeout_seconds} seconds. Consider increasing timeout for very large videos.")
             return False
 
         extracted_frames = glob(
@@ -225,6 +268,10 @@ class YtVideoPrep:
         print(
             f"Successfully extracted {len(extracted_frames)} frames to {self.raw_frames_resized_width_1080_dir}"
         )
+        
+        # Verify we got the expected number of frames
+        assert len(extracted_frames) == total_video_frames, f"Expected {total_video_frames} frames but extracted {len(extracted_frames)}"
+        
         return True
 
     def generate_frames_by_frame_matching(self):
@@ -301,7 +348,8 @@ def main():
         args.saco_yt1b_id, args.data_dir, args.cookies_file, args.id_map_file
     )
     video_prep.download_youtube_video()
-    video_prep.generate_all_raw_frames()
+    # Use longer timeout for large videos (2 hours)
+    video_prep.generate_all_raw_frames(timeout_seconds=7200)
     video_prep.generate_frames_by_frame_matching()
 
 
