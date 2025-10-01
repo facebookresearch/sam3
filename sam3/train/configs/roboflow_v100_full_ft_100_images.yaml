@@ -13,7 +13,7 @@ paths:
 # Roboflow dataset configuration
 roboflow_train:
   num_images: 100
-  supercategory: zebrasatasturias #${all_roboflow_supercategories.${string:${submitit.job_array.task_index}}}
+  supercategory: ${all_roboflow_supercategories.${string:${submitit.job_array.task_index}}}
 
   # Training transforms pipeline
   train_transforms:
@@ -435,7 +435,7 @@ trainer:
 
 launcher:
   num_nodes: 1
-  gpus_per_node: 1
+  gpus_per_node: 2
   experiment_log_dir: ${paths.experiment_log_dir}
   multiprocessing_context: forkserver
 
@@ -449,9 +449,9 @@ submitit:
   port_range: [10000, 65000]
   constraint: null #"volta32gb"
   # Uncomment for job array configuration
-  # job_array:
-  #   num_tasks: 100
-  #   task_index: 0
+  job_array:
+    num_tasks: 100
+    task_index: 0
 
 # ============================================================================
 # Available Roboflow Supercategories (for reference)
