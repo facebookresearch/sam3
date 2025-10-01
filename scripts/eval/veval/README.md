@@ -75,6 +75,7 @@ data/
 ```
 ## Annotation Format
 The format is similar to the [YTVIS](https://youtube-vos.org/dataset/vis/) format.
+
 If we load a json, e.g. `saco_veval_sav_test.json` it will have 5 fields:
 * info:
     * A dict containing the dataset info
@@ -99,4 +100,42 @@ If we load a json, e.g. `saco_veval_sav_test.json` it will have 5 fields:
         * video_id should match the `videos - id` above
         * category_id should match the `categories - id` above
 
+```
+data {
+    "info": info
+    "videos": [video]
+    "annotations": [annotation]
+    "categories": [category]
+    "video_np_pairs": [video_np_pair]
+}
+video {
+    "id": str  # e.g. sav_000000
+    "file_names": List[str]
+    "height": int
+    "width": width
+    "length": length
+}
+annotation {
+    "id": int
+    "segmentations": List[RLE]
+    "bboxes": List[List[int, int, int, int]]
+    "areas": List[int]
+    "iscrowd": int
+    "video_id": str
+    "height": int
+    "width": int
+    "category_id": int
+    "noun_phrase": str
+}
+category {
+    "id": int
+    "name": str
+}
+video_np_pair {
+    "id": int
+    "video_id": str
+    "category_id": int
+    "noun_phrase": str
+}
+```
 In `veval/saco_veval_example.ipynb` we can find more concrete examples.
