@@ -27,7 +27,7 @@ from sam3.model.geometry_encoders import Prompt
 from sam3.model.model_misc import NestedTensor
 from sam3.model.nms_utils import mask_iou
 
-from sam3.model.sam3_dense_shared_multigpu import (
+from sam3.model.sam3_video_base import (
     MaskletConfirmationStatus,
     Sam3DenseTrackingMultiGPU,
 )

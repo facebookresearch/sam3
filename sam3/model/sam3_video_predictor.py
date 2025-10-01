@@ -1,8 +1,6 @@
 # Copyright (c) Meta, Inc. and its affiliates. All Rights Reserved
 
 import gc
-
-import logging
 import threading
 import time
 import uuid
@@ -10,9 +8,10 @@ from typing import List, Optional
 
 import torch
 
-logger = logging.getLogger(__name__)
-
+from sam3.logger import get_logger
 from sam3.sam3_dense_tracking_builder import build_sam3_dense_tracking_model
+
+logger = get_logger(__name__)
 
 
 class Sam3Model:

@@ -6,18 +6,15 @@ import queue
 import sys
 
 # get the list of all GPUs available for this model based on "CUDA_VISIBLE_DEVICES"
-# the API layer (e.g. TorchServe) should set "CUDA_VISIBLE_DEVICES" to specify which GPUs are available to this model
-AVAILABLE_GPUS = os.getenv("CUDA_VISIBLE_DEVICES", "0,1,2,3,4,5,6,7").split(",")
-AVAILABLE_GPUS = [int(gpu) for gpu in AVAILABLE_GPUS]
+# caller should set "CUDA_VISIBLE_DEVICES" to specify which GPUs are available to this model
+AVAILABLE_GPUS = [int(gpu) for gpu in os.getenv("CUDA_VISIBLE_DEVICES", "0").split(",")]
 IS_MAIN_PROCESS = os.getenv("IS_MAIN_PROCESS", "1") == "1"
 if IS_MAIN_PROCESS:
     # override "CUDA_VISIBLE_DEVICES" to give only GPU 0 to the main process -- need to set it BEFORE importing torch
     # (the worker processes will also override "CUDA_VISIBLE_DEVICES" again to run on other GPUs)
     os.environ["CUDA_VISIBLE_DEVICES"] = f"{AVAILABLE_GPUS[0]}"
 
-import logging
 import multiprocessing as mp
-
 import socket
 import uuid
 from contextlib import closing
@@ -25,9 +22,10 @@ from contextlib import closing
 import psutil
 import torch
 
-from sam3.model.sam3_model_web import Sam3Model
+from sam3.logger import get_logger
+from sam3.model.sam3_video_predictor import Sam3Model
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 if IS_MAIN_PROCESS:
     logger.info(f"setting up MultiGPU inference with {AVAILABLE_GPUS=}")
