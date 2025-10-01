@@ -3,17 +3,16 @@
 import gc
 import logging
 from collections import defaultdict
-from functools import reduce
 
 import numpy as np
-
 import torch
 import torch.distributed as dist
 import torch.nn.functional as F
 from torchvision.ops import masks_to_boxes
-from tqdm import tqdm
+from tqdm.auto import tqdm
 
 from sam3 import perflib
+from sam3.logger import get_logger
 from sam3.model.act_ckpt_utils import clone_output_wrapper
 from sam3.model.box_ops import box_xywh_to_cxcywh, box_xyxy_to_xywh
 from sam3.model.data_misc import (
@@ -26,13 +25,7 @@ from sam3.model.data_misc import (
 from sam3.model.geometry_encoders import Prompt
 from sam3.model.model_misc import NestedTensor
 from sam3.model.nms_utils import mask_iou
-
-from sam3.model.sam3_dense_shared_multigpu import (
-    MaskletConfirmationStatus,
-    Sam3DenseTrackingMultiGPU,
-)
-
-# Sam3DemoMixin functionality - using sam3 imports
+from sam3.model.sam3_video_base import MaskletConfirmationStatus, Sam3VideoBase
 from sam3.model.video_tracking_with_prompt_utils import (
     fill_holes_in_mask_scores,
     load_resource_as_video_frames,
@@ -40,16 +33,13 @@ from sam3.model.video_tracking_with_prompt_utils import (
 from sam3.perflib.compile import compile_wrapper, shape_logging_wrapper
 from sam3.perflib.masks_to_boxes import masks_to_boxes as perf_masks_to_boxes
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
-class Sam3DemoMixin:
+class Sam3VideoInferenceMixin:
     TEXT_ID_FOR_TEXT = 0
     TEXT_ID_FOR_VISUAL = 1
     TEXT_ID_FOR_GEOMETRIC = 2
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
 
     @torch.inference_mode()
     def init_state(
@@ -224,7 +214,7 @@ class Sam3DemoMixin:
         return boxes_cxcywh, box_labels, new_visual_prompt
 
 
-class Sam3DenseTrackingDemoMultiGPU(Sam3DemoMixin, Sam3DenseTrackingMultiGPU):
+class Sam3VideoInferenceMultiGPU(Sam3VideoInferenceMixin, Sam3VideoBase):
     def __init__(
         self,
         image_size=1008,
@@ -388,7 +378,7 @@ class Sam3DenseTrackingDemoMultiGPU(Sam3DemoMixin, Sam3DenseTrackingMultiGPU):
             for yield_frame_idx, yield_out in yield_list:
                 # post-process the output and yield it
                 with torch.profiler.record_function(
-                    "Sam3DenseTrackingDemoMultiGPU.postprocess_output"
+                    "Sam3VideoInferenceMultiGPU.postprocess_output"
                 ):
                     if self.rank == 0:
                         suppressed_obj_ids = yield_out["suppressed_obj_ids"]
@@ -929,8 +919,6 @@ class Sam3DenseTrackingDemoMultiGPU(Sam3DemoMixin, Sam3DenseTrackingMultiGPU):
 
         Note that text prompts are NOT associated with a particular frame (i.e. they apply
         to all frames). However, we only run inference on the frame specified in `frame_idx`.
-
-        Copied from sam3_demo.Sam3DemoMixin.add_prompt, simplified to support only text prompts.
         """
         logger.info("Running add_prompt on frame %d", frame_idx)
 
@@ -1059,9 +1047,7 @@ class Sam3DenseTrackingDemoMultiGPU(Sam3DemoMixin, Sam3DenseTrackingMultiGPU):
         return {video_id: preds}
 
 
-class Sam3DenseTrackingDemoMultiGPUWithInstanceInteractivity(
-    Sam3DenseTrackingDemoMultiGPU
-):
+class Sam3VideoInferenceMultiGPUWithInstanceInteractivity(Sam3VideoInferenceMultiGPU):
     def __init__(
         self,
         use_prev_mem_frame=False,

@@ -21,7 +21,6 @@ from sam3.logger import get_logger
 from sam3.model.data_misc import BatchedDatapoint
 from sam3.model.model_misc import NestedTensor
 from sam3.model.nms_utils import mask_iou
-from sam3.model.sam3_image import Sam3ImageOnVideoMultiGPU
 from sam3.model.video_tracking_with_prompt_utils import (
     fill_holes_in_mask_scores,
     mask_to_box,
@@ -200,7 +199,7 @@ class Sam2Predictor(nn.Module):
 #         self._add_output_per_object(*args, **kwargs)
 
 
-class Sam3DenseTrackingMultiGPU(nn.Module):
+class Sam3VideoBase(nn.Module):
     def __init__(
         self,
         sam2_model,

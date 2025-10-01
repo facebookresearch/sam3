@@ -35,8 +35,8 @@ from sam3.model.memory import (
 from sam3.model.model_misc import DotProductScoring, MLP, TransformerWrapper
 from sam3.model.necks import Sam3DualViTDetNeck
 from sam3.model.position_encoding import PositionEmbeddingSine
-from sam3.model.sam3_demo_dense_tracking_multigpu import Sam3DenseTrackingDemoMultiGPU
 from sam3.model.sam3_image import Sam3ImageOnVideoMultiGPU
+from sam3.model.sam3_video_inference import Sam3VideoInferenceMultiGPU
 from sam3.model.text_encoder_ve import VETextEncoder
 from sam3.model.tokenizer_ve import SimpleTokenizer
 from sam3.model.video_tracking_with_prompt_demo import Sam3TrackerPredictor
@@ -479,7 +479,7 @@ def build_sam3_dense_tracking_model(
     has_presence_token: bool = False,
     geo_encoder_use_img_cross_attn: bool = False,
     strict_state_dict_loading: bool = True,
-) -> Sam3DenseTrackingDemoMultiGPU:
+) -> Sam3VideoInferenceMultiGPU:
     """
     Build SAM3 dense tracking model.
 
@@ -488,7 +488,7 @@ def build_sam3_dense_tracking_model(
         checkpoint_path: Optional path to checkpoint file
 
     Returns:
-        Sam3DenseTrackingDemoMultiGPU: The instantiated dense tracking model
+        Sam3VideoInferenceMultiGPU: The instantiated dense tracking model
     """
     # Build SAM2 model
     sam2_model = build_sam2_model()
@@ -533,7 +533,7 @@ def build_sam3_dense_tracking_model(
     )
 
     # Create the main dense tracking model
-    model = Sam3DenseTrackingDemoMultiGPU(
+    model = Sam3VideoInferenceMultiGPU(
         sam2_model=sam2_model,
         sam3_model=sam3_model,
         ckpt_path=None,

@@ -1,19 +1,20 @@
 import os
+import pprint
+import subprocess
+
+import cv2
 import matplotlib.patches as patches
 import matplotlib.pyplot as plt
 import numpy as np
-import pprint
-import cv2
-import subprocess
+import pycocotools.mask as mask_utils
 import torch
 from matplotlib.colors import to_rgb
 from matplotlib.patches import Rectangle
 from PIL import Image
-from skimage.color import rgb2lab, lab2rgb
+from skimage.color import lab2rgb, rgb2lab
 from sklearn.cluster import KMeans
-from tqdm import tqdm
 from torchvision.ops import masks_to_boxes
-import pycocotools.mask as mask_utils
+from tqdm import tqdm
 
 
 def generate_colors(n_colors=256, n_samples=5000):
@@ -53,10 +54,26 @@ def show_img_tensor(img_batch, vis_img_idx=0):
 def show_points_with_labels(coords, labels, ax=None, marker_size=200):
     if ax is None:
         ax = plt.gca()
-    pos_points = coords[labels==1]
-    neg_points = coords[labels==0]
-    ax.scatter(pos_points[:, 0], pos_points[:, 1], color="green", marker="*", s=marker_size, edgecolor="white", linewidth=1.25)
-    ax.scatter(neg_points[:, 0], neg_points[:, 1], color="red", marker="*", s=marker_size, edgecolor="white", linewidth=1.25)
+    pos_points = coords[labels == 1]
+    neg_points = coords[labels == 0]
+    ax.scatter(
+        pos_points[:, 0],
+        pos_points[:, 1],
+        color="green",
+        marker="*",
+        s=marker_size,
+        edgecolor="white",
+        linewidth=1.25,
+    )
+    ax.scatter(
+        neg_points[:, 0],
+        neg_points[:, 1],
+        color="red",
+        marker="*",
+        s=marker_size,
+        edgecolor="white",
+        linewidth=1.25,
+    )
 
 
 def draw_box_on_image(image, box, color=(0, 255, 0)):
@@ -71,27 +88,26 @@ def draw_box_on_image(image, box, color=(0, 255, 0)):
     image = image.convert("RGB")
     # Unpack the box coordinates
     x, y, w, h = box
-    x, y, w, h = int(x), int(y),int( w),int( h)
+    x, y, w, h = int(x), int(y), int(w), int(h)
     # Get the pixel data
     pixels = image.load()
     # Draw the top and bottom edges
     for i in range(x, x + w):
         pixels[i, y] = color
         pixels[i, y + h - 1] = color
-        pixels[i, y+1] = color
+        pixels[i, y + 1] = color
         pixels[i, y + h] = color
-        pixels[i, y-1] = color
-        pixels[i, y + h-2] = color
+        pixels[i, y - 1] = color
+        pixels[i, y + h - 2] = color
     # Draw the left and right edges
     for j in range(y, y + h):
         pixels[x, j] = color
-        pixels[x+1, j] = color
-        pixels[x-1, j] = color
+        pixels[x + 1, j] = color
+        pixels[x - 1, j] = color
         pixels[x + w - 1, j] = color
         pixels[x + w, j] = color
         pixels[x + w - 2, j] = color
     return image
-
 
 
 def plot_bbox(
@@ -127,13 +143,24 @@ def plot_bbox(
     if ax is None:
         ax = plt.gca()
     rect = patches.Rectangle(
-        (x, y), w, h, linewidth=1.5, edgecolor=color, facecolor="none", linestyle=linestyle,
+        (x, y),
+        w,
+        h,
+        linewidth=1.5,
+        edgecolor=color,
+        facecolor="none",
+        linestyle=linestyle,
     )
     ax.add_patch(rect)
     if text is not None:
         facecolor = "w"
         ax.text(
-            x, y - 5, text, color=color, weight="bold", fontsize=8,
+            x,
+            y - 5,
+            text,
+            color=color,
+            weight="bold",
+            fontsize=8,
             bbox={"facecolor": facecolor, "alpha": 0.75, "pad": 2},
         )
 
@@ -154,6 +181,7 @@ def normalize_bbox(bbox_xyxy, img_w, img_h):
     bbox_xyxy[1], bbox_xyxy[3] = bbox_xyxy[1] / img_h, bbox_xyxy[3] / img_h
     return bbox_xyxy
 
+
 def visualize_frame_output(frame_idx, image_files, outputs, figsize=(12, 8)):
     plt.figure(figsize=figsize)
     plt.title(f"frame {frame_idx}")
@@ -166,11 +194,26 @@ def visualize_frame_output(frame_idx, image_files, outputs, figsize=(12, 8)):
         obj_id = outputs["out_obj_ids"][i]
         binary_mask = outputs["out_binary_masks"][i]
         color = COLORS[obj_id % len(COLORS)]
-        plot_bbox(img_H, img_W, box_xywh, text=f"(id={obj_id}, {prob=:.2f})", box_format="XYWH", color=color)
+        plot_bbox(
+            img_H,
+            img_W,
+            box_xywh,
+            text=f"(id={obj_id}, {prob=:.2f})",
+            box_format="XYWH",
+            color=color,
+        )
         plot_mask(binary_mask, color=color)
 
 
-def visualize_formatted_frame_output(frame_idx, image_files, outputs_list, titles=None, points_list=None, points_labels_list=None, figsize=(12, 8)):
+def visualize_formatted_frame_output(
+    frame_idx,
+    image_files,
+    outputs_list,
+    titles=None,
+    points_list=None,
+    points_labels_list=None,
+    figsize=(12, 8),
+):
     """Visualize up to three sets of segmentation masks on a video frame.
 
     outputs_list: List of {frame_idx: {obj_id: mask_tensor}}
@@ -179,7 +222,9 @@ def visualize_formatted_frame_output(frame_idx, image_files, outputs_list, title
     num_outputs = len(outputs_list)
     if titles is None:
         titles = [f"Set {i+1}" for i in range(num_outputs)]
-    assert len(titles) == num_outputs, "length of `titles` should match that of `outputs_list` if not None."
+    assert (
+        len(titles) == num_outputs
+    ), "length of `titles` should match that of `outputs_list` if not None."
 
     fig, axes = plt.subplots(1, num_outputs, figsize=figsize)
     if num_outputs == 1:
@@ -195,12 +240,22 @@ def visualize_formatted_frame_output(frame_idx, image_files, outputs_list, title
             box_xyxy = masks_to_boxes(torch.tensor(binary_mask).unsqueeze(0)).squeeze()
             box_xyxy = normalize_bbox(box_xyxy, img_W, img_H)
             color = COLORS[obj_id % len(COLORS)]
-            plot_bbox(img_H, img_W, box_xyxy, text=f"(id={obj_id})", box_format="XYXY", color=color, ax=ax)
+            plot_bbox(
+                img_H,
+                img_W,
+                box_xyxy,
+                text=f"(id={obj_id})",
+                box_format="XYXY",
+                color=color,
+                ax=ax,
+            )
             plot_mask(binary_mask, color=color, ax=ax)
 
         # points
         if points_list is not None and points_list[idx] is not None:
-            show_points_with_labels(points_list[idx], points_labels_list[idx], ax=ax, marker_size=200)
+            show_points_with_labels(
+                points_list[idx], points_labels_list[idx], ax=ax, marker_size=200
+            )
 
     plt.tight_layout()
     plt.show()
@@ -229,7 +284,11 @@ def render_masklet_frame(img, outputs, frame_idx=None, alpha=0.5):
         color255 = (color * 255).astype(np.uint8)
         mask = outputs["out_binary_masks"][i]
         if mask.shape != img.shape[:2]:
-            mask = cv2.resize(mask.astype(np.float32), (img.shape[1], img.shape[0]), interpolation=cv2.INTER_NEAREST)
+            mask = cv2.resize(
+                mask.astype(np.float32),
+                (img.shape[1], img.shape[0]),
+                interpolation=cv2.INTER_NEAREST,
+            )
         mask_bool = mask > 0.5
         for c in range(3):
             overlay[..., c][mask_bool] = (
@@ -254,15 +313,27 @@ def render_masklet_frame(img, outputs, frame_idx=None, alpha=0.5):
         else:
             label = f"id={obj_id}"
         cv2.putText(
-            overlay, label, (x1, max(y1 - 10, 0)),
-            cv2.FONT_HERSHEY_SIMPLEX, 0.5, color255, 1, cv2.LINE_AA
+            overlay,
+            label,
+            (x1, max(y1 - 10, 0)),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.5,
+            color255,
+            1,
+            cv2.LINE_AA,
         )
 
     # Overlay frame index at the top-left corner
     if frame_idx is not None:
         cv2.putText(
-            overlay, f"Frame {frame_idx}", (10, 30),
-            cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 255), 2, cv2.LINE_AA
+            overlay,
+            f"Frame {frame_idx}",
+            (10, 30),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            1.0,
+            (255, 255, 255),
+            2,
+            cv2.LINE_AA,
         )
 
     return overlay
@@ -278,29 +349,34 @@ def save_masklet_video(image_files, outputs, out_path, alpha=0.5, fps=10):
     if first_img.dtype == np.float32 or first_img.max() <= 1.0:
         first_img = (first_img * 255).astype(np.uint8)
     # Use 'mp4v' for best compatibility with VSCode playback (.mp4 files)
-    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-    writer = cv2.VideoWriter('temp.mp4', fourcc, fps, (width, height))
+    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+    writer = cv2.VideoWriter("temp.mp4", fourcc, fps, (width, height))
 
-    outputs_list = [(image_files[frame_idx], frame_idx, outputs[frame_idx]) for frame_idx in sorted(outputs.keys())]
+    outputs_list = [
+        (image_files[frame_idx], frame_idx, outputs[frame_idx])
+        for frame_idx in sorted(outputs.keys())
+    ]
 
     for img_path, frame_idx, frame_outputs in tqdm(outputs_list):
         img = plt.imread(img_path)
-        overlay = render_masklet_frame(img, frame_outputs, frame_idx=frame_idx, alpha=alpha)
+        overlay = render_masklet_frame(
+            img, frame_outputs, frame_idx=frame_idx, alpha=alpha
+        )
         writer.write(cv2.cvtColor(overlay, cv2.COLOR_RGB2BGR))
 
     writer.release()
 
     # Re-encode the video for VSCode compatibility using ffmpeg
-    subprocess.run(["ffmpeg", "-y", "-i", 'temp.mp4', out_path])
+    subprocess.run(["ffmpeg", "-y", "-i", "temp.mp4", out_path])
     print(f"Re-encoded video saved to {out_path}")
 
-    os.remove('temp.mp4')  # Clean up temporary file
+    os.remove("temp.mp4")  # Clean up temporary file
 
 
 def save_masklet_image(image_file, outputs, out_path, alpha=0.5, frame_idx=None):
-    '''
+    """
     Save a single image with masklet overlays.
-    '''
+    """
     img = plt.imread(image_file)
     overlay = render_masklet_frame(img, outputs, frame_idx=frame_idx, alpha=alpha)
     Image.fromarray(overlay).save(out_path)
@@ -317,7 +393,10 @@ def prepare_masks_for_visualization(frame_to_output):
         frame_to_output[frame_idx] = _processed_out
     return frame_to_output
 
-def convert_coco_to_masklet_format(annotations, img_info, is_prediction=False, score_threshold=0.5):
+
+def convert_coco_to_masklet_format(
+    annotations, img_info, is_prediction=False, score_threshold=0.5
+):
     """
     Convert COCO format annotations to format expected by render_masklet_frame
     """
@@ -325,17 +404,22 @@ def convert_coco_to_masklet_format(annotations, img_info, is_prediction=False, s
         "out_boxes_xywh": [],
         "out_probs": [],
         "out_obj_ids": [],
-        "out_binary_masks": []
+        "out_binary_masks": [],
     }
 
-    img_h, img_w = img_info['height'], img_info['width']
+    img_h, img_w = img_info["height"], img_info["width"]
 
     for idx, ann in enumerate(annotations):
         # Get bounding box in relative XYWH format
         if "bbox" in ann:
             bbox = ann["bbox"]
             if max(bbox) > 1.0:  # Convert absolute to relative coordinates
-                bbox = [bbox[0] / img_w, bbox[1] / img_h, bbox[2] / img_w, bbox[3] / img_h]
+                bbox = [
+                    bbox[0] / img_w,
+                    bbox[1] / img_h,
+                    bbox[2] / img_w,
+                    bbox[3] / img_h,
+                ]
         else:
             mask = mask_utils.decode(ann["segmentation"])
             rows = np.any(mask, axis=1)
@@ -344,7 +428,12 @@ def convert_coco_to_masklet_format(annotations, img_info, is_prediction=False, s
                 rmin, rmax = np.where(rows)[0][[0, -1]]
                 cmin, cmax = np.where(cols)[0][[0, -1]]
                 # Convert to relative XYWH
-                bbox = [cmin/img_w, rmin/img_h, (cmax-cmin+1)/img_w, (rmax-rmin+1)/img_h]
+                bbox = [
+                    cmin / img_w,
+                    rmin / img_h,
+                    (cmax - cmin + 1) / img_w,
+                    (rmax - rmin + 1) / img_h,
+                ]
             else:
                 bbox = [0, 0, 0, 0]
 
@@ -352,9 +441,9 @@ def convert_coco_to_masklet_format(annotations, img_info, is_prediction=False, s
 
         # Get probability/score
         if is_prediction:
-            prob = ann['score']
+            prob = ann["score"]
         else:
-            prob = 1.0 # GT has no probability
+            prob = 1.0  # GT has no probability
         outputs["out_probs"].append(prob)
 
         outputs["out_obj_ids"].append(idx)
@@ -365,6 +454,7 @@ def convert_coco_to_masklet_format(annotations, img_info, is_prediction=False, s
 
     return outputs
 
+
 def save_side_by_side_visualization(img, gt_anns, pred_anns, noun_phrase):
     """
     Create side-by-side visualization of GT and predictions
@@ -374,17 +464,17 @@ def save_side_by_side_visualization(img, gt_anns, pred_anns, noun_phrase):
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(20, 10))
 
     main_title = f"Noun phrase: '{noun_phrase}'"
-    fig.suptitle(main_title, fontsize=16, fontweight='bold')
+    fig.suptitle(main_title, fontsize=16, fontweight="bold")
 
     gt_overlay = render_masklet_frame(img, gt_anns, alpha=0.5)
     ax1.imshow(gt_overlay)
-    ax1.set_title("Ground Truth", fontsize=14, fontweight='bold')
-    ax1.axis('off')
+    ax1.set_title("Ground Truth", fontsize=14, fontweight="bold")
+    ax1.axis("off")
 
     pred_overlay = render_masklet_frame(img, pred_anns, alpha=0.5)
     ax2.imshow(pred_overlay)
-    ax2.set_title("Predictions", fontsize=14, fontweight='bold')
-    ax2.axis('off')
+    ax2.set_title("Predictions", fontsize=14, fontweight="bold")
+    ax2.axis("off")
 
     plt.subplots_adjust(top=0.88)
     plt.tight_layout()

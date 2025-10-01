@@ -1,34 +1,29 @@
 # Copyright (c) Meta, Inc. and its affiliates. All Rights Reserved
 
 import gc
-
-import logging
-import threading
 import time
 import uuid
 from typing import List, Optional
 
 import torch
 
-logger = logging.getLogger(__name__)
-
+from sam3.logger import get_logger
 from sam3.sam3_dense_tracking_builder import build_sam3_dense_tracking_model
 
+logger = get_logger(__name__)
 
-class Sam3Model:
+
+class Sam3VideoPredictor:
     def __init__(
         self,
         bpe_path,
         checkpoint_path,
         has_presence_token=False,
         geo_encoder_use_img_cross_attn=False,
-        session_expiration_sec=1200,  # the time (sec) for a session to expire after no activities
         strict_state_dict_loading=True,
         default_output_prob_thresh=0.5,
         async_loading_frames=True,
     ):
-
-        self.session_expiration_sec = session_expiration_sec
         self.default_output_prob_thresh = default_output_prob_thresh
         self.async_loading_frames = async_loading_frames
 
@@ -70,8 +65,6 @@ class Sam3Model:
             )
         elif request_type == "reset_session":
             return self.reset_session(session_id=request["session_id"])
-        elif request_type == "renew_session":
-            return self.renew_session(session_id=request["session_id"])
         elif request_type == "close_session":
             return self.close_session(session_id=request["session_id"])
         else:
@@ -112,12 +105,8 @@ class Sam3Model:
             session_id = str(uuid.uuid4())
         _ALL_INFERENCE_STATES[session_id] = {
             "state": inference_state,
-            "last_use_time": time.time(),
-            "expiration_sec": self.session_expiration_sec,
             "session_id": session_id,
             "start_time": time.time(),
-            # "config_file": self.config_file,
-            # "checkpoint_file": self.checkpoint_file,
         }
         logger.info(
             f"started new session {session_id}; {_get_session_stats()}; "
@@ -146,7 +135,6 @@ class Sam3Model:
         )
         session = _get_session(session_id)
         inference_state = session["state"]
-        _extend_expiration_time(session)
 
         frame_idx, outputs = self.model.add_prompt(
             inference_state=inference_state,
@@ -181,7 +169,6 @@ class Sam3Model:
         try:
             session = _get_session(session_id)
             inference_state = session["state"]
-            _extend_expiration_time(session)
             if propagation_direction not in ["both", "forward", "backward"]:
                 raise ValueError(
                     f"invalid propagation direction: {propagation_direction}"
@@ -219,15 +206,7 @@ class Sam3Model:
         logger.info(f"clear all inputs across the video in session {session_id}")
         session = _get_session(session_id)
         inference_state = session["state"]
-        _extend_expiration_time(session)
         self.model.reset_state(inference_state)
-        return {"is_success": True}
-
-    def renew_session(self, session_id):
-        """Renew a session (to update its last usage time and reset its expiration timer)."""
-        logger.info(f"renew session {session_id}")
-        session = _get_session(session_id)
-        _extend_expiration_time(session)
         return {"is_success": True}
 
     def close_session(self, session_id):
@@ -253,29 +232,6 @@ def _get_session(session_id):
     if session is None:
         raise RuntimeError(f"Cannot find session {session_id}; it might have expired")
     return session
-
-
-def _extend_expiration_time(session):
-    """Extend the expiration time of a session."""
-    session["last_use_time"] = time.time()
-
-
-def _cleanup_expired_sessions():
-    """Clean up expired sessions that haven't been used in a while."""
-    while True:
-        try:
-            current_time = time.time()
-            for session_id, session in list(_ALL_INFERENCE_STATES.items()):
-                if current_time - session["last_use_time"] > session["expiration_sec"]:
-                    # close the expired session
-                    _ALL_INFERENCE_STATES.pop(session_id, None)
-                    gc.collect()
-                    logger.info(
-                        f"removed expired session {session_id}; {_get_session_stats()}"
-                    )
-        except Exception:
-            pass  # catch and ignore any errors (just to be prudent)
-        time.sleep(30)  # clean up every 30 sec
 
 
 def _get_session_stats():
@@ -306,5 +262,3 @@ def _get_torch_and_gpu_properties():
 
 # a global dictionary that holds all inference states for this model (key is session_id)
 _ALL_INFERENCE_STATES = {}
-# a daemon thread to clean up expired session
-threading.Thread(target=_cleanup_expired_sessions, daemon=True).start()
