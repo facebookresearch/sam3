@@ -184,10 +184,14 @@ class COCO_TRAIN_API_FROM_JSON_BOX_ONLY:
 
                 annotation["area"] = (bbox[2] * bbox[3]).item()
                 annotation["bbox"] = bbox
-                # if "segmentation" in ann and ann["segmentation"] is not None and ann['segmentation'] != ['']:
-                #     annotation["segmentation"] = ann_to_rle(
-                #         ann["segmentation"], im_info=image_info
-                #     )
+                if (
+                    "segmentation" in ann
+                    and ann["segmentation"] is not None
+                    and ann["segmentation"] != []
+                ):
+                    annotation["segmentation"] = ann_to_rle(
+                        ann["segmentation"], im_info=image_info
+                    )
 
                 annotations.append(annotation)
                 cur_ann_ids.append(annotation["id"])
@@ -312,10 +316,14 @@ class COCO_EVAL_API_FROM_JSON_BOX_ONLY:
 
             annotation["area"] = (bbox[2] * bbox[3]).item()
             annotation["bbox"] = bbox
-            # if "segmentation" in ann and ann["segmentation"] is not None and ann['segmentation'] != ['']:
-            #     annotation["segmentation"] = ann_to_rle(
-            #         ann["segmentation"], im_info=image_info
-            #     )
+            if (
+                "segmentation" in ann
+                and ann["segmentation"] is not None
+                and ann["segmentation"] != []
+            ):
+                annotation["segmentation"] = ann_to_rle(
+                    ann["segmentation"], im_info=image_info
+                )
 
             annotations.append(annotation)
             cur_ann_ids.append(annotation["id"])

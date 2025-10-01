@@ -13,7 +13,7 @@ paths:
 # Roboflow dataset configuration
 roboflow_train:
   num_images: 100
-  supercategory: ${all_roboflow_supercategories.${string:${submitit.job_array.task_index}}}
+  supercategory: zebrasatasturias #${all_roboflow_supercategories.${string:${submitit.job_array.task_index}}}
 
   # Training transforms pipeline
   train_transforms:
@@ -232,29 +232,29 @@ scratch:
   scheduler_warmup: 20
   scheduler_cooldown: 20
 
-  # gradient_accumulation_steps: 1
-  # train_batch_size: 1
-  # val_batch_size: 1
-  # collate_fn:
-  #   _target_: sam3.train.data.collator.collate_fn_api
-  #   _partial_: true
-  #   input_box_embedding_dim: ${scratch.input_box_embedding_dim}
-  #   repeats: ${scratch.hybrid_repeats}
-  #   dict_key: roboflow100
-  #   with_seg_masks: ${scratch.enable_segmentation} # Note: Set this to true if using segmentation masks!
-
-  # Note: usin this setting if using gradient accumulation
-  gradient_accumulation_steps: 2
-  train_batch_size : ${scratch.gradient_accumulation_steps}
-  val_batch_size: ${scratch.gradient_accumulation_steps}
+  gradient_accumulation_steps: 1
+  train_batch_size: 1
+  val_batch_size: 1
   collate_fn:
-    _target_: sam3.train.data.collator.collate_fn_api_with_chunking
+    _target_: sam3.train.data.collator.collate_fn_api
     _partial_: true
-    num_chunks: ${scratch.gradient_accumulation_steps}
     input_box_embedding_dim: ${scratch.input_box_embedding_dim}
     repeats: ${scratch.hybrid_repeats}
     dict_key: roboflow100
-    with_seg_masks: false # Note: Set this to true if using segmentation masks!
+    with_seg_masks: ${scratch.enable_segmentation} # Note: Set this to true if using segmentation masks!
+
+  # Note: usin this setting if using gradient accumulation
+  # gradient_accumulation_steps: 2
+  # train_batch_size : ${scratch.gradient_accumulation_steps}
+  # val_batch_size: ${scratch.gradient_accumulation_steps}
+  # collate_fn:
+  #   _target_: sam3.train.data.collator.collate_fn_api_with_chunking
+  #   _partial_: true
+  #   num_chunks: ${scratch.gradient_accumulation_steps}
+  #   input_box_embedding_dim: ${scratch.input_box_embedding_dim}
+  #   repeats: ${scratch.hybrid_repeats}
+  #   dict_key: roboflow100
+  #   with_seg_masks:  ${scratch.enable_segmentation} # Note: Set this to true if using segmentation masks!
 
 
 # ============================================================================
@@ -435,7 +435,7 @@ trainer:
 
 launcher:
   num_nodes: 1
-  gpus_per_node: 2
+  gpus_per_node: 1
   experiment_log_dir: ${paths.experiment_log_dir}
   multiprocessing_context: forkserver
 
@@ -449,9 +449,9 @@ submitit:
   port_range: [10000, 65000]
   constraint: null #"volta32gb"
   # Uncomment for job array configuration
-  job_array:
-    num_tasks: 100
-    task_index: 0
+  # job_array:
+  #   num_tasks: 100
+  #   task_index: 0
 
 # ============================================================================
 # Available Roboflow Supercategories (for reference)
