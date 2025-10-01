@@ -20,6 +20,8 @@ class Sam3Model:
         self,
         bpe_path,
         checkpoint_path,
+        has_presence_token=False,
+        geo_encoder_use_img_cross_attn=False,
         session_expiration_sec=1200,  # the time (sec) for a session to expire after no activities
         strict_state_dict_loading=True,
         default_output_prob_thresh=0.5,
@@ -32,7 +34,11 @@ class Sam3Model:
 
         self.model = (
             build_sam3_dense_tracking_model(
-                bpe_path=bpe_path, checkpoint_path=checkpoint_path
+                bpe_path=bpe_path,
+                checkpoint_path=checkpoint_path,
+                has_presence_token=has_presence_token,
+                geo_encoder_use_img_cross_attn=geo_encoder_use_img_cross_attn,
+                strict_state_dict_loading=strict_state_dict_loading,
             )
             .cuda()
             .eval()
