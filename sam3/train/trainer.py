@@ -927,12 +927,12 @@ class Trainer:
 
         if self.gradient_accumulation_steps > 1:
             assert isinstance(
-                self.batch, list
-            ), f"Expected a list of batches, got {type(self.batch)}"
+                batch, list
+            ), f"Expected a list of batches, got {type(batch)}"
             assert (
-                len(self.batch) == self.gradient_accumulation_steps
-            ), f"Expected {self.gradient_accumulation_steps} batches, got {len(self.batch)}"
-            accum_steps = len(self.batch)
+                len(batch) == self.gradient_accumulation_steps
+            ), f"Expected {self.gradient_accumulation_steps} batches, got {len(batch)}"
+            accum_steps = len(batch)
         else:
             accum_steps = 1
             batch = [batch]

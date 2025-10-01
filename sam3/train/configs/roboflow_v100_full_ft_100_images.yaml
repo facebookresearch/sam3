@@ -6,9 +6,9 @@ defaults:
 # Paths Configuration (Chage this to your own paths)
 # ============================================================================
 paths:
-  checkpoint_path: /checkpoint/onevision/kalyanv/sam3_roboflow_ckpts/sam3_prod_v12_interactive_5box_image_only.pt
-  roboflow_vl_100_root: /checkpoint/onevision/datasets/all_rf100/rf100-vl
-  experiment_log_dir: /checkpoint/onevision/kalyanv/sam3_oss_train_dump_after_cleanup_lr_0_1
+  checkpoint_path: /home/kalyanv/sam3/assets/checkpoints/checkpoint_model_only_presence_0_5.pt
+  roboflow_vl_100_root: /checkpoint/sam3/kalyanv/datasets/all_rf100/rf100-vl #/checkpoint/onevision/datasets/all_rf100/rf100-vl
+  experiment_log_dir:  /home/kalyanv/roboflow_dbg #/checkpoint/onevision/kalyanv/sam3_oss_train_dump_after_cleanup_lr_0_1
 
 # Roboflow dataset configuration
 roboflow_train:
@@ -91,7 +91,7 @@ roboflow_train:
       alpha: 0.3
       threshold: 0.4
       topk: 4
-    use_o2m_matcher_on_o2m_aux: true
+    use_o2m_matcher_on_o2m_aux: false
     loss_fns_find:
       - _target_: sam3.train.loss.loss_fns.Boxes
         weight_dict:
@@ -124,7 +124,7 @@ roboflow_train:
   #     alpha: 0.3
   #     threshold: 0.4
   #     topk: 4
-  #   use_o2m_matcher_on_o2m_aux: true
+  #   use_o2m_matcher_on_o2m_aux: false
   #   loss_fns_find:
   #     - _target_: sam3.train.loss.loss_fns.Boxes
   #       weight_dict:
@@ -213,8 +213,6 @@ scratch:
   val_norm_std: [0.5, 0.5, 0.5]
 
   # Training parameters
-  train_batch_size: 1
-  val_batch_size: 1
   num_train_workers: 10
   num_val_workers: 0
   max_data_epochs: 20
@@ -234,27 +232,29 @@ scratch:
   scheduler_warmup: 20
   scheduler_cooldown: 20
 
-  gradient_accumulation_steps: 1
-  collate_fn:
-    _target_: sam3.train.data.collator.collate_fn_api
-    _partial_: true
-    input_box_embedding_dim: ${scratch.input_box_embedding_dim}
-    repeats: ${scratch.hybrid_repeats}
-    dict_key: roboflow100
-    with_seg_masks: ${scratch.enable_segmentation} # Note: Set this to true if using segmentation masks!
-
-  # Note: usin this setting if using gradient accumulation
-  # gradient_accumulation_steps: 2
-  # train_batch_size : ${scratch.gradient_accumulation_steps}
-  # val_batch_size: ${scratch.gradient_accumulation_steps}
+  # gradient_accumulation_steps: 1
+  # train_batch_size: 1
+  # val_batch_size: 1
   # collate_fn:
-  #   _target_: sam3.train.data.collator.collate_fn_api_with_chunking
+  #   _target_: sam3.train.data.collator.collate_fn_api
   #   _partial_: true
-  #   num_chunks: ${scratch.gradient_accumulation_steps}
   #   input_box_embedding_dim: ${scratch.input_box_embedding_dim}
   #   repeats: ${scratch.hybrid_repeats}
   #   dict_key: roboflow100
-  #   with_seg_masks: false # Note: Set this to true if using segmentation masks!
+  #   with_seg_masks: ${scratch.enable_segmentation} # Note: Set this to true if using segmentation masks!
+
+  # Note: usin this setting if using gradient accumulation
+  gradient_accumulation_steps: 2
+  train_batch_size : ${scratch.gradient_accumulation_steps}
+  val_batch_size: ${scratch.gradient_accumulation_steps}
+  collate_fn:
+    _target_: sam3.train.data.collator.collate_fn_api_with_chunking
+    _partial_: true
+    num_chunks: ${scratch.gradient_accumulation_steps}
+    input_box_embedding_dim: ${scratch.input_box_embedding_dim}
+    repeats: ${scratch.hybrid_repeats}
+    dict_key: roboflow100
+    with_seg_masks: false # Note: Set this to true if using segmentation masks!
 
 
 # ============================================================================
@@ -280,7 +280,8 @@ trainer:
     gradient_as_bucket_view: True
 
   loss:
-    all: ${roboflow_train.roboflow_loss}
+    all: ${roboflow_train.loss}
+    roboflow100: ${roboflow_train.loss}
     default:
       _target_: sam3.train.loss.sam3_loss.DummyLoss
 
@@ -337,7 +338,7 @@ trainer:
   # TODO (Kalyan): Add support for presence token.
   model:
     _target_: sam3.model_builder.build_sam3_image_model
-    bpe_path: /checkpoint/onevision/kalyanv/bpe_simple_vocab_16e6.txt.gz
+    bpe_path: /home/kalyanv/sam3/assets/bpe_simple_vocab_16e6.txt.gz
     device: cpus
     eval_mode: false
     enable_segmentation: ${scratch.enable_segmentation} # Warning: Enable this if using segmentation.
