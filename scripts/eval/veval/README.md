@@ -156,3 +156,9 @@ The `saco_veval_eval.py` will run
 * VideoPhraseHotaEvaluator
 * VideoDemoF1Evaluator
 The results will be available in the same folder of `--pred_file` with a suffix `_res` e.g. `--pred_file /fsx onevision/tym/sam3_and_data/data/pred/example_09242025/saco_sav_test_preds_res.json`
+
+For a toy run without the actual downloads needed, directly run
+```
+python saco_veval_eval.py
+```
+It will use the toy data in `veval/toy_gt_and_pred` and generate an eval result in `veval/toy_gt_and_pred/toy_saco_sav_test_preds_res.json`
