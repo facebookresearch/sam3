@@ -16,39 +16,39 @@ from tqdm import tqdm
 gt_files_subset = {
     # Captioner
     "metaclip": [
-        "gold_metaclip_merged_a_test.json",
-        "gold_metaclip_merged_b_test.json",
-        "gold_metaclip_merged_c_test.json",
+        "gold_metaclip_merged_a_release_test.json",
+        "gold_metaclip_merged_b_release_test.json",
+        "gold_metaclip_merged_c_release_test.json",
     ],
     # FG Food
     "fg_food": [
-        "gold_fg_food_merged_a_test.json",
-        "gold_fg_food_merged_b_test.json",
-        "gold_fg_food_merged_c_test.json",
+        "gold_fg_food_merged_a_release_test.json",
+        "gold_fg_food_merged_b_release_test.json",
+        "gold_fg_food_merged_c_release_test.json",
     ],
     # FG Sports
     "fg_sports_equipment": [
-        "gold_fg_sports_equipment_merged_a_test.json",
-        "gold_fg_sports_equipment_merged_b_test.json",
-        "gold_fg_sports_equipment_merged_c_test.json",
+        "gold_fg_sports_equipment_merged_a_release_test.json",
+        "gold_fg_sports_equipment_merged_b_release_test.json",
+        "gold_fg_sports_equipment_merged_c_release_test.json",
     ],
     # Attributes
     "attributes": [
-        "gold_attributes_merged_a_test.json",
-        "gold_attributes_merged_b_test.json",
-        "gold_attributes_merged_c_test.json",
+        "gold_attributes_merged_a_release_test.json",
+        "gold_attributes_merged_b_release_test.json",
+        "gold_attributes_merged_c_release_test.json",
     ],
     # Crowded
     "crowded": [
-        "gold_crowded_merged_a_test.json",
-        "gold_crowded_merged_b_test.json",
-        "gold_crowded_merged_c_test.json",
+        "gold_crowded_merged_a_release_test.json",
+        "gold_crowded_merged_b_release_test.json",
+        "gold_crowded_merged_c_release_test.json",
     ],
     # Wiki common
     "wiki_common": [
-        "gold_wiki_common_merged_a_test.json",
-        "gold_wiki_common_merged_b_test.json",
-        "gold_wiki_common_merged_c_test.json",
+        "gold_wiki_common_merged_a_release_test.json",
+        "gold_wiki_common_merged_b_release_test.json",
+        "gold_wiki_common_merged_c_release_test.json",
     ],
 }
 
@@ -67,19 +67,19 @@ def main():
         "-i",
         "--image-folder",
         type=str,
-        default="/fsx-onevision/shoubhikdn/urls_stats/metaclip/gold_test/images/",
+        default="/fsx-onevision/shoubhikdn/urls_stats/metaclip/gold_test_release_0930/images/",
     )
     parser.add_argument(
         "-g",
         "--gt-folder",
         type=str,
-        default="/fsx-onevision/shoubhikdn/release/gold_test_set/original/",
+        default="/fsx-onevision/shoubhikdn/release/gold_test_set/release/",
     )
     parser.add_argument(
         "-gu",
         "--gt-updated-folder",
         type=str,
-        default="/fsx-onevision/shoubhikdn/release/gold_test_set/updated/",
+        default="/fsx-onevision/shoubhikdn/release/gold_test_set/release_updated/",
     )
     args = parser.parse_args()
 

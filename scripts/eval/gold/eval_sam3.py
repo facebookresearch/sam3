@@ -16,66 +16,66 @@ from pycocotools.coco import COCO
 from sam3.train.eval.demo_eval import DemoEvaluator
 
 all_files = {
-    # MetaCLIP Captioner (55.5,0.773,71.9,53.0)
+    # MetaCLIP Captioner
     "metaclip": {
         "gt_fname": [
-            "gold_metaclip_merged_a_test.json",
-            "gold_metaclip_merged_b_test.json",
-            "gold_metaclip_merged_c_test.json",
+            "gold_metaclip_merged_a_release_test.json",
+            "gold_metaclip_merged_b_release_test.json",
+            "gold_metaclip_merged_c_release_test.json",
         ],
         "pred_fname": "coco_predictions_gold_metaclip_captioner.json",
     },
-    # SA-1B captioner (55.7,0.81,69.1,56.2)
+    # SA-1B captioner
     "sa1b": {
         "gt_fname": [
-            "gold_sa1b_merged_a_test.json",
-            "gold_sa1b_merged_b_test.json",
-            "gold_sa1b_merged_c_test.json",
+            "gold_sa1b_merged_a_release_test.json",
+            "gold_sa1b_merged_b_release_test.json",
+            "gold_sa1b_merged_c_release_test.json",
         ],
         "pred_fname": "coco_predictions_gold_sa1b_captioner.json",
     },
-    # Crowded (53.3,0.827,64.5,61.7)
+    # Crowded
     "crowded": {
         "gt_fname": [
-            "gold_crowded_merged_a_test.json",
-            "gold_crowded_merged_b_test.json",
-            "gold_crowded_merged_c_test.json",
+            "gold_crowded_merged_a_release_test.json",
+            "gold_crowded_merged_b_release_test.json",
+            "gold_crowded_merged_c_release_test.json",
         ],
         "pred_fname": "coco_predictions_gold_crowded.json",
     },
-    # FG Food (65.3,0.829,78.7,66.1)
+    # FG Food
     "fg_food": {
         "gt_fname": [
-            "gold_fg_food_merged_a_test.json",
-            "gold_fg_food_merged_b_test.json",
-            "gold_fg_food_merged_c_test.json",
+            "gold_fg_food_merged_a_release_test.json",
+            "gold_fg_food_merged_b_release_test.json",
+            "gold_fg_food_merged_c_release_test.json",
         ],
         "pred_fname": "coco_predictions_gold_fg_food.json",
     },
-    # FG Sports (69.8,0.894,78.0,65.2)
+    # FG Sports
     "fg_sports_equipment": {
         "gt_fname": [
-            "gold_fg_sports_equipment_merged_a_test.json",
-            "gold_fg_sports_equipment_merged_b_test.json",
-            "gold_fg_sports_equipment_merged_c_test.json",
+            "gold_fg_sports_equipment_merged_a_release_test.json",
+            "gold_fg_sports_equipment_merged_b_release_test.json",
+            "gold_fg_sports_equipment_merged_c_release_test.json",
         ],
         "pred_fname": "coco_predictions_gold_fg_sports_equipment.json",
     },
-    # Attributes (56.8,0.674,84.3,58.0)
+    # Attributes
     "attributes": {
         "gt_fname": [
-            "gold_attributes_merged_a_test.json",
-            "gold_attributes_merged_b_test.json",
-            "gold_attributes_merged_c_test.json",
+            "gold_attributes_merged_a_release_test.json",
+            "gold_attributes_merged_b_release_test.json",
+            "gold_attributes_merged_c_release_test.json",
         ],
         "pred_fname": "coco_predictions_gold_attr.json",
     },
-    # Wiki common (46.5,0.603,77.1,51.7)
+    # Wiki common
     "wiki_common": {
         "gt_fname": [
-            "gold_wiki_common_merged_a_test.json",
-            "gold_wiki_common_merged_b_test.json",
-            "gold_wiki_common_merged_c_test.json",
+            "gold_wiki_common_merged_a_release_test.json",
+            "gold_wiki_common_merged_b_release_test.json",
+            "gold_wiki_common_merged_c_release_test.json",
         ],
         "pred_fname": "coco_predictions_gold_wiki_common.json",
     },
@@ -127,7 +127,7 @@ def main():
         "-g",
         "--gt-folder",
         type=str,
-        default="/fsx-onevision/shoubhikdn/release/gold_test_set/updated/",
+        default="/fsx-onevision/shoubhikdn/release/gold_test_set/release_updated/",
     )
     parser.add_argument(
         "-p",
