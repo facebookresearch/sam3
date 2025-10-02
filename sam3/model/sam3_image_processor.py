@@ -384,64 +384,33 @@ class Sam3Processor:
     TEXT_ID_FOR_VISUAL = 1
     TEXT_ID_FOR_GEOMETRIC = 2
 
-    def __init__(self, image_processor=ImageProcessor(), tokenizer=None, **kwargs):
+    def __init__(self, image_processor=ImageProcessor()):
         if image_processor is None:
             raise ValueError("You need to specify an `image_processor`.")
 
         self.image_processor = image_processor
-        self.tokenizer = tokenizer
-        assert self.tokenizer is None, "Tokenizer is not supported yet"
-        self.current_processor = self.image_processor
         self._in_target_context_manager = False
         self.image_size = image_processor.size
 
-    def __call__(
+    def init_state(
         self,
-        images=None,
-        inference_state=None,
-        return_tensors: str = "pt",
-        instance_prompt: Optional[bool] = False,
-        device: Optional[torch.device] = "cuda",
+        images: ImageInput,
         **kwargs,
-    ) -> Dict[str, Any]:
-        """ """
-
-        # only image or inference_state can be passed
-        if images is None and inference_state is None:
-            raise ValueError("You have to specify images or inference_state.")
-
-        # Process images with prompts
-        if images is not None:
-            assert (
-                inference_state is None
-            ), "You cannot specify both images and inference_state."
-            inputs = self.image_processor.preprocess(
-                images=images, return_tensors=return_tensors, **kwargs
-            )
-            inference_state = self._init_state(inputs, device=device)
-
-        return inference_state
-
-    def _init_state(
-        self,
-        inputs,
-        device: Optional[torch.device] = "cuda",
     ):
-        """Initialize an inference state from `resource_path` (an image or a video)."""
+        """Initialize an inference state given an image"""
+        inputs = self.image_processor.preprocess(
+            images=images, return_tensors="pt", **kwargs
+        )
+        assert len(inputs["pixel_values"]) == 1, "Only single image input is supported."
 
         images = inputs["pixel_values"].to(device)
         orig_height = inputs["original_sizes"][0][0]
         orig_width = inputs["original_sizes"][0][1]
         inference_state = {}
-        inference_state["device"] = torch.device(device)
-        inference_state["image_size"] = self.image_size[0]
-        inference_state["num_frames"] = len(images)
 
-        # the original video height and width, used for resizing final output scores
+        # the original height and width, used for resizing final masks
         inference_state["orig_height"] = orig_height
         inference_state["orig_width"] = orig_width
-        # values that don't change across frames (so we only need to hold one copy of them)
-        inference_state["constants"] = {}
         # inputs on each frame
         self._construct_initial_input_batch(inference_state, images)
         return inference_state

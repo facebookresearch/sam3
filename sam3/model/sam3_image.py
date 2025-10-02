@@ -650,60 +650,6 @@ class Sam3Image(torch.nn.Module):
         backbone_out.update(text_outputs)
         return backbone_out
 
-    def _run_single_frame_inference(
-        self, inference_state, frame_idx, is_instance_processing=False
-    ):
-        """
-        Perform inference on a single frame and get its inference results. This would
-        also update `inference_state`.
-        """
-        input = inference_state["input_batch"]
-        find_input = input.find_inputs[frame_idx]
-        # find_target = None
-        # num_frames = inference_state["num_frames"]
-        # is_video_batch = num_frames > 1
-
-        backbone_out = inference_state["backbone_out"]
-        geometric_prompt = inference_state["per_frame_geometric_prompt"][frame_idx]
-        if geometric_prompt is None:
-            geometric_prompt = inference_state["constants"]["empty_geometric_prompt"]
-        previous_stages_out = inference_state["previous_stages_out"]
-        prev_encoder_out = None
-        if previous_stages_out[frame_idx] is not None:
-            prev_encoder_out = previous_stages_out[frame_idx].get("prev_encoder_out")
-        cur_step = inference_state["per_frame_cur_step"][frame_idx]
-
-        prev_mask_pred = None
-        if (
-            inference_state["previous_stages_out"][frame_idx]
-            # and self.use_prev_mask
-            and is_instance_processing
-        ):
-            prev_mask_pred = self._get_best_mask(
-                inference_state["previous_stages_out"][frame_idx]
-            )
-
-        out, _ = self.forward_video_grounding(
-            backbone_out=backbone_out,
-            find_input=find_input,
-            find_target=None,
-            frame_idx=frame_idx,
-            # num_frames=num_frames,
-            previous_stages_out=previous_stages_out,
-            geometric_prompt=geometric_prompt.clone(),
-            # run_encoder= cur_step == 0, # TODO: Check this. Currently interactivity_in_encoder is always True?
-            prev_encoder_out=prev_encoder_out,
-            visual_prompt=inference_state["visual_prompt_embed"],
-            visual_prompt_mask=inference_state["visual_prompt_mask"],
-            is_instance_prompt=is_instance_processing,
-            # track_in_reverse=reverse,
-            prev_mask_pred=prev_mask_pred,
-        )
-        inference_state["previous_stages_out"][frame_idx] = out
-        inference_state["per_frame_cur_step"][frame_idx] = cur_step + 1
-
-        return out
-
     def compile_model(self):
         """Compile the SAM model with torch.compile for speedup."""
         is_compiled = getattr(self, "_model_is_compiled", False)
@@ -748,10 +694,7 @@ class Sam3Image(torch.nn.Module):
     def run_inference(
         self,
         inference_state,
-        # instance_prompt=False,
     ):
-
-        # 3) run inference on this frame
         instance_prompt = inference_state["instance_prompt"]
         inference_state["backbone_out"] = self._init_backbone_out_inference(
             inference_state
@@ -791,20 +734,6 @@ class Sam3Image(torch.nn.Module):
         )
 
         inference_state["model_out"] = out
-
-    def _init_backbone_out_inference(self, inference_state):
-        """
-        Initialize a backbone_out dictionary and extract the text features.
-
-        Note that the visual features of each frame are not extracted here. They will be
-        extracted on the fly when running inference on each frame.
-        """
-        input = inference_state["input_batch"]
-        device = self.device
-        backbone_out = {"img_batch_all_stages": input.img_batch}
-        text_outputs = self.backbone.forward_text(input.find_text_batch, device=device)
-        backbone_out.update(text_outputs)
-        return backbone_out
 
     def _run_single_frame_inference(
         self, inference_state, frame_idx, is_instance_processing=False
