@@ -454,7 +454,7 @@ class Sam3Image(torch.nn.Module):
                 backbone_out=backbone_out,
                 img_ids=find_input.img_ids,
                 vis_feat_sizes=encoder_out["vis_feat_sizes"],
-                encoder_hidden_states=out["encoder_hidden_states"][img_feat_inds],
+                encoder_hidden_states=out["encoder_hidden_states"],
                 prompt=prompt,
                 prompt_mask=prompt_mask,
                 hs=hs,
