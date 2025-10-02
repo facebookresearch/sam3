@@ -10,7 +10,7 @@ from sam3.model.model_misc import SAM3Output
 
 from sam3.train.data.collator import BatchedDatapoint, FindStage
 
-from .act_ckpt_utils import activation_ckpt_wrapper
+from .act_ckpt_utils import activation_ckpt_wrapper, clone_output_wrapper
 
 from .box_ops import box_cxcywh_to_xyxy
 
@@ -698,6 +698,158 @@ class Sam3Image(torch.nn.Module):
             is_instance_prompt=is_instance_processing,
             # track_in_reverse=reverse,
             prev_mask_pred=prev_mask_pred,
+        )
+        inference_state["previous_stages_out"][frame_idx] = out
+        inference_state["per_frame_cur_step"][frame_idx] = cur_step + 1
+
+        return out
+
+    def compile_model(self):
+        """Compile the SAM model with torch.compile for speedup."""
+        is_compiled = getattr(self, "_model_is_compiled", False)
+        if is_compiled or not self.compile_model:
+            return
+
+        import torch._dynamo
+
+        # a larger cache size to hold varying number of shapes for torch.compile
+        # see https://github.com/pytorch/pytorch/blob/v2.5.1/torch/_dynamo/config.py#L42-L49
+        torch._dynamo.config.cache_size_limit = 64
+        torch._dynamo.config.accumulated_cache_size_limit = 2048
+        torch._dynamo.config.capture_scalar_outputs = True
+        torch._dynamo.config.suppress_errors = True
+
+        self.backbone.vision_backbone.forward = clone_output_wrapper(
+            torch.compile(
+                self.backbone.vision_backbone.forward,
+                fullgraph=True,
+                mode="max-autotune",
+            )
+        )
+        self.transformer.encoder.forward = clone_output_wrapper(
+            torch.compile(
+                self.transformer.encoder.forward,
+                fullgraph=True,
+                mode="max-autotune",
+            )
+        )
+        self.transformer.decoder.forward = clone_output_wrapper(
+            torch.compile(
+                self.transformer.decoder.forward,
+                fullgraph=True,
+                mode="max-autotune",
+                dynamic=True,  # the decoder uses dynamic shapes
+            )
+        )
+        self._model_is_compiled = True
+
+    ## Everything below is only used in inference.
+    @torch.inference_mode()
+    def run_inference(
+        self,
+        inference_state,
+        # instance_prompt=False,
+    ):
+
+        # 3) run inference on this frame
+        instance_prompt = inference_state["instance_prompt"]
+        inference_state["backbone_out"] = self._init_backbone_out_inference(
+            inference_state
+        )
+        new_visual_prompt = inference_state["new_visual_prompt"]
+        frame_idx = inference_state["frame_idx"]
+        if new_visual_prompt is not None:
+            # currently we do not allow simultaneously adding text prompt and visual
+            # prompt both as initial prompt (since visual prompt uses the text "visual")
+            if inference_state["text_prompt"] is not None:
+                raise RuntimeError(
+                    "Text and visual prompts (box as an initial prompt) cannot be used together. "
+                    "Please reset the session."
+                )
+
+            # add the visual prompt into the input batch and encode it (currently the added
+            # visual prompt is applied to *all* frames, i.e. not just this prompted frame)
+            for t in range(inference_state["num_frames"]):
+                text_id = self.TEXT_ID_FOR_VISUAL
+                inference_state["input_batch"].find_inputs[t].text_ids[...] = text_id
+            # currently visual prompt is encoded the same way (`_encode_prompt`) as geometric prompt
+            visual_prompt_embed, visual_prompt_mask, _backbone_out = (
+                self._encode_prompt(
+                    backbone_out=inference_state["backbone_out"],
+                    find_input=inference_state["input_batch"].find_inputs[frame_idx],
+                    geometric_prompt=new_visual_prompt,
+                    encode_text=False,
+                )
+            )
+            inference_state["visual_prompt_embed"] = visual_prompt_embed
+            inference_state["visual_prompt_mask"] = visual_prompt_mask
+
+        out = self._run_single_frame_inference(
+            inference_state,
+            frame_idx,
+            is_instance_processing=instance_prompt,
+        )
+
+        inference_state["model_out"] = out
+
+    def _init_backbone_out_inference(self, inference_state):
+        """
+        Initialize a backbone_out dictionary and extract the text features.
+
+        Note that the visual features of each frame are not extracted here. They will be
+        extracted on the fly when running inference on each frame.
+        """
+        input = inference_state["input_batch"]
+        device = self.device
+        backbone_out = {"img_batch_all_stages": input.img_batch}
+        text_outputs = self.backbone.forward_text(input.find_text_batch, device=device)
+        backbone_out.update(text_outputs)
+        return backbone_out
+
+    def _run_single_frame_inference(
+        self, inference_state, frame_idx, is_instance_processing=False
+    ):
+        """
+        Perform inference on a single frame and get its inference results. This would
+        also update `inference_state`.
+        """
+        input = inference_state["input_batch"]
+        find_input = input.find_inputs[frame_idx]
+        # find_target = None
+        # num_frames = inference_state["num_frames"]
+        # is_video_batch = num_frames > 1
+
+        backbone_out = inference_state["backbone_out"]
+        geometric_prompt = inference_state["per_frame_geometric_prompt"][frame_idx]
+        if geometric_prompt is None:
+            geometric_prompt = inference_state["constants"]["empty_geometric_prompt"]
+        previous_stages_out = inference_state["previous_stages_out"]
+        prev_encoder_out = None
+        if previous_stages_out[frame_idx] is not None:
+            prev_encoder_out = previous_stages_out[frame_idx].get("prev_encoder_out")
+        cur_step = inference_state["per_frame_cur_step"][frame_idx]
+
+        prev_mask_pred = None
+        if (
+            inference_state["previous_stages_out"][frame_idx]
+            # and self.use_prev_mask
+            and is_instance_processing
+        ):
+            prev_mask_pred = self._get_best_mask(
+                inference_state["previous_stages_out"][frame_idx]
+            )
+
+        out, _ = self.forward_grounding(
+            backbone_out=backbone_out,
+            find_input=find_input,
+            #previous_stages_out=previous_stages_out,
+            geometric_prompt=geometric_prompt.clone(),
+            # prev_encoder_out=prev_encoder_out,
+            # visual_prompt=inference_state["visual_prompt_embed"],
+            # visual_prompt_mask=inference_state["visual_prompt_mask"],
+            # is_instance_prompt=is_instance_processing,
+            # # track_in_reverse=reverse,
+            # prev_mask_pred=prev_mask_pred,
         )
         inference_state["previous_stages_out"][frame_idx] = out
         inference_state["per_frame_cur_step"][frame_idx] = cur_step + 1
