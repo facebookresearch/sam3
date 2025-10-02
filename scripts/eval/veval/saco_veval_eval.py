@@ -3,7 +3,7 @@ import json
 import os
 from pathlib import Path
 
-from evaluator.evaluators import (
+from sam3.train.eval.veval_evaluators import (
     VideoDemoF1Evaluator,
     VideoPhraseHotaEvaluator,
     VideoTetaEvaluator,
