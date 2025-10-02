@@ -24,7 +24,6 @@ from sam3.model.data_misc import (
 )
 from sam3.model.geometry_encoders import Prompt
 from sam3.model.model_misc import NestedTensor
-from sam3.model.nms_utils import mask_iou
 from sam3.model.sam3_tracker_utils import (
     fill_holes_in_mask_scores,
     load_resource_as_video_frames,
@@ -36,10 +35,30 @@ from sam3.perflib.masks_to_boxes import masks_to_boxes as perf_masks_to_boxes
 logger = get_logger(__name__)
 
 
-class Sam3VideoInferenceMixin:
+class Sam3VideoInference(Sam3VideoBase):
     TEXT_ID_FOR_TEXT = 0
     TEXT_ID_FOR_VISUAL = 1
     TEXT_ID_FOR_GEOMETRIC = 2
+
+    def __init__(
+        self,
+        image_size=1008,
+        image_mean=(0.5, 0.5, 0.5),
+        image_std=(0.5, 0.5, 0.5),
+        compile_model=False,
+        **kwargs,
+    ):
+        """
+        hotstart_delay: int, the delay (in #frames) before the model starts to yield output, 0 to disable hotstart delay.
+        hotstart_unmatch_thresh: int, remove the object if it has this many unmatched frames within its hotstart_delay period.
+            If `hotstart_delay` is set to 0, this parameter is ignored.
+        hotstart_dup_thresh: int, remove the object if it has overlapped with another object this many frames within its hotstart_delay period.
+        """
+        super().__init__(**kwargs)
+        self.image_size = image_size
+        self.image_mean = image_mean
+        self.image_std = image_std
+        self.compile_model = compile_model
 
     @torch.inference_mode()
     def init_state(
@@ -72,7 +91,41 @@ class Sam3VideoInferenceMixin:
         inference_state["constants"] = {}
         # inputs on each frame
         self._construct_initial_input_batch(inference_state, images)
+        # initialize extra states
+        # sam2_inference_states will contain separate inference_states for each frame having new objects if
+        # self.sam2_predictor.per_obj_inference is False (bucketized batching), or a single inference_state
+        # containing all objects if self.sam2_predictor.per_obj_inference is True (no batching at all).
+        inference_state["sam2_inference_states"] = []
+        inference_state["sam2_metadata"] = {}
+        inference_state["feature_cache"] = {}
+        inference_state["cached_frame_outputs"] = {}
+        inference_state["is_image_only"] = is_image_type(resource_path)
         return inference_state
+
+    def reset_state(self, inference_state):
+        """Revert `inference_state` to what it was right after initialization."""
+        inference_state["input_batch"].find_text_batch[0] = "<text placeholder>"
+        inference_state["text_prompt"] = None
+        for t in range(inference_state["num_frames"]):
+            inference_state["input_batch"].find_inputs[t].text_ids[...] = 0
+            # constructing an output list in inference state (we start with an empty list)
+            inference_state["previous_stages_out"][t] = None
+            inference_state["per_frame_raw_point_input"][t] = None
+            inference_state["per_frame_raw_box_input"][t] = None
+            inference_state["per_frame_visual_prompt"][t] = None
+            inference_state["per_frame_geometric_prompt"][t] = None
+            inference_state["per_frame_cur_step"][t] = 0
+
+        inference_state["backbone_out"] = None
+        inference_state["visual_prompt_embed"] = None
+        inference_state["visual_prompt_mask"] = None
+        gc.collect()
+        torch.cuda.empty_cache()
+        # reset extra states
+        inference_state["sam2_inference_states"].clear()
+        inference_state["sam2_metadata"].clear()
+        inference_state["feature_cache"].clear()
+        inference_state["cached_frame_outputs"] = {}
 
     def _construct_initial_input_batch(self, inference_state, images):
         """Construct an initial `BatchedDatapoint` instance as input."""
@@ -149,27 +202,6 @@ class Sam3VideoInferenceMixin:
         inference_state["visual_prompt_embed"] = None
         inference_state["visual_prompt_mask"] = None
 
-    @torch.inference_mode()
-    def reset_state(self, inference_state):
-        """Revert `inference_state` to what it was right after initialization."""
-        inference_state["input_batch"].find_text_batch[0] = "<text placeholder>"
-        inference_state["text_prompt"] = None
-        for t in range(inference_state["num_frames"]):
-            inference_state["input_batch"].find_inputs[t].text_ids[...] = 0
-            # constructing an output list in inference state (we start with an empty list)
-            inference_state["previous_stages_out"][t] = None
-            inference_state["per_frame_raw_point_input"][t] = None
-            inference_state["per_frame_raw_box_input"][t] = None
-            inference_state["per_frame_visual_prompt"][t] = None
-            inference_state["per_frame_geometric_prompt"][t] = None
-            inference_state["per_frame_cur_step"][t] = 0
-
-        inference_state["backbone_out"] = None
-        inference_state["visual_prompt_embed"] = None
-        inference_state["visual_prompt_mask"] = None
-        gc.collect()
-        torch.cuda.empty_cache()
-
     def _get_visual_prompt(self, inference_state, frame_idx, boxes_cxcywh, box_labels):
         """
         Handle the case of visual prompt. Currently, in the inference API we do not
@@ -212,63 +244,6 @@ class Sam3VideoInferenceMixin:
             box_labels = box_labels[1:]
 
         return boxes_cxcywh, box_labels, new_visual_prompt
-
-
-class Sam3VideoInferenceMultiGPU(Sam3VideoInferenceMixin, Sam3VideoBase):
-    def __init__(
-        self,
-        image_size=1008,
-        image_mean=(0.5, 0.5, 0.5),
-        image_std=(0.5, 0.5, 0.5),
-        compile_model=False,
-        **kwargs,
-    ):
-        """
-        hotstart_delay: int, the delay (in #frames) before the model starts to yield output, 0 to disable hotstart delay.
-        hotstart_unmatch_thresh: int, remove the object if it has this many unmatched frames within its hotstart_delay period.
-            If `hotstart_delay` is set to 0, this parameter is ignored.
-        hotstart_dup_thresh: int, remove the object if it has overlapped with another object this many frames within its hotstart_delay period.
-        """
-        super().__init__(**kwargs)
-        self.image_size = image_size
-        self.image_mean = image_mean
-        self.image_std = image_std
-        self.compile_model = compile_model
-
-    @torch.inference_mode()
-    def init_state(
-        self,
-        resource_path,
-        offload_video_to_cpu=False,
-        async_loading_frames=False,
-        use_torchcodec=False,
-        use_cv2=False,
-    ):
-        inference_state = super().init_state(
-            resource_path=resource_path,
-            offload_video_to_cpu=offload_video_to_cpu,
-            async_loading_frames=async_loading_frames,
-            use_torchcodec=use_torchcodec,
-            use_cv2=use_cv2,
-        )
-        # initialize extra states
-        # sam2_inference_states will contain separate inference_states for each frame having new objects if
-        # self.sam2_predictor.per_obj_inference is False (bucketized batching), or a single inference_state
-        # containing all objects if self.sam2_predictor.per_obj_inference is True (no batching at all).
-        inference_state["sam2_inference_states"] = []
-        inference_state["sam2_metadata"] = {}
-        inference_state["feature_cache"] = {}
-        inference_state["cached_frame_outputs"] = {}
-        inference_state["is_image_only"] = is_image_type(resource_path)
-        return inference_state
-
-    def reset_state(self, inference_state):
-        super().reset_state(inference_state)
-        # reset extra states
-        inference_state["sam2_inference_states"].clear()
-        inference_state["sam2_metadata"].clear()
-        inference_state["feature_cache"].clear()
-        inference_state["cached_frame_outputs"] = {}
 
     def _get_processing_order(
         self, inference_state, start_frame_idx, max_frame_num_to_track, reverse
@@ -377,45 +352,42 @@ class Sam3VideoInferenceMultiGPU(Sam3VideoInferenceMixin, Sam3VideoBase):
 
             for yield_frame_idx, yield_out in yield_list:
                 # post-process the output and yield it
-                with torch.profiler.record_function(
-                    "Sam3VideoInferenceMultiGPU.postprocess_output"
-                ):
-                    if self.rank == 0:
-                        suppressed_obj_ids = yield_out["suppressed_obj_ids"]
-                        unconfirmed_status_frame_idx = (
-                            yield_frame_idx + unconfirmed_status_delay
-                            if not reverse
-                            else yield_frame_idx - unconfirmed_status_delay
-                        )
+                if self.rank == 0:
+                    suppressed_obj_ids = yield_out["suppressed_obj_ids"]
+                    unconfirmed_status_frame_idx = (
+                        yield_frame_idx + unconfirmed_status_delay
+                        if not reverse
+                        else yield_frame_idx - unconfirmed_status_delay
+                    )
 
-                        # Clamp the frame index to stay within video bounds
-                        num_frames = inference_state["num_frames"]
-                        unconfirmed_status_frame_idx = max(
-                            0, min(unconfirmed_status_frame_idx, num_frames - 1)
-                        )
+                    # Clamp the frame index to stay within video bounds
+                    num_frames = inference_state["num_frames"]
+                    unconfirmed_status_frame_idx = max(
+                        0, min(unconfirmed_status_frame_idx, num_frames - 1)
+                    )
 
-                        unconfirmed_obj_ids = unconfirmed_obj_ids_per_frame.get(
-                            unconfirmed_status_frame_idx, None
-                        )
-                        postprocessed_out = self._postprocess_output(
-                            inference_state,
-                            yield_out,
-                            hotstart_removed_obj_ids,
-                            suppressed_obj_ids,
-                            unconfirmed_obj_ids,
-                        )
+                    unconfirmed_obj_ids = unconfirmed_obj_ids_per_frame.get(
+                        unconfirmed_status_frame_idx, None
+                    )
+                    postprocessed_out = self._postprocess_output(
+                        inference_state,
+                        yield_out,
+                        hotstart_removed_obj_ids,
+                        suppressed_obj_ids,
+                        unconfirmed_obj_ids,
+                    )
 
-                        self._cache_frame_outputs(
-                            inference_state,
-                            yield_frame_idx,
-                            yield_out["obj_id_to_mask"],
-                            suppressed_obj_ids=suppressed_obj_ids,
-                            removed_obj_ids=hotstart_removed_obj_ids,
-                            unconfirmed_obj_ids=unconfirmed_obj_ids,
-                        )
-                    else:
-                        postprocessed_out = None  # no output on other GPUs
-                    yield yield_frame_idx, postprocessed_out
+                    self._cache_frame_outputs(
+                        inference_state,
+                        yield_frame_idx,
+                        yield_out["obj_id_to_mask"],
+                        suppressed_obj_ids=suppressed_obj_ids,
+                        removed_obj_ids=hotstart_removed_obj_ids,
+                        unconfirmed_obj_ids=unconfirmed_obj_ids,
+                    )
+                else:
+                    postprocessed_out = None  # no output on other GPUs
+                yield yield_frame_idx, postprocessed_out
 
     def _run_single_frame_inference(
         self, inference_state, frame_idx, reverse, is_instance_processing=False
@@ -922,7 +894,6 @@ class Sam3VideoInferenceMultiGPU(Sam3VideoInferenceMixin, Sam3VideoBase):
         """
         logger.info("Running add_prompt on frame %d", frame_idx)
 
-        device = inference_state["device"]
         num_frames = inference_state["num_frames"]
         assert (
             text_str is not None or points is not None or boxes_xywh is not None
@@ -1047,7 +1018,7 @@ class Sam3VideoInferenceMultiGPU(Sam3VideoInferenceMixin, Sam3VideoBase):
         return {video_id: preds}
 
 
-class Sam3VideoInferenceMultiGPUWithInstanceInteractivity(Sam3VideoInferenceMultiGPU):
+class Sam3VideoInferenceWithInstanceInteractivity(Sam3VideoInference):
     def __init__(
         self,
         use_prev_mem_frame=False,

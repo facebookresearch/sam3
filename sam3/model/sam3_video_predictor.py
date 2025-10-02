@@ -15,7 +15,7 @@ import psutil
 import torch
 
 from sam3.logger import get_logger
-from sam3.sam3_dense_tracking_builder import build_sam3_dense_tracking_model
+from sam3.sam3_video_model_builder import build_sam3_video_model
 
 logger = get_logger(__name__)
 
@@ -38,7 +38,7 @@ class Sam3VideoPredictor:
         self.async_loading_frames = async_loading_frames
 
         self.model = (
-            build_sam3_dense_tracking_model(
+            build_sam3_video_model(
                 bpe_path=bpe_path,
                 checkpoint_path=checkpoint_path,
                 has_presence_token=has_presence_token,
