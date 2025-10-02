@@ -25,11 +25,11 @@ from sam3.model.data_misc import (
 from sam3.model.geometry_encoders import Prompt
 from sam3.model.model_misc import NestedTensor
 from sam3.model.nms_utils import mask_iou
-from sam3.model.sam3_video_base import MaskletConfirmationStatus, Sam3VideoBase
-from sam3.model.video_tracking_with_prompt_utils import (
+from sam3.model.sam3_tracker_utils import (
     fill_holes_in_mask_scores,
     load_resource_as_video_frames,
 )
+from sam3.model.sam3_video_base import MaskletConfirmationStatus, Sam3VideoBase
 from sam3.perflib.compile import compile_wrapper, shape_logging_wrapper
 from sam3.perflib.masks_to_boxes import masks_to_boxes as perf_masks_to_boxes
 
