@@ -32,7 +32,7 @@ class Sam3VideoPredictor:
         geo_encoder_use_img_cross_attn=False,
         strict_state_dict_loading=True,
         default_output_prob_thresh=0.5,
-        async_loading_frames=True,
+        async_loading_frames=False,
     ):
         self.default_output_prob_thresh = default_output_prob_thresh
         self.async_loading_frames = async_loading_frames
@@ -157,9 +157,6 @@ class Sam3VideoPredictor:
             box_labels=bounding_box_labels,
             clear_old_boxes=clear_old_boxes,
             output_prob_thresh=output_prob_thresh,
-        )
-        logger.info(
-            f"got {len(outputs['out_probs'])} objects on frame {frame_idx} in session {session_id}"
         )
         return {"frame_index": frame_idx, "outputs": outputs}
 
