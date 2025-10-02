@@ -7,15 +7,8 @@ import torch
 from tqdm.auto import tqdm
 
 from sam3.model.model_misc import NestedTensor
-from sam3.model.video_tracking_with_prompt import (
-    concat_points,
-    NO_OBJ_SCORE,
-    Sam3TrackerBase,
-)
-from sam3.model.video_tracking_with_prompt_utils import (
-    fill_holes_in_mask_scores,
-    load_video_frames,
-)
+from sam3.model.sam3_tracker_base import concat_points, NO_OBJ_SCORE, Sam3TrackerBase
+from sam3.model.sam3_tracker_utils import fill_holes_in_mask_scores, load_video_frames
 
 
 class Sam3TrackerPredictor(Sam3TrackerBase):

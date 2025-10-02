@@ -13,7 +13,7 @@ import torch
 from torch import nn, Tensor
 from torchvision.ops.roi_align import RoIAlign
 
-from sam3.sam_original.transformer import RoPEAttention
+from sam3.sam.transformer import RoPEAttention
 
 from .act_ckpt_utils import activation_ckpt_wrapper
 
