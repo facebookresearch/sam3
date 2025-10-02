@@ -395,10 +395,17 @@ def prepare_masks_for_visualization(frame_to_output):
 
 
 def convert_coco_to_masklet_format(
-    annotations, img_info, is_prediction=False, score_threshold=0.5
+    annotations, img_info, is_prediction=False, score_threshold=0.5, return_numpy=False
 ):
     """
     Convert COCO format annotations to format expected by render_masklet_frame
+
+    Args:
+        annotations: List of COCO format annotations
+        img_info: Dict with 'height' and 'width' keys
+        is_prediction: Whether these are predictions (affects probability handling)
+        score_threshold: Threshold for mask binarization
+        return_numpy: If True, return numpy arrays instead of lists
     """
     outputs = {
         "out_boxes_xywh": [],
@@ -452,6 +459,13 @@ def convert_coco_to_masklet_format(
 
         outputs["out_binary_masks"].append(mask)
 
+    # Convert to numpy arrays if requested
+    if return_numpy:
+        outputs["out_probs"] = np.array(outputs["out_probs"])
+        outputs["out_obj_ids"] = np.array(outputs["out_obj_ids"])
+        outputs["out_binary_masks"] = np.array(outputs["out_binary_masks"])
+        outputs["out_boxes_xywh"] = np.array(outputs["out_boxes_xywh"])
+
     return outputs
 
 
@@ -477,4 +491,16 @@ def save_side_by_side_visualization(img, gt_anns, pred_anns, noun_phrase):
     ax2.axis("off")
 
     plt.subplots_adjust(top=0.88)
+    plt.tight_layout()
+
+
+def save_single_visualization(img, anns, title):
+    """
+    Create a single image visualization with overlays.
+    """
+    fig, ax = plt.subplots(figsize=(10, 10))
+    fig.suptitle(title, fontsize=16, fontweight='bold')
+    overlay = render_masklet_frame(img, anns, alpha=0.5)
+    ax.imshow(overlay)
+    ax.axis('off')
     plt.tight_layout()
