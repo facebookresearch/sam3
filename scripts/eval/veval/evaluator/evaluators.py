@@ -15,6 +15,13 @@ from .utils.nms_helper import (
     process_frame_level_nms,
     process_track_level_nms,
 )
+from .hota_eval_toolkit.run_ytvis_eval import run_ytvis_eval
+from .ytvis_coco_wrapper import YTVIS
+from .ytvis_eval import YTVISeval as VideoPhraseApEval
+from .ytvis_eval import VideoDemoF1Eval
+from .demo_eval import DEMO_METRICS
+from .teta_eval_toolkit import config, Evaluator, metrics
+from .teta_eval_toolkit.datasets import COCO, TAO
 
 
 class BasePredFileEvaluator:
@@ -38,9 +45,6 @@ class VideoPhraseApEvaluator(BasePredFileEvaluator):
         assert all(iou_type in ["bbox", "segm"] for iou_type in self.iou_types)
 
     def evaluate(self, pred_file: str) -> Dict[str, float]:
-        from .ytvis_coco_wrapper import YTVIS
-        from .ytvis_eval import YTVISeval as VideoPhraseApEval
-
         with open(self.gt_ann_file) as f:
             gt = json.load(f)
         with open(pred_file) as f:
@@ -111,9 +115,6 @@ class VideoDemoF1Evaluator(BasePredFileEvaluator):
         assert all(iou_type in ["bbox", "segm"] for iou_type in self.iou_types)
 
     def evaluate(self, pred_file: str) -> Dict[str, float]:
-        from .demo_eval import DEMO_METRICS
-        from .ytvis_coco_wrapper import YTVIS
-        from .ytvis_eval import VideoDemoF1Eval
 
         with open(self.gt_ann_file) as f:
             gt = json.load(f)
@@ -350,8 +351,6 @@ class VideoTetaEvaluator(BasePredFileEvaluator):
 
     def evaluate(self, pred_file: str) -> Tuple[Dict[str, float], Dict]:
         """Main evaluation method"""
-        from .teta import config, Evaluator, metrics
-        from .teta.datasets import COCO, TAO
 
         print(f"Evaluating TETA Metric with {self.nms_strategy.upper()} NMS strategy")
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -474,7 +473,7 @@ class VideoPhraseHotaEvaluator(BasePredFileEvaluator):
 
     def evaluate(self, pred_file: str) -> Dict[str, float]:
         # use the YT-VIS evaluation toolkit in TrackEval
-        from .taoow_eval_toolkit.run_ytvis_eval import run_ytvis_eval
+        
 
         with open(self.gt_ann_file) as f:
             gt = json.load(f)
