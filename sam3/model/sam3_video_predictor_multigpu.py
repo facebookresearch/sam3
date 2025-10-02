@@ -1,6 +1,5 @@
 # Copyright (c) Meta, Inc. and its affiliates. All Rights Reserved
 
-import datetime
 import multiprocessing as mp
 import os
 import queue
@@ -8,16 +7,6 @@ import socket
 import sys
 import uuid
 from contextlib import closing
-
-# get the list of all GPUs available for this model based on "CUDA_VISIBLE_DEVICES"
-# caller should set "CUDA_VISIBLE_DEVICES" to specify which GPUs are available to this model
-AVAILABLE_GPUS = [int(gpu) for gpu in os.getenv("CUDA_VISIBLE_DEVICES", "0").split(",")]
-IS_MAIN_PROCESS = os.getenv("IS_MAIN_PROCESS", "1") == "1"
-if IS_MAIN_PROCESS:
-    # override "CUDA_VISIBLE_DEVICES" to give only GPU 0 to the main process -- need to set it BEFORE importing torch
-    # (the worker processes will also override "CUDA_VISIBLE_DEVICES" again to run on other GPUs)
-    os.environ["CUDA_VISIBLE_DEVICES"] = f"{AVAILABLE_GPUS[0]}"
-
 
 import psutil
 import torch
@@ -29,28 +18,41 @@ logger = get_logger(__name__)
 
 
 class Sam3VideoPredictorMultiGPU(Sam3VideoPredictor):
-    def __init__(self, *model_args, **model_kwargs):
+    def __init__(self, *model_args, gpus_to_use, **model_kwargs):
+        IS_MAIN_PROCESS = os.getenv("IS_MAIN_PROCESS", "1") == "1"
         if IS_MAIN_PROCESS:
-            self.available_gpus = AVAILABLE_GPUS
+            gpus_to_use = sorted(set(gpus_to_use))
+            logger.info(f"using the following GPU IDs: {gpus_to_use}")
+            assert len(gpus_to_use) > 0 and all(isinstance(i, int) for i in gpus_to_use)
+            assert all(0 <= i < torch.cuda.device_count() for i in gpus_to_use)
             os.environ["MASTER_ADDR"] = "localhost"
             os.environ["MASTER_PORT"] = f"{find_free_port()}"
             os.environ["RANK"] = "0"
-            os.environ["WORLD_SIZE"] = f"{len(self.available_gpus)}"
-        self.rank = int(os.getenv("RANK"))
-        self.world_size = int(os.getenv("WORLD_SIZE"))
+            os.environ["WORLD_SIZE"] = f"{len(gpus_to_use)}"
+
+        self.gpus_to_use = gpus_to_use
+        self.rank = int(os.environ["RANK"])
+        self.world_size = int(os.environ["WORLD_SIZE"])
         self.rank_str = f"rank={self.rank} with world_size={self.world_size}"
+        self.device = torch.device(f"cuda:{self.gpus_to_use[self.rank]}")
+        torch.cuda.set_device(self.device)
+        if self.rank == 0:
+            logger.info("\n\n\n\t*** START loading model on all ranks ***\n\n")
 
         logger.info(f"loading model on {self.rank_str} -- this could take a while ...")
         super().__init__(*model_args, **model_kwargs)
         logger.info(f"loading model on {self.rank_str} -- DONE locally")
 
-        if self.world_size > 1:
+        if self.world_size > 1 and self.rank == 0:
             # start the worker processes *after* the model is loaded in the main process
             # so that the main process can run torch.compile and fill the cache first
-            if IS_MAIN_PROCESS:
-                self.start_worker_processes(*model_args, **model_kwargs)
+            self.start_worker_processes(*model_args, **model_kwargs)
+            for rank in range(1, self.world_size):
+                self.command_queues[rank].put(("start_nccl_process_group", None))
             self.start_nccl_process_group()
-        logger.info(f"loading model on {self.rank_str} -- DONE on all ranks")
+
+        if self.rank == 0:
+            logger.info("\n\n\n\t*** DONE loading model on all ranks ***\n\n")
 
     @torch.inference_mode()
     def handle_request(self, request):
@@ -86,7 +88,7 @@ class Sam3VideoPredictorMultiGPU(Sam3VideoPredictor):
     def start_worker_processes(self, *model_args, **model_kwargs):
         """Start worker processes for handling model inference."""
         world_size = self.world_size
-        logger.info(f"spawning {world_size} worker processes")
+        logger.info(f"spawning {world_size - 1} worker processes")
         # Use "spawn" (instead of "fork") for different PyTorch or CUDA context
         mp_ctx = mp.get_context("spawn")
         self.command_queues = {rank: mp_ctx.Queue() for rank in range(1, world_size)}
@@ -95,12 +97,7 @@ class Sam3VideoPredictorMultiGPU(Sam3VideoPredictor):
         for rank in range(1, world_size):
             # set the environment variables for each worker process
             os.environ["IS_MAIN_PROCESS"] = "0"  # mark this as a worker process
-            os.environ["CUDA_VISIBLE_DEVICES"] = f"{self.available_gpus[rank]}"
             os.environ["RANK"] = f"{rank}"
-            logger.info(
-                f"preparing to spawn worker process {rank=} with {world_size=} with env vars: "
-                f"{os.environ['RANK']=}, {os.environ['WORLD_SIZE']=}, {os.environ['CUDA_VISIBLE_DEVICES']=}",
-            )
             worker_process = mp_ctx.Process(
                 target=worker_process_command_loop,
                 args=(
@@ -110,7 +107,7 @@ class Sam3VideoPredictorMultiGPU(Sam3VideoPredictor):
                     self.result_queues[rank],
                     model_args,
                     model_kwargs,
-                    self.available_gpus,
+                    self.gpus_to_use,
                     parent_pid,
                 ),
                 daemon=True,
@@ -118,13 +115,18 @@ class Sam3VideoPredictorMultiGPU(Sam3VideoPredictor):
             worker_process.start()
         # revert the environment variables for the main process
         os.environ["IS_MAIN_PROCESS"] = "1"
-        os.environ["CUDA_VISIBLE_DEVICES"] = "0"
-        os.environ["RANK"] = f"{AVAILABLE_GPUS[0]}"
-        logger.info(f"spawned {world_size} worker processes")
+        os.environ["RANK"] = "0"
+        # wait for all the worker processes to load the model and collect their PIDs
+        self.worker_pids = {}
+        for rank in range(1, self.world_size):
+            # a large timeout to cover potentially long model loading time due to compilation
+            _, worker_pid = self.result_queues[rank].get(timeout=7200)
+            self.worker_pids[rank] = worker_pid
+        logger.info(f"spawned {world_size - 1} worker processes")
 
     def start_nccl_process_group(self):
-        rank = int(os.getenv("RANK"))
-        world_size = int(os.getenv("WORLD_SIZE"))
+        rank = int(os.environ["RANK"])
+        world_size = int(os.environ["WORLD_SIZE"])
         if world_size == 1:
             return
 
@@ -134,11 +136,11 @@ class Sam3VideoPredictorMultiGPU(Sam3VideoPredictor):
         torch.distributed.init_process_group(
             backend="nccl",
             init_method="env://",
-            # always "cuda:0" because we set CUDA_VISIBLE_DEVICES to a single GPU in each process
-            device_id=torch.device("cuda:0"),
-            # a large timeout to cover potentially long model loading time due to compilation
-            timeout=datetime.timedelta(seconds=14400),
+            device_id=self.device,
         )
+        # warm-up the NCCL process group by running a dummy all-reduce
+        tensor = torch.ones(1024, 1024).cuda()
+        torch.distributed.all_reduce(tensor)
         logger.info(f"started NCCL process group on {rank=} with {world_size=}")
 
 
@@ -160,25 +162,31 @@ def worker_process_command_loop(
     result_queue,
     model_args,
     model_kwargs,
-    available_gpus,
+    gpus_to_use,
     parent_pid,
 ):
     """
     The command loop for each worker process. It listens to commands from the main process
     and executes them using the model.
     """
-    # Load the model in this worker process
-    logger.info(
-        f"starting worker process {rank=} with {world_size=} with env vars: "
-        f"{os.environ['RANK']=} {os.environ['WORLD_SIZE']=} {os.environ['CUDA_VISIBLE_DEVICES']=}",
-    )
+    logger.info(f"starting worker process {rank=} with {world_size=}")
     # verify that the environment variables are set correctly
-    assert not IS_MAIN_PROCESS
+    assert int(os.environ["IS_MAIN_PROCESS"]) == 0
     assert int(os.environ["RANK"]) == rank
     assert int(os.environ["WORLD_SIZE"]) == world_size
-    assert int(os.environ["CUDA_VISIBLE_DEVICES"]) == available_gpus[rank]
-    model_wrapper = Sam3VideoPredictorMultiGPU(*model_args, **model_kwargs)
+    # load the model in this worker process
+    model_wrapper = Sam3VideoPredictorMultiGPU(
+        *model_args, gpus_to_use=gpus_to_use, **model_kwargs
+    )
     logger.info(f"started worker {rank=} with {world_size=}")
+    # return the worker process id to the main process for bookkeeping
+    worker_pid = os.getpid()
+    result_queue.put(("load_model", worker_pid))
+
+    # wait for the command to start the NCCL process group
+    request_type, _ = command_queue.get(timeout=7200)
+    assert request_type == "start_nccl_process_group"
+    model_wrapper.start_nccl_process_group()
 
     # keep listening to commands from the main process
     while True:
@@ -192,7 +200,7 @@ def worker_process_command_loop(
                 model_wrapper.handle_request(request)
         except queue.Empty:
             # Usually Python's multiprocessing module will shutdown all the daemon worker
-            # processes when the main process exits gracefully. However, TorchServe kills
+            # processes when the main process exits gracefully. However, the user may kill
             # the main process using SIGKILL and thereby leaving no chance for the main process
             # to clean up its daemon child processes. So here we manually check whether the
             # parent process still exists (every 5 sec as in `command_queue.get` timeout).
