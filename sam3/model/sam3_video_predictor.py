@@ -1,10 +1,17 @@
 # Copyright (c) Meta, Inc. and its affiliates. All Rights Reserved
 
 import gc
+import multiprocessing as mp
+import os
+import queue
+import socket
+import sys
 import time
 import uuid
+from contextlib import closing
 from typing import List, Optional
 
+import psutil
 import torch
 
 from sam3.logger import get_logger
@@ -14,6 +21,9 @@ logger = get_logger(__name__)
 
 
 class Sam3VideoPredictor:
+    # a global dictionary that holds all inference states for this model (key is session_id)
+    _ALL_INFERENCE_STATES = {}
+
     def __init__(
         self,
         bpe_path,
@@ -103,14 +113,14 @@ class Sam3VideoPredictor:
         )
         if not session_id:
             session_id = str(uuid.uuid4())
-        _ALL_INFERENCE_STATES[session_id] = {
+        self._ALL_INFERENCE_STATES[session_id] = {
             "state": inference_state,
             "session_id": session_id,
             "start_time": time.time(),
         }
         logger.info(
-            f"started new session {session_id}; {_get_session_stats()}; "
-            f"{_get_torch_and_gpu_properties()}"
+            f"started new session {session_id}; {self._get_session_stats()}; "
+            f"{self._get_torch_and_gpu_properties()}"
         )
         return {"session_id": session_id}
 
@@ -133,7 +143,7 @@ class Sam3VideoPredictor:
             f"{text=}, {points=}, {point_labels=}, {clear_old_points=}, "
             f"{bounding_boxes=}, {bounding_box_labels=}, {clear_old_boxes=}"
         )
-        session = _get_session(session_id)
+        session = self._get_session(session_id)
         inference_state = session["state"]
 
         frame_idx, outputs = self.model.add_prompt(
@@ -167,7 +177,7 @@ class Sam3VideoPredictor:
             f"{propagation_direction=}, {start_frame_idx=}, {max_frame_num_to_track=}"
         )
         try:
-            session = _get_session(session_id)
+            session = self._get_session(session_id)
             inference_state = session["state"]
             if propagation_direction not in ["both", "forward", "backward"]:
                 raise ValueError(
@@ -198,13 +208,13 @@ class Sam3VideoPredictor:
             # Log upon completion (so that e.g. we can see if two propagations happen in parallel).
             # Using `finally` here to log even when the tracking is aborted with GeneratorExit.
             logger.info(
-                f"propagation ended in session {session_id}; {_get_session_stats()}"
+                f"propagation ended in session {session_id}; {self._get_session_stats()}"
             )
 
     def reset_session(self, session_id):
         """Reset the session to its initial state (as when it's initial opened)."""
         logger.info(f"clear all inputs across the video in session {session_id}")
-        session = _get_session(session_id)
+        session = self._get_session(session_id)
         inference_state = session["state"]
         self.model.reset_state(inference_state)
         return {"is_success": True}
@@ -214,51 +224,280 @@ class Sam3VideoPredictor:
         Close a session. This method is idempotent and can be called multiple
         times on the same "session_id".
         """
-        session = _ALL_INFERENCE_STATES.pop(session_id, None)
+        session = self._ALL_INFERENCE_STATES.pop(session_id, None)
         if session is None:
             logger.warning(
                 f"cannot close session {session_id} as it does not exist (it might have expired); "
-                f"{_get_session_stats()}"
+                f"{self._get_session_stats()}"
             )
         else:
             del session
             gc.collect()
-            logger.info(f"removed session {session_id}; {_get_session_stats()}")
+            logger.info(f"removed session {session_id}; {self._get_session_stats()}")
         return {"is_success": True}
 
+    def _get_session(self, session_id):
+        session = self._ALL_INFERENCE_STATES.get(session_id, None)
+        if session is None:
+            raise RuntimeError(
+                f"Cannot find session {session_id}; it might have expired"
+            )
+        return session
 
-def _get_session(session_id):
-    session = _ALL_INFERENCE_STATES.get(session_id, None)
-    if session is None:
-        raise RuntimeError(f"Cannot find session {session_id}; it might have expired")
-    return session
+    def _get_session_stats(self):
+        """Get a statistics string for live sessions and their GPU usage."""
+        # print both the session ids and their video frame numbers
+        live_session_strs = [
+            f"'{session_id}' ({session['state']['num_frames']} frames)"
+            for session_id, session in self._ALL_INFERENCE_STATES.items()
+        ]
+        session_stats_str = (
+            f"live sessions: [{', '.join(live_session_strs)}], GPU memory: "
+            f"{torch.cuda.memory_allocated() // 1024**2} MiB used and "
+            f"{torch.cuda.memory_reserved() // 1024**2} MiB reserved"
+            f" (max over time: {torch.cuda.max_memory_allocated() // 1024**2} MiB used "
+            f"and {torch.cuda.max_memory_reserved() // 1024**2} MiB reserved)"
+        )
+        return session_stats_str
+
+    def _get_torch_and_gpu_properties(self):
+        """Get a string for PyTorch and GPU properties (for logging and debugging)."""
+        torch_and_gpu_str = (
+            f"torch: {torch.__version__} with CUDA arch {torch.cuda.get_arch_list()}, "
+            f"GPU device: {torch.cuda.get_device_properties(torch.cuda.current_device())}"
+        )
+        return torch_and_gpu_str
+
+    def shutdown(self):
+        """Shutdown the predictor and clear all sessions."""
+        self._ALL_INFERENCE_STATES.clear()
 
 
-def _get_session_stats():
-    """Get a statistics string for live sessions and their GPU usage."""
-    # print both the session ids and their video frame numbers
-    live_session_strs = [
-        f"'{session_id}' ({session['state']['num_frames']} frames)"
-        for session_id, session in _ALL_INFERENCE_STATES.items()
-    ]
-    session_stats_str = (
-        f"live sessions: [{', '.join(live_session_strs)}], GPU memory: "
-        f"{torch.cuda.memory_allocated() // 1024**2} MiB used and "
-        f"{torch.cuda.memory_reserved() // 1024**2} MiB reserved"
-        f" (max over time: {torch.cuda.max_memory_allocated() // 1024**2} MiB used "
-        f"and {torch.cuda.max_memory_reserved() // 1024**2} MiB reserved)"
-    )
-    return session_stats_str
+class Sam3VideoPredictorMultiGPU(Sam3VideoPredictor):
+    def __init__(self, *model_args, gpus_to_use=None, **model_kwargs):
+        if gpus_to_use is None:
+            # if not specified, use only the current GPU by default
+            gpus_to_use = [torch.cuda.current_device()]
 
+        IS_MAIN_PROCESS = os.getenv("IS_MAIN_PROCESS", "1") == "1"
+        if IS_MAIN_PROCESS:
+            gpus_to_use = sorted(set(gpus_to_use))
+            logger.info(f"using the following GPU IDs: {gpus_to_use}")
+            assert len(gpus_to_use) > 0 and all(isinstance(i, int) for i in gpus_to_use)
+            assert all(0 <= i < torch.cuda.device_count() for i in gpus_to_use)
+            os.environ["MASTER_ADDR"] = "localhost"
+            os.environ["MASTER_PORT"] = f"{self._find_free_port()}"
+            os.environ["RANK"] = "0"
+            os.environ["WORLD_SIZE"] = f"{len(gpus_to_use)}"
 
-def _get_torch_and_gpu_properties():
-    """Get a string for PyTorch and GPU properties (for logging and debugging)."""
-    torch_and_gpu_str = (
-        f"torch: {torch.__version__} with CUDA arch {torch.cuda.get_arch_list()}, "
-        f"GPU device: {torch.cuda.get_device_properties(torch.cuda.current_device())}"
-    )
-    return torch_and_gpu_str
+        self.gpus_to_use = gpus_to_use
+        self.rank = int(os.environ["RANK"])
+        self.world_size = int(os.environ["WORLD_SIZE"])
+        self.rank_str = f"rank={self.rank} with world_size={self.world_size}"
+        self.device = torch.device(f"cuda:{self.gpus_to_use[self.rank]}")
+        torch.cuda.set_device(self.device)
+        self.has_shutdown = False
+        if self.rank == 0:
+            logger.info("\n\n\n\t*** START loading model on all ranks ***\n\n")
 
+        logger.info(f"loading model on {self.rank_str} -- this could take a while ...")
+        super().__init__(*model_args, **model_kwargs)
+        logger.info(f"loading model on {self.rank_str} -- DONE locally")
 
-# a global dictionary that holds all inference states for this model (key is session_id)
-_ALL_INFERENCE_STATES = {}
+        if self.world_size > 1 and self.rank == 0:
+            # start the worker processes *after* the model is loaded in the main process
+            # so that the main process can run torch.compile and fill the cache first
+            self._start_worker_processes(*model_args, **model_kwargs)
+            for rank in range(1, self.world_size):
+                self.command_queues[rank].put(("start_nccl_process_group", None))
+            self._start_nccl_process_group()
+
+        if self.rank == 0:
+            logger.info("\n\n\n\t*** DONE loading model on all ranks ***\n\n")
+
+    @torch.inference_mode()
+    def handle_request(self, request):
+        """Dispatch a request based on its type."""
+        if self.has_shutdown:
+            raise RuntimeError(
+                "cannot handle request after the predictor has shutdown; please create a new predictor"
+            )
+
+        # when starting a session, we need to create a session id before dispatching
+        # the request to the workers
+        if request["type"] == "start_session" and request.get("session_id") is None:
+            request["session_id"] = str(uuid.uuid4())
+        # dispatch the request to all worker processes
+        if self.world_size > 1 and self.rank == 0:
+            for rank in range(1, self.world_size):
+                self.command_queues[rank].put((request, False))
+
+        response = super().handle_request(request)
+
+        if self.world_size > 1:
+            torch.distributed.barrier()  # wait for all ranks to finish
+        return response
+
+    @torch.inference_mode()
+    def handle_stream_request(self, request):
+        """Dispatch a stream request based on its type."""
+        if self.has_shutdown:
+            raise RuntimeError(
+                "cannot handle request after the predictor has shutdown; please create a new predictor"
+            )
+
+        # dispatch the request to all worker processes
+        if self.world_size > 1 and self.rank == 0:
+            for rank in range(1, self.world_size):
+                self.command_queues[rank].put((request, True))
+
+        yield from super().handle_stream_request(request)
+
+        if self.world_size > 1:
+            torch.distributed.barrier()  # wait for all ranks to finish
+
+    def _start_worker_processes(self, *model_args, **model_kwargs):
+        """Start worker processes for handling model inference."""
+        world_size = self.world_size
+        logger.info(f"spawning {world_size - 1} worker processes")
+        # Use "spawn" (instead of "fork") for different PyTorch or CUDA context
+        mp_ctx = mp.get_context("spawn")
+        self.command_queues = {rank: mp_ctx.Queue() for rank in range(1, world_size)}
+        self.result_queues = {rank: mp_ctx.Queue() for rank in range(1, world_size)}
+        parent_pid = os.getpid()
+        for rank in range(1, world_size):
+            # set the environment variables for each worker process
+            os.environ["IS_MAIN_PROCESS"] = "0"  # mark this as a worker process
+            os.environ["RANK"] = f"{rank}"
+            worker_process = mp_ctx.Process(
+                target=Sam3VideoPredictorMultiGPU._worker_process_command_loop,
+                args=(
+                    rank,
+                    world_size,
+                    self.command_queues[rank],
+                    self.result_queues[rank],
+                    model_args,
+                    model_kwargs,
+                    self.gpus_to_use,
+                    parent_pid,
+                ),
+                daemon=True,
+            )
+            worker_process.start()
+        # revert the environment variables for the main process
+        os.environ["IS_MAIN_PROCESS"] = "1"
+        os.environ["RANK"] = "0"
+        # wait for all the worker processes to load the model and collect their PIDs
+        self.worker_pids = {}
+        for rank in range(1, self.world_size):
+            # a large timeout to cover potentially long model loading time due to compilation
+            _, worker_pid = self.result_queues[rank].get(timeout=7200)
+            self.worker_pids[rank] = worker_pid
+        logger.info(f"spawned {world_size - 1} worker processes")
+
+    def _start_nccl_process_group(self):
+        rank = int(os.environ["RANK"])
+        world_size = int(os.environ["WORLD_SIZE"])
+        if world_size == 1:
+            return
+
+        logger.info(f"starting NCCL process group on {rank=} with {world_size=}")
+        assert not torch.distributed.is_initialized()
+        # use the "env://" init method with environment variables set in start_worker_processes
+        torch.distributed.init_process_group(
+            backend="nccl",
+            init_method="env://",
+            device_id=self.device,
+        )
+        # warm-up the NCCL process group by running a dummy all-reduce
+        tensor = torch.ones(1024, 1024).cuda()
+        torch.distributed.all_reduce(tensor)
+        logger.info(f"started NCCL process group on {rank=} with {world_size=}")
+
+    def _find_free_port(self) -> int:
+        """
+        Find a free port (a random free port from 1024 to 65535 will be selected)
+        https://stackoverflow.com/questions/1365265/on-localhost-how-do-i-pick-a-free-port-number)
+        """
+        with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as s:
+            s.bind(("", 0))
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            return s.getsockname()[1]
+
+    @staticmethod
+    def _worker_process_command_loop(
+        rank,
+        world_size,
+        command_queue,
+        result_queue,
+        model_args,
+        model_kwargs,
+        gpus_to_use,
+        parent_pid,
+    ):
+        """
+        The command loop for each worker process. It listens to commands from the main process
+        and executes them using the model.
+        """
+        logger.info(f"starting worker process {rank=} with {world_size=}")
+        # verify that the environment variables are set correctly
+        assert int(os.environ["IS_MAIN_PROCESS"]) == 0
+        assert int(os.environ["RANK"]) == rank
+        assert int(os.environ["WORLD_SIZE"]) == world_size
+        # load the model in this worker process
+        predictor = Sam3VideoPredictorMultiGPU(
+            *model_args, gpus_to_use=gpus_to_use, **model_kwargs
+        )
+        logger.info(f"started worker {rank=} with {world_size=}")
+        # return the worker process id to the main process for bookkeeping
+        worker_pid = os.getpid()
+        result_queue.put(("load_model", worker_pid))
+
+        # wait for the command to start the NCCL process group
+        request_type, _ = command_queue.get(timeout=7200)
+        assert request_type == "start_nccl_process_group"
+        predictor._start_nccl_process_group()
+
+        # keep listening to commands from the main process
+        while True:
+            try:
+                request, is_stream_request = command_queue.get(timeout=5.0)
+                if request == "shutdown":
+                    logger.info(f"worker {rank=} shutting down")
+                    torch.distributed.destroy_process_group()
+                    result_queue.put(("shutdown", True))  # acknowledge the shutdown
+                    sys.exit(0)
+
+                logger.info(f"worker {rank=} received request {request['type']=}")
+                if is_stream_request:
+                    for _ in predictor.handle_stream_request(request):
+                        pass  # handle stream requests in a generator fashion
+                else:
+                    predictor.handle_request(request)
+            except queue.Empty:
+                # Usually Python's multiprocessing module will shutdown all the daemon worker
+                # processes when the main process exits gracefully. However, the user may kill
+                # the main process using SIGKILL and thereby leaving no chance for the main process
+                # to clean up its daemon child processes. So here we manually check whether the
+                # parent process still exists (every 5 sec as in `command_queue.get` timeout).
+                if not psutil.pid_exists(parent_pid):
+                    logger.info(
+                        f"stopping worker {rank=} as its parent process has exited"
+                    )
+                    sys.exit(1)
+            except Exception as e:
+                logger.error(f"worker {rank=} exception: {e}", exc_info=True)
+
+    def shutdown(self):
+        """Shutdown all worker processes."""
+        if self.rank == 0 and self.world_size > 1:
+            logger.info(f"shutting down {self.world_size - 1} worker processes")
+            for rank in range(1, self.world_size):
+                self.command_queues[rank].put(("shutdown", False))
+            torch.distributed.destroy_process_group()
+            for rank in range(1, self.world_size):
+                self.result_queues[rank].get()  # wait for the worker to acknowledge
+            logger.info(f"shut down {self.world_size - 1} worker processes")
+        self.has_shutdown = True
+
+        super().shutdown()
