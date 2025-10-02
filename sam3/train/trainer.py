@@ -1,5 +1,6 @@
 # Copyright (c) Meta, Inc. and its affiliates. All Rights Reserved
 
+import contextlib
 import fnmatch
 import gc
 import json
@@ -171,6 +172,7 @@ class Trainer:
         skip_first_val: bool = False,
         skip_saving_ckpts: bool = False,
         empty_gpu_mem_cache_after_eval: bool = True,
+        gradient_accumulation_steps: int = 1,
     ):
 
         self._setup_env_variables(env_variables)
@@ -186,6 +188,7 @@ class Trainer:
         self.optim_conf = OptimConf(**optim) if optim is not None else None
         self.meters_conf = meters
         self.loss_conf = loss
+        self.gradient_accumulation_steps = gradient_accumulation_steps
         distributed = DistributedConf(**distributed or {})
         cuda = CudaConf(**cuda or {})
         self.where = 0.0
@@ -921,35 +924,55 @@ class Trainer:
         # grads will also update a model even if the step doesn't produce
         # gradients
         self.optim.zero_grad(set_to_none=True)
-        with torch.cuda.amp.autocast(
-            enabled=self.optim_conf.amp.enabled,
-            dtype=get_amp_type(self.optim_conf.amp.amp_dtype),
-        ):
-            loss_dict, batch_size, extra_losses = self._step(
-                batch,
-                self.model,
-                phase,
+
+        if self.gradient_accumulation_steps > 1:
+            assert isinstance(
+                batch, list
+            ), f"Expected a list of batches, got {type(batch)}"
+            assert (
+                len(batch) == self.gradient_accumulation_steps
+            ), f"Expected {self.gradient_accumulation_steps} batches, got {len(batch)}"
+            accum_steps = len(batch)
+        else:
+            accum_steps = 1
+            batch = [batch]
+
+        for i, chunked_batch in enumerate(batch):
+            ddp_context = (
+                self.model.no_sync()
+                if i < accum_steps - 1
+                else contextlib.nullcontext()
             )
+            with ddp_context:
+                with torch.cuda.amp.autocast(
+                    enabled=self.optim_conf.amp.enabled,
+                    dtype=get_amp_type(self.optim_conf.amp.amp_dtype),
+                ):
+                    loss_dict, batch_size, extra_losses = self._step(
+                        chunked_batch,
+                        self.model,
+                        phase,
+                    )
 
-        assert len(loss_dict) == 1
-        loss_key, loss = loss_dict.popitem()
+                assert len(loss_dict) == 1
+                loss_key, loss = loss_dict.popitem()
 
-        if not math.isfinite(loss.item()):
-            error_msg = f"Loss is {loss.item()}, attempting to stop training"
-            logging.error(error_msg)
-            if raise_on_error:
-                raise FloatingPointError(error_msg)
-            else:
-                return
+                if not math.isfinite(loss.item()):
+                    error_msg = f"Loss is {loss.item()}, attempting to stop training"
+                    logging.error(error_msg)
+                    if raise_on_error:
+                        raise FloatingPointError(error_msg)
+                    else:
+                        return
 
-        self.scaler.scale(loss).backward()
-        loss_mts[loss_key].update(loss.item(), batch_size)
-        for extra_loss_key, extra_loss in extra_losses.items():
-            if extra_loss_key not in extra_loss_mts:
-                extra_loss_mts[extra_loss_key] = AverageMeter(
-                    extra_loss_key, self.device, ":.2e"
-                )
-            extra_loss_mts[extra_loss_key].update(extra_loss.item(), batch_size)
+                self.scaler.scale(loss).backward()
+                loss_mts[loss_key].update(loss.item(), batch_size)
+                for extra_loss_key, extra_loss in extra_losses.items():
+                    if extra_loss_key not in extra_loss_mts:
+                        extra_loss_mts[extra_loss_key] = AverageMeter(
+                            extra_loss_key, self.device, ":.2e"
+                        )
+                    extra_loss_mts[extra_loss_key].update(extra_loss.item(), batch_size)
 
     def _log_meters_and_save_best_ckpts(self, phases: List[str]):
         logging.info("Synchronizing meters")

@@ -8,20 +8,30 @@
 import io
 import json
 import os
+from io import BytesIO
 
 from pathlib import Path
 
 import numpy as np
 
-import pycurl
 import requests
 import submitit
+from PIL import Image
 from tqdm import tqdm
 
 
 def get_job_dir(root, job_id=None):
     job_folder = "%j" if job_id is None else str(job_id)
     return os.path.join(root, "jobs", job_folder)
+
+
+def is_valid_image(content):
+    try:
+        img = Image.open(BytesIO(content)).convert("RGB")
+        # img.verify()  # Verify that it is, in fact, an image
+        return True
+    except Exception:
+        return False
 
 
 class Launcher:
@@ -41,21 +51,23 @@ class Launcher:
             try:
                 # headers = {'User-Agent': 'CoolBot/0.0 (https://example.org/coolbot/; coolbot@example.org)'}
                 headers = {
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.114 Safari/537.36"
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.114 Safari/537.36",
+                    "Referer": "https://www.aliexpress.com/",
                 }
 
                 response = requests.get(url, headers=headers, timeout=5)
-                if response.status_code in valid_urls:
-                    valid_urls[response.status_code].append(result)
-                else:
-                    valid_urls[response.status_code] = [result]
+                if is_valid_image(response.content):
+                    if response.status_code in valid_urls:
+                        valid_urls[response.status_code].append(result)
+                    else:
+                        valid_urls[response.status_code] = [result]
 
-                path_components = fid.split("_")
-                filename = f"{self.args.out_dir}/images/{path_components[-3]}/{path_components[-2]}/{Path(fid).name}"
-                Path(filename).parent.mkdir(parents=True, exist_ok=True)
-                with open(filename, "wb") as f:
-                    f.write(response.content)
-                # print(f"Image saved successfully as {filename}")
+                    path_components = fid.split("_")
+                    filename = f"{self.args.out_dir}/images/{path_components[-3]}/{path_components[-2]}/{Path(fid).name}"
+                    Path(filename).parent.mkdir(parents=True, exist_ok=True)
+                    with open(filename, "wb") as f:
+                        f.write(response.content)
+                    # print(f"Image saved successfully as {filename}")
             except requests.exceptions.Timeout as e:
                 print(f"Timeout error {url}: {e}")
                 timeout_urls.append(result)
@@ -90,13 +102,13 @@ def main():
     parser.add_argument(
         "--url-list-file",
         type=str,
-        default="gold_metaclip_filename_urls_mapping.json",
+        default="gold_metaclip_filename_urls_mapping_release.json",
     )
     parser.add_argument(
         "-o",
         "--out-dir",
         type=str,
-        default="/fsx-onevision/shoubhikdn/urls_stats/metaclip/gold_test",
+        default="/fsx-onevision/shoubhikdn/urls_stats/metaclip/gold_test_release",
     )
     parser.add_argument(
         "--n-jobs",

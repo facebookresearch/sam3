@@ -35,11 +35,11 @@ from sam3.model.memory import (
 from sam3.model.model_misc import DotProductScoring, MLP, TransformerWrapper
 from sam3.model.necks import Sam3DualViTDetNeck
 from sam3.model.position_encoding import PositionEmbeddingSine
-from sam3.model.sam3_demo_dense_tracking_multigpu import Sam3DenseTrackingDemoMultiGPU
 from sam3.model.sam3_image import Sam3ImageOnVideoMultiGPU
+from sam3.model.sam3_video_inference import Sam3VideoInferenceMultiGPU
 from sam3.model.text_encoder_ve import VETextEncoder
 from sam3.model.tokenizer_ve import SimpleTokenizer
-from sam3.model.video_tracking_with_prompt_demo import Sam3VideoTrackingWithPromptDemo
+from sam3.model.video_tracking_with_prompt_demo import Sam3TrackerPredictor
 from sam3.model.vitdet import ViT
 from sam3.model.vl_combiner import SAM3VLBackbone
 from sam3.sam_original.transformer import RoPEAttention
@@ -83,7 +83,7 @@ class Sam2Predictor(nn.Module):
     def forward(self, *args, **kwargs):
         """Forward pass is not implemented - use predictor APIs instead."""
         raise NotImplementedError(
-            "Use the sam2 predictor APIs instead. Check VideoTrackingWithPromptDemo class for details."
+            "Use the sam2 predictor APIs instead. Check Sam3TrackerPredictor class for details."
         )
 
     def __getattr__(self, name):
@@ -207,62 +207,23 @@ def build_sam2_model() -> Sam2Predictor:
     transformer = _create_sam2_transformer()
 
     # Create the main SAM2 model
-    model = Sam3VideoTrackingWithPromptDemo(
+    model = Sam3TrackerPredictor(
         image_size=1008,
         num_maskmem=7,
         backbone=None,
+        backbone_stride=14,
         transformer=transformer,
         maskmem_backbone=maskmem_backbone,
-        # Training/evaluation parameters
-        prob_to_use_pt_input_for_train=0.5,
-        prob_to_use_pt_input_for_eval=0.0,
-        prob_to_use_box_input_for_train=0.5,
-        prob_to_use_box_input_for_eval=0.0,
-        prob_to_sample_from_gt_for_train=0.1,
-        # Frame correction
-        num_frames_to_correct_for_train=2,
-        num_frames_to_correct_for_eval=1,
-        rand_frames_to_correct_for_train=True,
-        add_all_frames_to_correct_as_cond=True,
-        # Conditioning frames
-        num_init_cond_frames_for_train=2,
-        rand_init_cond_frames_for_train=True,
-        num_correction_pt_per_frame=7,
-        # Memory and checkpointing
-        use_act_ckpt_iterative_pt_sampling=True,
-        directly_add_no_mem_embed=True,
-        # Mask encoding
-        apply_sigmoid_to_mask_logits_for_mem_enc=True,
-        sigmoid_scale_for_mem_enc=20.0,
-        sigmoid_bias_for_mem_enc=-10.0,
         # SAM parameters
-        use_mask_input_as_output_without_sam=True,
-        use_high_res_features_in_sam=True,
         multimask_output_in_sam=True,
-        iter_use_prev_mask_pred=True,
         # Evaluation
-        num_init_cond_frames_for_eval=1,
         forward_backbone_per_frame_for_eval=True,
-        iou_prediction_use_sigmoid=True,
-        # Object pointers
-        add_tpos_enc_to_obj_ptrs=True,
         trim_past_non_cond_mem_for_eval=False,
-        use_obj_ptrs_in_encoder=True,
-        pred_obj_scores=True,
-        pred_obj_scores_mlp=True,
-        fixed_no_obj_ptr=True,
         # Multimask
         multimask_output_for_tracking=True,
-        use_multimask_token_for_obj_ptr=True,
         multimask_min_pt_num=0,
         multimask_max_pt_num=1,
-        use_mlp_for_obj_ptr_proj=True,
         # Additional settings
-        prob_to_dropout_spatial_mem=0.0,
-        no_obj_embed_spatial=True,
-        proj_tpos_enc_in_obj_ptrs=True,
-        use_signed_tpos_enc_to_obj_ptrs=True,
-        backbone_stride=14,
         always_start_from_first_ann_frame=False,
         # Mask overlap
         non_overlap_masks_for_mem_enc=False,
@@ -275,8 +236,6 @@ def build_sam2_model() -> Sam2Predictor:
             "dynamic_multimask_stability_delta": 0.05,
             "dynamic_multimask_stability_thresh": 0.98,
         },
-        binarize_mask_from_pts_for_mem_enc=True,
-        only_obj_ptrs_in_the_past_for_eval=True,
         clear_non_cond_mem_around_input=True,
         fill_hole_area=0,
     )
@@ -345,7 +304,7 @@ def _create_sam3_text_encoder(bpe_path: str) -> VETextEncoder:
     )
 
 
-def _create_sam3_transformer() -> TransformerWrapper:
+def _create_sam3_transformer(has_presence_token: bool) -> TransformerWrapper:
     """Create SAM3 transformer encoder and decoder."""
     # Encoder components
     encoder_self_attention = MultiheadAttention(
@@ -394,6 +353,7 @@ def _create_sam3_transformer() -> TransformerWrapper:
         use_text_cross_attention=True,
     )
 
+    # Create transformer decoder
     decoder = TransformerDecoder(
         layer=decoder_layer,
         num_layers=6,
@@ -409,26 +369,32 @@ def _create_sam3_transformer() -> TransformerWrapper:
         dac_use_selfatt_ln=True,
         resolution=1008,
         stride=14,
+        presence_token=has_presence_token,
     )
 
     return TransformerWrapper(encoder=encoder, decoder=decoder, d_model=256)
 
 
-def _create_sam3_segmentation_head() -> UniversalSegmentationHead:
+def _create_sam3_segmentation_head(
+    has_presence_token: bool,
+) -> UniversalSegmentationHead:
     """Create SAM3 segmentation head."""
-    dot_product_scorer_mlp = MLP(
-        input_dim=256,
-        hidden_dim=2048,
-        output_dim=256,
-        num_layers=2,
-        dropout=0.1,
-        residual=True,
-        out_norm=nn.LayerNorm(256),
-    )
+    if not has_presence_token:
+        dot_product_scorer_mlp = MLP(
+            input_dim=256,
+            hidden_dim=2048,
+            output_dim=256,
+            num_layers=2,
+            dropout=0.1,
+            residual=True,
+            out_norm=nn.LayerNorm(256),
+        )
 
-    dot_product_scorer = DotProductScoring(
-        d_model=256, d_proj=256, prompt_mlp=dot_product_scorer_mlp
-    )
+        dot_product_scorer = DotProductScoring(
+            d_model=256, d_proj=256, prompt_mlp=dot_product_scorer_mlp
+        )
+    else:
+        dot_product_scorer = None
 
     cross_attend_prompt = MultiheadAttention(num_heads=8, dropout=0, embed_dim=256)
 
@@ -437,7 +403,7 @@ def _create_sam3_segmentation_head() -> UniversalSegmentationHead:
     )
 
     return UniversalSegmentationHead(
-        presence_head=True,
+        presence_head=not has_presence_token,
         dot_product_scorer=dot_product_scorer,
         act_ckpt=True,
         upsampling_stages=3,
@@ -447,7 +413,9 @@ def _create_sam3_segmentation_head() -> UniversalSegmentationHead:
     )
 
 
-def _create_sam3_geometry_encoder() -> SequenceGeometryEncoder:
+def _create_sam3_geometry_encoder(
+    geo_encoder_use_img_cross_attn: bool,
+) -> SequenceGeometryEncoder:
     """Create SAM3 geometry encoder."""
     input_geom_pos_enc = PositionEmbeddingSine(
         num_pos_feats=256,
@@ -461,15 +429,34 @@ def _create_sam3_geometry_encoder() -> SequenceGeometryEncoder:
         num_heads=8, dropout=0.1, embed_dim=256, batch_first=False
     )
 
-    input_geom_layer = TransformerEncoderLayerSimple(
-        activation="relu",
-        d_model=256,
-        dim_feedforward=2048,
-        dropout=0.1,
-        pos_enc_at_attn=False,
-        pre_norm=True,
-        self_attention=input_geom_self_attention,
-    )
+    if geo_encoder_use_img_cross_attn:
+        input_geom_layer = TransformerEncoderLayer(
+            activation="relu",
+            d_model=256,
+            dim_feedforward=2048,
+            dropout=0.1,
+            pos_enc_at_attn=False,
+            pre_norm=True,
+            self_attention=input_geom_self_attention,
+            pos_enc_at_cross_attn_queries=False,
+            pos_enc_at_cross_attn_keys=True,
+            cross_attention=MultiheadAttention(
+                num_heads=8,
+                dropout=0.1,
+                embed_dim=256,
+                batch_first=False,
+            ),
+        )
+    else:
+        input_geom_layer = TransformerEncoderLayerSimple(
+            activation="relu",
+            d_model=256,
+            dim_feedforward=2048,
+            dropout=0.1,
+            pos_enc_at_attn=False,
+            pre_norm=True,
+            self_attention=input_geom_self_attention,
+        )
 
     return SequenceGeometryEncoder(
         pos_enc=input_geom_pos_enc,
@@ -487,8 +474,12 @@ def _create_sam3_geometry_encoder() -> SequenceGeometryEncoder:
 
 
 def build_sam3_dense_tracking_model(
-    bpe_path: str, checkpoint_path: Optional[str] = None
-) -> Sam3DenseTrackingDemoMultiGPU:
+    bpe_path: str,
+    checkpoint_path: Optional[str] = None,
+    has_presence_token: bool = False,
+    geo_encoder_use_img_cross_attn: bool = False,
+    strict_state_dict_loading: bool = True,
+) -> Sam3VideoInferenceMultiGPU:
     """
     Build SAM3 dense tracking model.
 
@@ -497,7 +488,7 @@ def build_sam3_dense_tracking_model(
         checkpoint_path: Optional path to checkpoint file
 
     Returns:
-        Sam3DenseTrackingDemoMultiGPU: The instantiated dense tracking model
+        Sam3VideoInferenceMultiGPU: The instantiated dense tracking model
     """
     # Build SAM2 model
     sam2_model = build_sam2_model()
@@ -506,9 +497,13 @@ def build_sam3_dense_tracking_model(
     visual_neck = _create_sam3_visual_backbone()
     text_encoder = _create_sam3_text_encoder(bpe_path)
     backbone = SAM3VLBackbone(scalp=1, visual=visual_neck, text=text_encoder)
-    transformer = _create_sam3_transformer()
-    segmentation_head = _create_sam3_segmentation_head()
-    input_geometry_encoder = _create_sam3_geometry_encoder()
+    transformer = _create_sam3_transformer(has_presence_token=has_presence_token)
+    segmentation_head = _create_sam3_segmentation_head(
+        has_presence_token=has_presence_token
+    )
+    input_geometry_encoder = _create_sam3_geometry_encoder(
+        geo_encoder_use_img_cross_attn=geo_encoder_use_img_cross_attn
+    )
 
     # Create main dot product scoring
     main_dot_prod_mlp = MLP(
@@ -538,7 +533,7 @@ def build_sam3_dense_tracking_model(
     )
 
     # Create the main dense tracking model
-    model = Sam3DenseTrackingDemoMultiGPU(
+    model = Sam3VideoInferenceMultiGPU(
         sam2_model=sam2_model,
         sam3_model=sam3_model,
         ckpt_path=None,
@@ -562,7 +557,9 @@ def build_sam3_dense_tracking_model(
         ckpt = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
         if "model" in ckpt and isinstance(ckpt["model"], dict):
             ckpt = ckpt["model"]
-        missing_keys, unexpected_keys = model.load_state_dict(ckpt, strict=False)
+        missing_keys, unexpected_keys = model.load_state_dict(
+            ckpt, strict=strict_state_dict_loading
+        )
         if missing_keys:
             print(f"Missing keys: {missing_keys}")
         if unexpected_keys:
