@@ -153,6 +153,7 @@ def get_rel_pos(q_size: int, k_size: int, rel_pos: Tensor) -> Tensor:
             rel_pos.reshape(1, rel_pos.shape[0], -1).permute(0, 2, 1),
             size=max_rel_dist,
             mode="linear",
+            align_corners=False,
         )
         rel_pos_resized = rel_pos_resized.reshape(-1, max_rel_dist).permute(1, 0)
     else:
@@ -860,7 +861,9 @@ class ViT(nn.Module):
                     and masks is None
                 ):
                     masks = F.interpolate(
-                        tensor_list.mask[None].float(), size=feats.shape[-2:]
+                        tensor_list.mask[None].float(),
+                        size=feats.shape[-2:],
+                        align_corners=False,
                     ).bool()[0]
                 outputs.append(NestedTensor(feats, masks))
 
