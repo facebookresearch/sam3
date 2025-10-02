@@ -24,13 +24,7 @@ from sam3.model.nms_utils import mask_iou
 from sam3.model.sam3_tracker_utils import fill_holes_in_mask_scores, mask_to_box
 from sam3.train.masks_ops import rle_encode
 
-
 logger = get_logger(__name__)
-
-if torch.cuda.get_device_properties(0).major >= 8:
-    # turn on tfloat32 for Ampere GPUs (https://pytorch.org/docs/stable/notes/cuda.html#tensorfloat-32-tf32-on-ampere-devices)
-    torch.backends.cuda.matmul.allow_tf32 = True
-    torch.backends.cudnn.allow_tf32 = True
 
 
 class MaskletConfirmationStatus(Enum):
@@ -58,142 +52,6 @@ class Sam2Predictor(nn.Module):
         if name == "model":
             return model
         return getattr(model, name)
-
-
-# class Sam2Predictor(nn.Module):
-#     def __init__(
-#         self,
-#         config_file,
-#         checkpoint_file=None,
-#         hydra_overrides=None,
-#         per_obj_inference=False,
-#         fill_hole_area=0,
-#         use_fa3=False,
-#         use_rope_real=False,
-#     ):
-#         """
-#         Initialize the SAM2 predictor with the given configuration and checkpoint.
-#         Args:
-#             config_file (str): Path to the configuration file.
-#             checkpoint_file (str, optional): Path to the checkpoint file. If None, the model will be initialized without loading weights.
-#             hydra_overrides (list, optional): List of Hydra overrides to apply to the configuration.
-#             per_obj_inference (bool): If True, the model will perform per-object inference instead of bucketized batching.
-#         """
-
-#         super().__init__()
-#         #######################################
-#         # Load model from config and checkpoint
-#         #######################################
-
-#         from hydra import compose, initialize_config_module
-#         from hydra.core.global_hydra import GlobalHydra
-#         from hydra.utils import instantiate
-#         from omnivore.train_utils import (
-#             handle_custom_hydra_commands,
-#             register_omegaconf_resolvers,
-#         )
-
-#         # Ensure proper Hydra initialization
-#         if not GlobalHydra().is_initialized():
-#             logger.info("Sam2Predictor: GlobalHydra not initialized")
-#             GlobalHydra.instance().clear()
-#             # register_omegaconf_resolvers()
-#             initialize_config_module("sam3.train.configs", version_base="1.2")
-
-#         if hydra_overrides is None:
-#             hydra_overrides = []
-#         self.per_obj_inference = per_obj_inference
-#         inference_model_class = (
-#             "sam3.model.video_tracking_with_prompt_demo_per_obj_inference.Sam3TrackerPredictorPerObjInference"  # Note: This class may not be available in sam3
-#             if per_obj_inference
-#             else "sam3.model.video_tracking_with_prompt_demo.Sam3TrackerPredictor"
-#         )
-#         hydra_overrides = list(hydra_overrides)
-#         hydra_overrides.extend(
-#             [
-#                 "launcher.experiment_log_dir=''",
-#                 f"++trainer.model._target_={inference_model_class}",
-#                 # Shared backbone cfg
-#                 "++trainer.model.image_size=1008",
-#                 "++trainer.model.backbone_stride=14",
-#                 "++trainer.model.maskmem_backbone.mask_downsampler.interpol_size=[1152,1152]",
-#                 "++trainer.model.backbone.forward_in_chunk_for_eval=false",
-#                 # always start tracking from the frame where we receive the first annotation
-#                 # (clicks or mask) and ignore the `start_frame_idx` passed to `propagate_in_video`
-#                 "++trainer.model.always_start_from_first_ann_frame=false",
-#                 # apply non-overlapping constraints on the object masks in the
-#                 # memory encoder to avoid/alleviate superposing mask predictions
-#                 "++trainer.model.non_overlap_masks_for_mem_enc=false",
-#                 # Do not apply non-overlapping constraints on the output
-#                 "++trainer.model.non_overlap_masks_for_output=false",
-#                 # attend to at most 4 temporally closest conditioning frames in the encoder for
-#                 # better temporal locality and a better handling to a large number of annotated frames
-#                 "++trainer.model.max_cond_frames_in_attn=4",
-#                 # turn off all offloading options in the demo (we handle them separately in the demo class)
-#                 "++trainer.model.offload_output_to_cpu_for_eval=false",
-#                 "++trainer.model.trim_past_non_cond_mem_for_eval=false",
-#                 # torch.compile on the image backbone (w/ `dynamic=false` and `fullgraph=true` to capture a full graph)
-#                 # "++trainer.model.backbone.compile_mode=max-autotune",
-#                 # "++trainer.model.backbone.compile_extra_args.fullgraph=true",
-#                 # "++trainer.model.backbone.compile_extra_args.dynamic=false",
-#                 "++trainer.model.backbone.visual.trunk.weights_path=null",
-#                 # Postprocessing/demo options
-#                 # dynamically fall back to multi-mask if the single mask is not stable
-#                 "++trainer.model.sam_mask_decoder_extra_args.dynamic_multimask_via_stability=true",
-#                 "++trainer.model.sam_mask_decoder_extra_args.dynamic_multimask_stability_delta=0.05",
-#                 "++trainer.model.sam_mask_decoder_extra_args.dynamic_multimask_stability_thresh=0.98",
-#                 # the sigmoid mask logits on interacted frames with clicks in the memory encoder so that the encoded masks are exactly as what users see from clicking
-#                 "++trainer.model.binarize_mask_from_pts_for_mem_enc=true",
-#                 # only attend to object pointers in the past (before the current frame) in the encoder during evaluation
-#                 "++trainer.model.only_obj_ptrs_in_the_past_for_eval=true",
-#                 # clear non-conditioning memory of the surrounding frames (which may contain outdated information) after adding correction clicks
-#                 "++trainer.model.clear_non_cond_mem_around_input=true",
-#                 "++trainer.model.transformer.encoder.layer.self_attention.feat_sizes=[72,72]",
-#                 "++trainer.model.transformer.encoder.layer.cross_attention.feat_sizes=[72,72]",
-#                 # fill small holes in the final masks up to `fill_hole_area` (after resizing them to the original video resolution)
-#                 f"++trainer.model.fill_hole_area={fill_hole_area}",
-#                 f"++trainer.model.transformer.encoder.layer.self_attention.use_fa3={use_fa3}",
-#                 f"++trainer.model.transformer.encoder.layer.cross_attention.use_fa3={use_fa3}",
-#                 f"++trainer.model.transformer.encoder.layer.self_attention.use_rope_real={use_rope_real}",
-#                 f"++trainer.model.transformer.encoder.layer.cross_attention.use_rope_real={use_rope_real}",
-#             ]
-#         )
-
-#         cfg = compose(config_name=config_file, overrides=hydra_overrides)
-#         handle_custom_hydra_commands(cfg)
-#         model = instantiate(cfg.trainer.model, _recursive_=True)
-#         self.cfg = cfg
-#         del model.backbone  # Remove backbone since it is shared with the sam3 model
-#         if checkpoint_file is not None:
-#             ckpt = torch.load(checkpoint_file, map_location="cpu")
-#             model.load_state_dict(ckpt["model"], strict=False)
-#         self.model = model
-#         self.per_obj_inference = per_obj_inference
-#         self.fill_hole_area = fill_hole_area
-#         # use bfloat16 inference for Flash Attention kernel
-#         self.bf16_context = torch.autocast(device_type="cuda", dtype=torch.bfloat16)
-#         self.bf16_context.__enter__()  # keep using for the entire model process
-
-#     def __getattr__(self, name):
-#         # Expose all attributes of the underlying model
-#         model = super().__getattr__("model")
-#         if name == "model":
-#             return model
-#         return getattr(model, name)
-
-#     def forward(self, *args, **kwargs):
-#         raise NotImplementedError(
-#             "Use the sam2 predictor APIs instead. Check Sam3TrackerPredictor class for details."
-#         )
-
-#     def add_output_per_object(self, *args, **kwargs):
-#         if self.per_obj_inference:
-#             # nothing needs to be done as each object is already stored separately
-#             return
-
-#         # for batched inference state, we also need to add per-object
-#         # memory slides to support instance interactivity
-#         self._add_output_per_object(*args, **kwargs)
 
 
 class Sam3VideoBase(nn.Module):
@@ -289,12 +147,6 @@ class Sam3VideoBase(nn.Module):
         self.world_size = int(os.getenv("WORLD_SIZE", "1"))
         self._dist_pg_cpu = None  # CPU process group (lazy-initialized on first use)
 
-        # Initialize profiling variables
-        self._profiler = None
-        self._frame_count = 0
-        self._profile_save_dir = os.getenv("PROFILE_SAVE_DIR", "/tmp/profiling")
-        self._profiling_enabled = os.getenv("ENABLE_PROFILING", "0").lower() == "1"
-
         # the maximum object number
         if max_num_objects > 0:
             num_obj_for_compile = math.ceil(max_num_objects / self.world_size)
@@ -347,53 +199,6 @@ class Sam3VideoBase(nn.Module):
             self._init_dist_pg_cpu()
         dist.broadcast_object_list(python_obj_list, src=src, group=self._dist_pg_cpu)
 
-    def _start_profiling(self, frame_idx):
-        self._profiling_enabled = os.getenv("ENABLE_PROFILING", "0").lower() == "1"
-        self._profile_end_frame = int(os.getenv("PROFILE_END_FRAME", "-1"))
-        """Start profiling for _det_track_one_frame if conditions are met."""
-        if not self._profiling_enabled:
-            return False
-
-        if not hasattr(self, "_warm_up_complete") or not self._warm_up_complete:
-            return False
-
-        if self._profiler is not None:
-            return True
-
-        # Start profiling
-        os.makedirs(self._profile_save_dir, exist_ok=True)
-        profile_path = os.path.join(
-            self._profile_save_dir, f"det_track_frame_rank_{self.rank}.json"
-        )
-
-        self._profiler = torch.profiler.profile(
-            activities=[
-                torch.profiler.ProfilerActivity.CPU,
-                torch.profiler.ProfilerActivity.CUDA,
-            ],
-            record_shapes=True,
-            experimental_config=torch.profiler._ExperimentalConfig(
-                profile_all_threads=True
-            ),
-        )
-        self._profiler.start()
-        self._current_profile_path = profile_path
-        print(f"Started profiling frame on {frame_idx} on rank {self.rank}")
-        return True
-
-    def _stop_profiling(self):
-        """Stop profiling and save trace."""
-        if self._profiler is not None:
-            self._profiler.stop()
-            self._profiler.export_chrome_trace(self._current_profile_path)
-            print(f"Profiling trace saved to: {self._current_profile_path}")
-            print(
-                f"You can open this file in Perfetto (https://ui.perfetto.dev/) to visualize the trace"
-            )
-            self._profiler = None
-            self._profiling_enabled = False
-            os.environ["ENABLE_PROFILING"] = "0"
-
     def _det_track_one_frame(
         self,
         frame_idx: int,
@@ -407,50 +212,6 @@ class Sam3VideoBase(nn.Module):
         orig_vid_height: int,
         orig_vid_width: int,
         is_image_only: bool = False,
-    ):
-        profiling_enabled = self._start_profiling(frame_idx)
-
-        try:
-            return self._det_track_one_frame_impl(
-                frame_idx=frame_idx,
-                num_frames=num_frames,
-                reverse=reverse,
-                input_batch=input_batch,
-                geometric_prompt=geometric_prompt,
-                sam2_states_local=sam2_states_local,
-                sam2_metadata_prev=sam2_metadata_prev,
-                feature_cache=feature_cache,
-                orig_vid_height=orig_vid_height,
-                orig_vid_width=orig_vid_width,
-                is_image_only=is_image_only,
-            )
-        finally:
-            if profiling_enabled:
-                if sys.exc_info()[0] is not None:
-                    # If there is an exception, stop profiling
-                    self._stop_profiling()
-                else:
-                    if (
-                        (not reverse and frame_idx == num_frames - 1)
-                        or (reverse and frame_idx == 0)
-                        or self._profile_end_frame == frame_idx
-                    ):
-                        # Stop profiling if reached the last frame
-                        self._stop_profiling()
-
-    def _det_track_one_frame_impl(
-        self,
-        frame_idx: int,
-        num_frames: int,
-        reverse: bool,
-        input_batch: BatchedDatapoint,
-        geometric_prompt: Any,
-        sam2_states_local: List[Any],
-        sam2_metadata_prev: Dict[str, Any],
-        feature_cache: Dict,
-        orig_vid_height: int,
-        orig_vid_width: int,
-        is_image_only: bool,
     ):
         """
         This function handles one-step inference for the DenseTracking model in an SPMD manner.
@@ -469,34 +230,30 @@ class Sam3VideoBase(nn.Module):
         # It returns a "det_out" dict for `frame_idx` and fills SAM2 backbone features for `frame_idx`
         # into `feature_cache`. Despite its distributed inference under the hood, the results would be
         # the same as if it is running backbone and FA for every frame on a single GPU.
-        with torch.profiler.record_function("run_backbone_and_detection"):
-            det_out = self.run_backbone_and_detection(
-                frame_idx=frame_idx,
-                num_frames=num_frames,
-                reverse=reverse,
-                input_batch=input_batch,
-                geometric_prompt=geometric_prompt,
-                feature_cache=feature_cache,
-            )
+        det_out = self.run_backbone_and_detection(
+            frame_idx=frame_idx,
+            num_frames=num_frames,
+            reverse=reverse,
+            input_batch=input_batch,
+            geometric_prompt=geometric_prompt,
+            feature_cache=feature_cache,
+        )
 
         # Step 2: each GPU propagates its local SAM2 states to get the SAM2 prediction masks.
         # the returned `sam2_low_res_masks_global` contains the concatenated masklet predictions
         # gathered from all GPUs (as if they are propagated on a single GPU). Note that this step only
         # runs the SAM2 propagation step, but doesn't encode new memory for the predicted masks;
         # we defer memory encoding to `run_sam2_update_execution_phase` after resolving all heuristics.
-        with torch.profiler.record_function("run_sam2_propagation"):
-            if sam2_metadata_prev == {}:
-                # initialize masklet metadata if it's uninitialized (empty dict)
-                sam2_metadata_prev.update(self._initialize_metadata())
-            sam2_low_res_masks_global, sam2_obj_scores_global = (
-                self.run_sam2_propagation(
-                    frame_idx=frame_idx,
-                    num_frames=num_frames,
-                    reverse=reverse,
-                    sam2_states_local=sam2_states_local,
-                    sam2_metadata_prev=sam2_metadata_prev,
-                )
-            )
+        if sam2_metadata_prev == {}:
+            # initialize masklet metadata if it's uninitialized (empty dict)
+            sam2_metadata_prev.update(self._initialize_metadata())
+        sam2_low_res_masks_global, sam2_obj_scores_global = self.run_sam2_propagation(
+            frame_idx=frame_idx,
+            num_frames=num_frames,
+            reverse=reverse,
+            sam2_states_local=sam2_states_local,
+            sam2_metadata_prev=sam2_metadata_prev,
+        )
 
         # Step 3: based on detection outputs and the propagated SAM2 prediction masks, we make plans
         # for SAM2 masklet updates (i.e. which objects to add and remove, how to load-balance them, etc).
@@ -505,18 +262,17 @@ class Sam3VideoBase(nn.Module):
         # planning will be done on the master rank (GPU 0) and the resulting plan `sam2_update_plan` is
         # broadcasted to other GPUs (to be executed in a distributed manner). This step also generates the
         # new masklet metadata `sam2_metadata_new` (based on its previous version `sam2_metadata_prev`).
-        with torch.profiler.record_function("run_sam2_update_planning_phase"):
-            sam2_update_plan, sam2_metadata_new = self.run_sam2_update_planning_phase(
-                frame_idx=frame_idx,
-                num_frames=num_frames,
-                reverse=reverse,
-                det_out=det_out,
-                sam2_low_res_masks_global=sam2_low_res_masks_global,
-                sam2_obj_scores_global=sam2_obj_scores_global,
-                sam2_metadata_prev=sam2_metadata_prev,
-                sam2_states_local=sam2_states_local,
-                is_image_only=is_image_only,
-            )
+        sam2_update_plan, sam2_metadata_new = self.run_sam2_update_planning_phase(
+            frame_idx=frame_idx,
+            num_frames=num_frames,
+            reverse=reverse,
+            det_out=det_out,
+            sam2_low_res_masks_global=sam2_low_res_masks_global,
+            sam2_obj_scores_global=sam2_obj_scores_global,
+            sam2_metadata_prev=sam2_metadata_prev,
+            sam2_states_local=sam2_states_local,
+            is_image_only=is_image_only,
+        )
 
         # Get reconditioning info from the update plan
         reconditioned_obj_ids = sam2_update_plan.get("reconditioned_obj_ids", set())
@@ -525,40 +281,38 @@ class Sam3VideoBase(nn.Module):
         )
 
         # Step 4: based on `sam2_update_plan`, each GPU executes the update w.r.t. its local SAM2 inference states
-        with torch.profiler.record_function("run_sam2_update_execution_phase"):
-            sam2_states_local_new = self.run_sam2_update_execution_phase(
+        sam2_states_local_new = self.run_sam2_update_execution_phase(
+            frame_idx=frame_idx,
+            num_frames=num_frames,
+            reverse=reverse,
+            det_out=det_out,
+            sam2_states_local=sam2_states_local,
+            sam2_update_plan=sam2_update_plan,
+            orig_vid_height=orig_vid_height,
+            orig_vid_width=orig_vid_width,
+            feature_cache=feature_cache,
+        )
+
+        # Step 5: finally, build the outputs for this frame (it only needs to be done on GPU 0 since
+        # only GPU 0 will send outputs to the server).
+        if self.rank == 0:
+            obj_id_to_mask = self.build_outputs(
                 frame_idx=frame_idx,
                 num_frames=num_frames,
                 reverse=reverse,
                 det_out=det_out,
-                sam2_states_local=sam2_states_local,
+                sam2_low_res_masks_global=sam2_low_res_masks_global,
+                sam2_obj_scores_global=sam2_obj_scores_global,
+                sam2_metadata_prev=sam2_metadata_prev,
                 sam2_update_plan=sam2_update_plan,
                 orig_vid_height=orig_vid_height,
                 orig_vid_width=orig_vid_width,
-                feature_cache=feature_cache,
+                reconditioned_obj_ids=reconditioned_obj_ids,
+                det_to_matched_trk_obj_ids=det_to_matched_trk_obj_ids,
             )
-
-        # Step 5: finally, build the outputs for this frame (it only needs to be done on GPU 0 since
-        # only GPU 0 will send outputs to the server).
-        with torch.profiler.record_function("build_outputs"):
-            if self.rank == 0:
-                obj_id_to_mask = self.build_outputs(
-                    frame_idx=frame_idx,
-                    num_frames=num_frames,
-                    reverse=reverse,
-                    det_out=det_out,
-                    sam2_low_res_masks_global=sam2_low_res_masks_global,
-                    sam2_obj_scores_global=sam2_obj_scores_global,
-                    sam2_metadata_prev=sam2_metadata_prev,
-                    sam2_update_plan=sam2_update_plan,
-                    orig_vid_height=orig_vid_height,
-                    orig_vid_width=orig_vid_width,
-                    reconditioned_obj_ids=reconditioned_obj_ids,
-                    det_to_matched_trk_obj_ids=det_to_matched_trk_obj_ids,
-                )
-                obj_id_to_score = sam2_metadata_new["obj_id_to_score"]
-            else:
-                obj_id_to_mask, obj_id_to_score = {}, {}  # dummy outputs on other GPUs
+            obj_id_to_score = sam2_metadata_new["obj_id_to_score"]
+        else:
+            obj_id_to_mask, obj_id_to_score = {}, {}  # dummy outputs on other GPUs
         # a few statistics for the current frame as a part of the output
         frame_stats = {
             "num_obj_tracked": np.sum(sam2_metadata_new["num_obj_per_gpu"]),
@@ -631,28 +385,27 @@ class Sam3VideoBase(nn.Module):
         max_frame_num_to_track = tracking_bounds.get("max_frame_num_to_track")
         start_frame_idx = tracking_bounds.get("propagate_in_video_start_frame_idx")
 
-        with torch.profiler.record_function("forward_video_grounding_multigpu"):
-            sam3_image_out, _ = self.sam3_model.forward_video_grounding_multigpu(
-                backbone_out={
-                    "img_batch_all_stages": input_batch.img_batch,
-                    **text_outputs,
-                },
-                find_inputs=input_batch.find_inputs,
-                geometric_prompt=geometric_prompt,
-                frame_idx=frame_idx,
-                num_frames=num_frames,
-                multigpu_buffer=feature_cache["multigpu_buffer"],
-                track_in_reverse=reverse,
-                # also get the SAM2 backbone features
-                return_sam2_backbone_feats=True,
-                # run NMS as a part of distributed FA computation
-                run_nms=self.det_nms_thresh > 0.0,
-                nms_prob_thresh=self.score_threshold_detection,
-                nms_iou_thresh=self.det_nms_thresh,
-                # pass max_frame_num_to_track to respect tracking limits
-                max_frame_num_to_track=max_frame_num_to_track,
-                propagate_in_video_start_frame_idx=start_frame_idx,
-            )
+        sam3_image_out, _ = self.sam3_model.forward_video_grounding_multigpu(
+            backbone_out={
+                "img_batch_all_stages": input_batch.img_batch,
+                **text_outputs,
+            },
+            find_inputs=input_batch.find_inputs,
+            geometric_prompt=geometric_prompt,
+            frame_idx=frame_idx,
+            num_frames=num_frames,
+            multigpu_buffer=feature_cache["multigpu_buffer"],
+            track_in_reverse=reverse,
+            # also get the SAM2 backbone features
+            return_sam2_backbone_feats=True,
+            # run NMS as a part of distributed FA computation
+            run_nms=self.det_nms_thresh > 0.0,
+            nms_prob_thresh=self.score_threshold_detection,
+            nms_iou_thresh=self.det_nms_thresh,
+            # pass max_frame_num_to_track to respect tracking limits
+            max_frame_num_to_track=max_frame_num_to_track,
+            propagate_in_video_start_frame_idx=start_frame_idx,
+        )
         # note: detections in `sam3_image_out` has already gone through NMS
         pred_probs = sam3_image_out["pred_logits"].squeeze(-1).sigmoid()
         pred_boxes_xyxy = sam3_image_out["pred_boxes_xyxy"]
@@ -700,12 +453,11 @@ class Sam3VideoBase(nn.Module):
         # `low_res_masks_local` of the existing masklets on this GPU
         # - obj_ids_local: List[int] -- list of object IDs
         # - low_res_masks_local: Tensor -- (num_local_obj, H_mask, W_mask)
-        with torch.profiler.record_function("propagate_sam2_one_frame_local_gpu"):
-            obj_ids_local, low_res_masks_local, obj_scores_local = (
-                self._propogate_sam2_one_frame_local_gpu(
-                    sam2_states_local, frame_idx=frame_idx, reverse=reverse
-                )
+        obj_ids_local, low_res_masks_local, obj_scores_local = (
+            self._propogate_sam2_one_frame_local_gpu(
+                sam2_states_local, frame_idx=frame_idx, reverse=reverse
             )
+        )
 
         assert np.all(
             obj_ids_local == sam2_metadata_prev["obj_ids_per_gpu"][self.rank]
@@ -715,31 +467,30 @@ class Sam3VideoBase(nn.Module):
 
         # Step 2: all-gather `low_res_masks_local` into `low_res_masks_global`
         # - low_res_masks_global: Tensor -- (num_global_obj, H_mask, W_mask)
-        with torch.profiler.record_function("all_gather_low_res_masks_local"):
-            _, H_mask, W_mask = low_res_masks_local.shape
-            if self.world_size > 1:
-                # `low_res_masks_local` and `obj_scores_local` need to be contiguous and float32
-                # (they could be non-contiguous due to slicing and/or bfloat16 due to autocast)
-                low_res_masks_local = low_res_masks_local.float().contiguous()
-                obj_scores_local = obj_scores_local.float().contiguous()
-                num_obj_this_gpu = sam2_metadata_prev["num_obj_per_gpu"][self.rank]
-                assert low_res_masks_local.size(0) == num_obj_this_gpu
-                assert obj_scores_local.size(0) == num_obj_this_gpu
-                low_res_masks_peers = [
-                    low_res_masks_local.new_empty(num_obj, H_mask, W_mask)
-                    for num_obj in sam2_metadata_prev["num_obj_per_gpu"]
-                ]
-                obj_scores_peers = [
-                    obj_scores_local.new_empty(num_obj)
-                    for num_obj in sam2_metadata_prev["num_obj_per_gpu"]
-                ]
-                dist.all_gather(low_res_masks_peers, low_res_masks_local)
-                dist.all_gather(obj_scores_peers, obj_scores_local)
-                low_res_masks_global = torch.cat(low_res_masks_peers, dim=0)
-                obj_scores_global = torch.cat(obj_scores_peers, dim=0)
-            else:
-                low_res_masks_global = low_res_masks_local
-                obj_scores_global = obj_scores_local
+        _, H_mask, W_mask = low_res_masks_local.shape
+        if self.world_size > 1:
+            # `low_res_masks_local` and `obj_scores_local` need to be contiguous and float32
+            # (they could be non-contiguous due to slicing and/or bfloat16 due to autocast)
+            low_res_masks_local = low_res_masks_local.float().contiguous()
+            obj_scores_local = obj_scores_local.float().contiguous()
+            num_obj_this_gpu = sam2_metadata_prev["num_obj_per_gpu"][self.rank]
+            assert low_res_masks_local.size(0) == num_obj_this_gpu
+            assert obj_scores_local.size(0) == num_obj_this_gpu
+            low_res_masks_peers = [
+                low_res_masks_local.new_empty(num_obj, H_mask, W_mask)
+                for num_obj in sam2_metadata_prev["num_obj_per_gpu"]
+            ]
+            obj_scores_peers = [
+                obj_scores_local.new_empty(num_obj)
+                for num_obj in sam2_metadata_prev["num_obj_per_gpu"]
+            ]
+            dist.all_gather(low_res_masks_peers, low_res_masks_local)
+            dist.all_gather(obj_scores_peers, obj_scores_local)
+            low_res_masks_global = torch.cat(low_res_masks_peers, dim=0)
+            obj_scores_global = torch.cat(obj_scores_peers, dim=0)
+        else:
+            low_res_masks_global = low_res_masks_local
+            obj_scores_global = obj_scores_local
         return low_res_masks_global, obj_scores_global
 
     def _recondition_masklets(
@@ -826,19 +577,18 @@ class Sam3VideoBase(nn.Module):
         det_bbox_xyxy: Tensor = det_out["bbox"]
         if self.rank == 0:
             # a) match FA and SAM2 masks and find new objects
-            with torch.profiler.record_function("associate_det_trk"):
-                (
-                    new_det_fa_inds,
-                    unmatched_trk_obj_ids,
-                    det_to_matched_trk_obj_ids,
-                    trk_id_to_max_iou_high_conf_det,
-                    empty_trk_obj_ids,
-                ) = self._associate_det_trk(
-                    det_masks=det_mask_preds,
-                    det_scores_np=det_scores_np,
-                    trk_masks=sam2_low_res_masks_global,
-                    trk_obj_ids=sam2_metadata_prev["obj_ids_all_gpu"],
-                )
+            (
+                new_det_fa_inds,
+                unmatched_trk_obj_ids,
+                det_to_matched_trk_obj_ids,
+                trk_id_to_max_iou_high_conf_det,
+                empty_trk_obj_ids,
+            ) = self._associate_det_trk(
+                det_masks=det_mask_preds,
+                det_scores_np=det_scores_np,
+                trk_masks=sam2_low_res_masks_global,
+                trk_obj_ids=sam2_metadata_prev["obj_ids_all_gpu"],
+            )
             if self.suppress_det_close_to_boundary:
                 # TODO: move to `run_backbone_and_detection`. Note that this runs on higher detection threshold (self.new_det_thresh)
                 keep = self._suppress_detections_close_to_boundary(
@@ -1404,23 +1154,20 @@ class Sam3VideoBase(nn.Module):
 
             # propagate one frame
             num_frames_propagated = 0
-            with torch.profiler.record_function("sam2_predictor.propagate_in_video"):
-                for out in self.sam2_predictor.propagate_in_video(
-                    inference_state,
-                    start_frame_idx=frame_idx,
-                    # end_frame_idx = start_frame_idx + max_frame_num_to_track
-                    # (i.e. propagating 1 frame since end_frame_idx is inclusive)
-                    max_frame_num_to_track=0,
-                    reverse=reverse,
-                    tqdm_disable=True,
-                    run_mem_encoder=run_mem_encoder,
-                ):
-                    # TODO we only need low-res outputs here for all-gather across GPUs,
-                    # so we can remove the high-res interpolation in `propagate_in_video`
-                    out_frame_idx, out_obj_ids, out_low_res_masks, _, out_obj_scores = (
-                        out
-                    )
-                    num_frames_propagated += 1
+            for out in self.sam2_predictor.propagate_in_video(
+                inference_state,
+                start_frame_idx=frame_idx,
+                # end_frame_idx = start_frame_idx + max_frame_num_to_track
+                # (i.e. propagating 1 frame since end_frame_idx is inclusive)
+                max_frame_num_to_track=0,
+                reverse=reverse,
+                tqdm_disable=True,
+                run_mem_encoder=run_mem_encoder,
+            ):
+                # TODO we only need low-res outputs here for all-gather across GPUs,
+                # so we can remove the high-res interpolation in `propagate_in_video`
+                out_frame_idx, out_obj_ids, out_low_res_masks, _, out_obj_scores = out
+                num_frames_propagated += 1
 
             # only 1 frames should be propagated
             assert (

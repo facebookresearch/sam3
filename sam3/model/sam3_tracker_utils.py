@@ -972,7 +972,10 @@ class AsyncVideoFileLoaderWithTorchCodec:
         frame = frame.clone()  # make a copy to avoid modifying the original frame bytes
         frame = frame.float()  # convert to float32 before interpolation
         frame_resized = F.interpolate(
-            frame[None, :], size=(self.image_size, self.image_size), mode="bicubic"
+            frame[None, :],
+            size=(self.image_size, self.image_size),
+            mode="bicubic",
+            align_corners=False,
         )[0]
         # float16 precision should be sufficient for image tensor storage
         frame_resized = frame_resized.half()  # uint8 -> float16
