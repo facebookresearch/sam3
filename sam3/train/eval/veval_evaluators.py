@@ -11,17 +11,13 @@ from sam3.train.eval.conversion_util import (
     convert_ytbvis_to_cocovid_gt,
     convert_ytbvis_to_cocovid_pred,
 )
-from sam3.train.nms_helper import (
-    process_frame_level_nms,
-    process_track_level_nms,
-)
-from sam3.train.eval.hota_eval_toolkit.run_ytvis_eval import run_ytvis_eval
-from sam3.train.eval.ytvis_coco_wrapper import YTVIS
-from sam3.train.eval.ytvis_eval import YTVISeval as VideoPhraseApEval
-from sam3.train.eval.ytvis_eval import VideoDemoF1Eval
 from sam3.train.eval.demo_eval import DEMO_METRICS
+from sam3.train.eval.hota_eval_toolkit.run_ytvis_eval import run_ytvis_eval
 from sam3.train.eval.teta_eval_toolkit import config, Evaluator, metrics
 from sam3.train.eval.teta_eval_toolkit.datasets import COCO, TAO
+from sam3.train.eval.ytvis_coco_wrapper import YTVIS
+from sam3.train.eval.ytvis_eval import VideoDemoF1Eval, YTVISeval as VideoPhraseApEval
+from sam3.train.nms_helper import process_frame_level_nms, process_track_level_nms
 
 
 class BasePredFileEvaluator:
@@ -473,7 +469,6 @@ class VideoPhraseHotaEvaluator(BasePredFileEvaluator):
 
     def evaluate(self, pred_file: str) -> Dict[str, float]:
         # use the YT-VIS evaluation toolkit in TrackEval
-        
 
         with open(self.gt_ann_file) as f:
             gt = json.load(f)
