@@ -7,6 +7,7 @@ This module provides builders for SAM3 dense tracking models, combining SAM2 and
 components for video object tracking and segmentation.
 """
 
+import os
 from typing import Optional
 
 import torch
@@ -475,8 +476,8 @@ def _create_sam3_geometry_encoder(
 
 
 def build_sam3_video_model(
-    bpe_path: str,
     checkpoint_path: Optional[str] = None,
+    bpe_path: Optional[str] = None,
     has_presence_token: bool = False,
     geo_encoder_use_img_cross_attn: bool = False,
     strict_state_dict_loading: bool = True,
@@ -485,12 +486,17 @@ def build_sam3_video_model(
     Build SAM3 dense tracking model.
 
     Args:
-        bpe_path: Path to the BPE tokenizer file
         checkpoint_path: Optional path to checkpoint file
+        bpe_path: Path to the BPE tokenizer file
 
     Returns:
         Sam3VideoInferenceWithInstanceInteractivity: The instantiated dense tracking model
     """
+    if bpe_path is None:
+        bpe_path = os.path.join(
+            os.path.dirname(__file__), "..", "assets", "bpe_simple_vocab_16e6.txt.gz"
+        )
+
     # Build SAM2 model
     sam2_model = build_sam2_model()
 
