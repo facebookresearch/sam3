@@ -409,6 +409,9 @@ class Sam3Processor:
         orig_width = inputs["original_sizes"][0][1]
         inference_state = {}
         inference_state["device"] = torch.device(device)
+        inference_state["image_size"] = self.image_size[0]
+        inference_state["num_frames"] = len(images)
+        inference_state["constants"] = {} # TODO remove
 
         # the original height and width, used for resizing final masks
         inference_state["orig_height"] = orig_height
