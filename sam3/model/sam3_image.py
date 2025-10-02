@@ -768,7 +768,7 @@ class Sam3Image(torch.nn.Module):
                 inference_state["previous_stages_out"][frame_idx]
             )
 
-        out, _ = self.forward_grounding(
+        out = self.forward_grounding(
             backbone_out=backbone_out,
             find_input=find_input,
             #previous_stages_out=previous_stages_out,
