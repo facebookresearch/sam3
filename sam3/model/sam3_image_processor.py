@@ -395,6 +395,7 @@ class Sam3Processor:
     def init_state(
         self,
         images: ImageInput,
+        device: str = "cuda",
         **kwargs,
     ):
         """Initialize an inference state given an image"""
@@ -407,6 +408,7 @@ class Sam3Processor:
         orig_height = inputs["original_sizes"][0][0]
         orig_width = inputs["original_sizes"][0][1]
         inference_state = {}
+        inference_state["device"] = torch.device(device)
 
         # the original height and width, used for resizing final masks
         inference_state["orig_height"] = orig_height
