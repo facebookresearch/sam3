@@ -8,13 +8,7 @@ import torch
 import torch.nn.functional as F
 from torch import nn, Tensor
 
-from sam3 import perflib
-
-from sam3.sam_original.rope import (
-    apply_rotary_enc,
-    apply_rotary_enc_real,
-    compute_axial_cis,
-)
+from sam3.sam.rope import apply_rotary_enc, apply_rotary_enc_real, compute_axial_cis
 
 from .common import MLPBlock
 

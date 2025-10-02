@@ -15,9 +15,9 @@ from sam3.model.video_tracking_with_prompt_utils import (
     select_closest_cond_frames,
 )
 
-from sam3.sam_original.mask_decoder import MaskDecoder, MLP
-from sam3.sam_original.prompt_encoder import PromptEncoder
-from sam3.sam_original.transformer import TwoWayTransformer
+from sam3.sam.mask_decoder import MaskDecoder, MLP
+from sam3.sam.prompt_encoder import PromptEncoder
+from sam3.sam.transformer import TwoWayTransformer
 from sam3.train.data.collator import BatchedDatapoint
 
 

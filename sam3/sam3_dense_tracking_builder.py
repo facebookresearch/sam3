@@ -42,7 +42,7 @@ from sam3.model.tokenizer_ve import SimpleTokenizer
 from sam3.model.video_tracking_with_prompt_demo import Sam3TrackerPredictor
 from sam3.model.vitdet import ViT
 from sam3.model.vl_combiner import SAM3VLBackbone
-from sam3.sam_original.transformer import RoPEAttention
+from sam3.sam.transformer import RoPEAttention
 
 # Core SAM3 imports
 from .model.model_misc import MultiheadAttentionWrapper as MultiheadAttention
