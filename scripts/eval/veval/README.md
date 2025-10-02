@@ -11,6 +11,8 @@
 Install the SA-Co/VEVal required environment
 ```
 pip install -e ".[veval]"
+cd scripts/eval/veval/sam3_video_evaluators/onevision_cpp_ops
+pip install -e .
 ```
 ### Download annotations
 The GT annotations can be downloaded from the following [location](https://drive.google.com/drive/folders/1BadVFUfENo5JsehDWKuYbTllS20JtmiX) folder `gt` [TODO: update to HF]
