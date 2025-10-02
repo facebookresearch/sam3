@@ -671,7 +671,7 @@ def evaluate(self, use_self_evaluate):
         # to access in C++
         instances_cpp = []
         for instance in instances:
-            instance_cpp = _CPP.InstanceAnnotation(
+            instance_cpp = _CPP.InstanceAnnotation(  # TODO: 10012025 @kalyan @tym to remove the usage of import onevision_cpp_ops as _CPP
                 int(instance["id"]),
                 instance["score"] if is_det else instance.get("score", 0.0),
                 instance["area"],

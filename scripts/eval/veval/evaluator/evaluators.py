@@ -1,5 +1,4 @@
 import json
-import logging
 import os
 import tempfile
 from collections import defaultdict
@@ -7,13 +6,12 @@ from typing import Dict, Optional, Sequence, Tuple
 
 import numpy as np
 import pycocotools.mask
-from tqdm import tqdm
 
-from .conversion_utils.convert_ytbvis_to_cocovid_gt import convert_ytbvis_to_cocovid_gt
-from .conversion_utils.convert_ytbvis_to_cocovid_pred import (
+from .conversion_util import (
+    convert_ytbvis_to_cocovid_gt,
     convert_ytbvis_to_cocovid_pred,
 )
-from .evaluators_utils.nms_helper import (
+from .utils.nms_helper import (
     process_frame_level_nms,
     process_track_level_nms,
 )
@@ -476,9 +474,7 @@ class VideoPhraseHotaEvaluator(BasePredFileEvaluator):
 
     def evaluate(self, pred_file: str) -> Dict[str, float]:
         # use the YT-VIS evaluation toolkit in TrackEval
-        from .taoow_eval_toolkit.run_ytvis_eval import (
-            run_ytvis_eval,
-        )
+        from .taoow_eval_toolkit.run_ytvis_eval import run_ytvis_eval
 
         with open(self.gt_ann_file) as f:
             gt = json.load(f)
