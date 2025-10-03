@@ -8,8 +8,14 @@
 * SA-FARI: videos are from wildlife cameras, partnership with [Conservation X Labs](https://www.conservationxlabs.com/)
 
 ## Usage
+Install the SA-Co/VEVal required environment
+```
+pip install -e ".[veval]"
+cd scripts/eval/veval/sam3_video_evaluators/onevision_cpp_ops
+pip install -e .
+```
 ### Download annotations
-The GT annotations can be downloaded from the following [location](https://drive.google.com/drive/folders/1BadVFUfENo5JsehDWKuYbTllS20JtmiX) [TODO: update to HF]
+The GT annotations can be downloaded from the following [location](https://drive.google.com/drive/folders/1BadVFUfENo5JsehDWKuYbTllS20JtmiX) folder `gt` [TODO: update to HF]
 
 ### Download videos or frames
 #### SA-Co/VEval - SAV
@@ -139,3 +145,22 @@ video_np_pair {
 }
 ```
 In `veval/saco_veval_example.ipynb` we can find more concrete examples.
+
+## Run Eval
+The example pred annotations can be downloaded from the following [location](https://drive.google.com/drive/folders/1BadVFUfENo5JsehDWKuYbTllS20JtmiX) folder `pred`
+```
+python saco_veval_eval.py \
+--gt_ann_file /fsx-onevision/tym/sam3_and_data/data/annotation/saco_veval_sav_test.json \
+--pred_file /fsx-onevision/tym/sam3_and_data/data/pred/example_09242025/saco_sav_test_preds.json
+```
+The `saco_veval_eval.py` will run
+* VideoTetaEvaluator
+* VideoPhraseHotaEvaluator
+* VideoDemoF1Evaluator
+The results will be available in the same folder of `--pred_file` with a suffix `_res` e.g. `--pred_file /fsx onevision/tym/sam3_and_data/data/pred/example_09242025/saco_sav_test_preds_res.json`
+
+For a toy run without the actual downloads needed, directly run
+```
+python saco_veval_eval.py
+```
+It will use the toy data in `veval/toy_gt_and_pred` and generate an eval result in `veval/toy_gt_and_pred/toy_saco_sav_test_preds_res.json`
