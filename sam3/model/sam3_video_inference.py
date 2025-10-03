@@ -1015,7 +1015,7 @@ class Sam3VideoInference(Sam3VideoBase):
         # revert the model to the original GPU and rank
         self.rank = self.sam3_model.rank = orig_rank
         self.world_size = self.sam3_model.world_size = orig_world_size
-        return {video_id: preds}, None
+        return {video_id: preds}
 
     def back_convert(self, targets):
         # Needed for retraining compatibility with trainer

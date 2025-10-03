@@ -503,11 +503,12 @@ class Trainer:
         key, batch = batch.popitem()
         batch = copy_data_to_device(batch, self.device, non_blocking=True)
 
-        find_stages, get_stage = model(batch, is_inference=is_inference)
+        find_stages = model(batch, is_inference=is_inference)
         find_targets = [
             unwrap_ddp_if_wrapped(model).back_convert(x) for x in batch.find_targets
         ]
         batch_size = len(batch.img_batch.tensors)
+        get_stage = None # TODO: Remove this.
         loss = self._find_loss(key)(find_stages, find_targets, get_stage)
 
         loss_str = f"Losses/{phase}_{key}_loss"
