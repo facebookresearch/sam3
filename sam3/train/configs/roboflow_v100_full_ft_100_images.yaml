@@ -59,10 +59,6 @@ roboflow_train:
 
   # Validation transforms pipeline
   val_transforms:
-    - _target_: sam3.train.transforms.filter_query_transforms.FlexibleFilterFindGetQueries
-      query_filter:
-          _target_: sam3.train.transforms.filter_query_transforms.DeleteContextQueries
-    - _target_: sam3.train.transforms.filter_query_transforms.DropGeoPromptsInLastStage
     - _target_: sam3.train.transforms.basic_for_api.ComposeAPI
       transforms:
         - _target_: sam3.train.transforms.basic_for_api.RandomResizeAPI
@@ -301,9 +297,7 @@ trainer:
         max_ann_per_img: 500000
         multiplier: 1
         max_train_queries: 50000
-        max_train_get_queries: 50000
         max_val_queries: 50000
-        max_val_get_queries: 50000
         training: true
         use_caching: False
         img_folder: ${paths.roboflow_vl_100_root}/${roboflow_train.supercategory}/train/
