@@ -1,77 +1,110 @@
 import numpy as np
 from PIL import Image
-import json
 import cv2
+import pycocotools.mask as mask_utils
+
 from .helpers.visualizer import Visualizer
-import pycocotools.mask as mask_utils    
 from .helpers.improving_check_each_mask import save_single_mask_para_visualization_zoomin
 
 
-
-# main visualization function
-def visualize(img, boxes, masks, binary_masks, alpha=0.15, label_mode="1", font_size_multiplier=1.2, boarder_width_multiplier=0, color=None):
-
-    # print("len(masks):", len(masks), "len(boxes):", len(boxes), "len(binary_masks):", len(binary_masks))
-    assert (len(masks) == len(boxes))  # masks and bboxes should have the same length
-
-    viz = Visualizer(img, font_size_multiplier=font_size_multiplier, boarder_width_multiplier=boarder_width_multiplier)
-    viz.overlay_instances(
-        boxes=boxes,
-        masks=masks,
-        binary_masks=binary_masks,
-        # assigned_colors = ["#00FF00"]*len(masks),
-        assigned_colors=[color] * len(masks) if color else None,
-        alpha=alpha,
-        label_mode=label_mode,
-    )
-    viz_image = Image.fromarray(viz.output.get_image())
-    
-    return viz_image
-
-
-# function to be called for visualizing check_each_mask
-def zoom_in_and_visualize(input_json, index, mask_alpha=0.15):
+def visualize(
+    input_json: dict,
+    zoom_in_index: int | None = None,
+    mask_alpha: float = 0.15,
+    label_mode: str = "1",
+    font_size_multiplier: float = 1.2,
+    boarder_width_multiplier: float = 0,
+):
     """
+    Unified visualization function.
+
+    If zoom_in_index is None:
+        - Render all masks in input_json (equivalent to visualize_masks_from_result_json).
+        - Returns: PIL.Image
+
+    If zoom_in_index is provided:
+        - Returns two PIL.Images:
+            1) Output identical to zoom_in_and_visualize(input_json, index).
+            2) The same instance rendered via the general overlay using the color
+               returned by (1), equivalent to calling visualize_masks_from_result_json
+               on a single-mask json_i with color=color_hex.
     """
-    object_data = {
-        "labels": [{"noun_phrase": f"mask_{index}"}],
-        "segmentation": {
-            "counts": input_json["pred_masks"][index],
-            "size": [input_json["orig_img_h"], input_json["orig_img_w"]]
+    # Common fields
+    orig_h = int(input_json["orig_img_h"])
+    orig_w = int(input_json["orig_img_w"])
+    img_path = input_json["original_image_path"]
+
+    # ---------- Mode A: Full-scene render ----------
+    if zoom_in_index is None:
+        boxes = np.array(input_json["pred_boxes"])
+        rle_masks = [{"size": (orig_h, orig_w), "counts": rle}
+                     for rle in input_json["pred_masks"]]
+        binary_masks = [mask_utils.decode(rle) for rle in rle_masks]
+
+        img_bgr = cv2.imread(img_path)
+        if img_bgr is None:
+            raise FileNotFoundError(f"Could not read image: {img_path}")
+        img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
+
+        viz = Visualizer(
+            img_rgb,
+            font_size_multiplier=font_size_multiplier,
+            boarder_width_multiplier=boarder_width_multiplier,
+        )
+        viz.overlay_instances(
+            boxes=boxes,
+            masks=rle_masks,
+            binary_masks=binary_masks,
+            assigned_colors=None,
+            alpha=mask_alpha,
+            label_mode=label_mode,
+        )
+        pil_all_masks = Image.fromarray(viz.output.get_image())
+        return pil_all_masks
+
+    # ---------- Mode B: Zoom-in pair ----------
+    else:
+        idx = int(zoom_in_index)
+        num_masks = len(input_json.get("pred_masks", []))
+        if idx < 0 or idx >= num_masks:
+            raise ValueError(f"zoom_in_index {idx} is out of range (0..{num_masks-1}).")
+
+        # (1) Replicate zoom_in_and_visualize
+        object_data = {
+            "labels": [{"noun_phrase": f"mask_{idx}"}],
+            "segmentation": {
+                "counts": input_json["pred_masks"][idx],
+                "size": [orig_h, orig_w],
+            },
         }
-    }
-    image = Image.open(input_json["original_image_path"])
+        pil_img = Image.open(img_path)
+        pil_mask_i_zoomed, _, _, color_hex = save_single_mask_para_visualization_zoomin(
+            object_data, pil_img, mask_alpha=mask_alpha
+        )
 
-    pil_img, _, _, color_hex = save_single_mask_para_visualization_zoomin(object_data, image, mask_alpha=mask_alpha)
-    return pil_img, color_hex
+        # (2) Single-instance render with the same color
+        boxes_i = np.array([input_json["pred_boxes"][idx]])
+        rle_i = {"size": (orig_h, orig_w), "counts": input_json["pred_masks"][idx]}
+        bin_i = mask_utils.decode(rle_i)
 
-    
+        img_bgr_i = cv2.imread(img_path)
+        if img_bgr_i is None:
+            raise FileNotFoundError(f"Could not read image: {img_path}")
+        img_rgb_i = cv2.cvtColor(img_bgr_i, cv2.COLOR_BGR2RGB)
 
+        viz_i = Visualizer(
+            img_rgb_i,
+            font_size_multiplier=font_size_multiplier,
+            boarder_width_multiplier=boarder_width_multiplier,
+        )
+        viz_i.overlay_instances(
+            boxes=boxes_i,
+            masks=[rle_i],
+            binary_masks=[bin_i],
+            assigned_colors=[color_hex],
+            alpha=mask_alpha,
+            label_mode=label_mode,
+        )
+        pil_mask_i = Image.fromarray(viz_i.output.get_image())
 
-
-def visualize_masks_from_result_json(result_json: dict, color=None):
-    """
-    Given a output json dictionary "result_json" containing the following keys:
-    
-    'original_image_path': str -- the path to the original image,
-    'orig_img_h': int -- the height of the original image,
-    'orig_img_w': int -- the width of the original image,
-    'pred_boxes': list -- the predicted bounding boxes,
-    'pred_scores': list -- the predicted scores,
-    'pred_masks': list -- the predicted masks,
-    
-    this function will load the original image, render the masks on the image, and return the rendered image.
-    
-    """
-    # get the boxes, coco_rle_masks, and binary masks
-    boxes_array = np.array(result_json['pred_boxes'])
-    coco_rle_masks = [{'size': (result_json["orig_img_h"], result_json["orig_img_w"]), 'counts': rle} for rle in result_json['pred_masks']]
-    binary_masks = [mask_utils.decode(i) for i in coco_rle_masks]
-    
-    # load the original image
-    img = cv2.imread(result_json['original_image_path'])
-    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-    
-    # visualize the masks on the image
-    image_w_rendered_masks = visualize(img, boxes_array, coco_rle_masks, binary_masks, color=color)
-    return image_w_rendered_masks
+        return pil_mask_i, pil_mask_i_zoomed

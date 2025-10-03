@@ -4,7 +4,7 @@ import numpy as np
 import json
 import os
 from PIL import Image
-from .viz import zoom_in_and_visualize, visualize_masks_from_result_json
+from .viz import visualize
 
 
 if __name__ == "__main__":
@@ -24,16 +24,8 @@ if __name__ == "__main__":
     # 3. Call the visualize function and save the output image
     for i in range (len(data['pred_boxes'])):
         
-        data_i = {
-            "original_image_path": data["original_image_path"],
-            "orig_img_h": data["orig_img_h"],
-            "orig_img_w": data["orig_img_w"],
-            "pred_boxes": np.array([data["pred_boxes"][i]]),
-            "pred_masks": [data["pred_masks"][i]],
-        }
-
-        image_w_zoomed_in_mask_i, color_hex = zoom_in_and_visualize(data, i)
-        image_w_mask_i = visualize_masks_from_result_json(data_i, color=color_hex)
+        
+        image_w_mask_i, image_w_zoomed_in_mask_i = visualize(data, zoom_in_index=i)
 
         zoomed_in_mask_i_output_path = f'/fsx-onevision/yuzhou1/code/sam3/sam3/agent/viz_out/person_{i}_zoomed_in.png'
         mask_i_output_path = f'/fsx-onevision/yuzhou1/code/sam3/sam3/agent/viz_out/person_{i}.png'

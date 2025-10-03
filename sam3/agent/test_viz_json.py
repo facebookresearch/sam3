@@ -4,7 +4,7 @@ import numpy as np
 import json
 import os
 from PIL import Image
-from .viz import visualize_masks_from_result_json
+from .viz import visualize
 
 
 if __name__ == "__main__":
@@ -23,6 +23,6 @@ if __name__ == "__main__":
 
 
     # 3. Call the visualize function and save the output image
-    viz_image = visualize_masks_from_result_json(data)
+    viz_image = visualize(data)
     viz_image.save(image_output_path)
     print("saved image to ", image_output_path)

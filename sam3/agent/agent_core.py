@@ -12,7 +12,7 @@ import random
 #from num2words import num2words
 from .client_llm import send_generate_request
 from .client_sam3 import call_sam_service
-from .viz import visualize_masks_from_result_json, zoom_in_and_visualize
+from .viz import visualize, zoom_in_and_visualize
 import getpass
 USER = getpass.getuser()
 
@@ -276,15 +276,17 @@ def agent_inference(img_path: str, initial_text_prompt: str, debug: bool = False
             for i in range(num_masks):  
                 print(f"🔍 Checking mask {i+1}/{num_masks}...")                
                 
-                mask_i_outputs = {
-                    "original_image_path": current_outputs["original_image_path"],
-                    "orig_img_h": current_outputs["orig_img_h"],
-                    "orig_img_w": current_outputs["orig_img_w"],
-                    "pred_boxes": np.array([current_outputs["pred_boxes"][i]]),
-                    "pred_masks": [current_outputs["pred_masks"][i]],
-                }
-                image_w_zoomed_in_mask_i, color_hex = zoom_in_and_visualize(current_outputs, i)
-                image_w_mask_i = visualize_masks_from_result_json(mask_i_outputs, color=color_hex)
+                # mask_i_outputs = {
+                #     "original_image_path": current_outputs["original_image_path"],
+                #     "orig_img_h": current_outputs["orig_img_h"],
+                #     "orig_img_w": current_outputs["orig_img_w"],
+                #     "pred_boxes": np.array([current_outputs["pred_boxes"][i]]),
+                #     "pred_masks": [current_outputs["pred_masks"][i]],
+                # }
+                # image_w_zoomed_in_mask_i, color_hex = zoom_in_and_visualize(current_outputs, i)
+                # image_w_mask_i = visualize(mask_i_outputs, color=color_hex)
+                
+                image_w_mask_i, image_w_zoomed_in_mask_i = visualize(current_outputs, i)
                 
                 image_w_zoomed_in_mask_i_path = os.path.join(sam_output_dir, rf"{LATEST_SAM3_TEXT_PROMPT}.png".replace("/", "_")).replace(".png", f"_zoom_in_mask_{i + 1}.png")
                 image_w_mask_i_path = os.path.join(sam_output_dir, rf"{LATEST_SAM3_TEXT_PROMPT}.png".replace("/", "_")).replace(".png", f"_selected_mask_{i + 1}.png")
@@ -330,7 +332,7 @@ def agent_inference(img_path: str, initial_text_prompt: str, debug: bool = False
                 "pred_masks": [current_outputs["pred_masks"][i] for i in masks_to_keep],
             }
             
-            image_w_check_masks = visualize_masks_from_result_json(updated_outputs)
+            image_w_check_masks = visualize(updated_outputs)
             image_w_check_masks_path = os.path.join(sam_output_dir, rf"{LATEST_SAM3_TEXT_PROMPT}.png").replace(".png", f"_selected_masks_{'-'.join(map(str, [i+1 for i in masks_to_keep]))}.png".replace("/", "_"))
             image_w_check_masks.save(image_w_check_masks_path)
             # save the updated json outputs and append to message history
@@ -377,7 +379,7 @@ def agent_inference(img_path: str, initial_text_prompt: str, debug: bool = False
                 "pred_masks": [current_outputs["pred_masks"][i-1] for i in masks_to_keep],
             }
             
-            rendered_final_output = visualize_masks_from_result_json(final_outputs)
+            rendered_final_output = visualize(final_outputs)
             messages.append({"role": "assistant", "content": [{"type": "text", "text": generated_text}]})
             
             # Clean up debug files before successful return
