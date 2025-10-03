@@ -3,7 +3,7 @@
 Utilities for bounding box manipulation and GIoU.
 """
 
-# from typing import Tuple
+from typing import Tuple
 
 import torch
 
@@ -191,3 +191,27 @@ def fast_diag_box_iou(boxes1, boxes2):
     iou = inter / union
 
     return iou
+
+
+def box_xywh_inter_union(
+    boxes1: torch.Tensor, boxes2: torch.Tensor
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    # Asuumes boxes in xywh format
+    assert boxes1.size(-1) == 4 and boxes2.size(-1) == 4
+    boxes1 = box_xywh_to_xyxy(boxes1)
+    boxes2 = box_xywh_to_xyxy(boxes2)
+    box1_tl_xy = boxes1[..., :2]
+    box1_br_xy = boxes1[..., 2:]
+    box2_tl_xy = boxes2[..., :2]
+    box2_br_xy = boxes2[..., 2:]
+    area1 = (box1_br_xy - box1_tl_xy).prod(-1)
+    area2 = (box2_br_xy - box2_tl_xy).prod(-1)
+
+    assert (area1 >= 0).all() and (area2 >= 0).all()
+    tl = torch.max(box1_tl_xy, box2_tl_xy)
+    br = torch.min(box1_br_xy, box2_br_xy)
+
+    inter = (br - tl).clamp(min=0).prod(-1)
+    union = area1 + area2 - inter
+
+    return inter, union
