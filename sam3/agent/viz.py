@@ -78,7 +78,7 @@ def visualize(
             },
         }
         pil_img = Image.open(img_path)
-        pil_mask_i_zoomed, _, _, color_hex = save_single_mask_para_visualization_zoomin(
+        pil_mask_i_zoomed, color_hex = save_single_mask_para_visualization_zoomin(
             object_data, pil_img, mask_alpha=mask_alpha
         )
 
