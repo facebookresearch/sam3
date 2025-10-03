@@ -10,14 +10,11 @@ from timm.models.layers import trunc_normal_
 from sam3.model.memory import SimpleMaskEncoder
 from sam3.model.model_misc import NestedTensor
 
-from sam3.model.video_tracking_with_prompt_utils import (
-    get_1d_sine_pe,
-    select_closest_cond_frames,
-)
+from sam3.model.sam3_tracker_utils import get_1d_sine_pe, select_closest_cond_frames
 
-from sam3.sam_original.mask_decoder import MaskDecoder, MLP
-from sam3.sam_original.prompt_encoder import PromptEncoder
-from sam3.sam_original.transformer import TwoWayTransformer
+from sam3.sam.mask_decoder import MaskDecoder, MLP
+from sam3.sam.prompt_encoder import PromptEncoder
+from sam3.sam.transformer import TwoWayTransformer
 from sam3.train.data.collator import BatchedDatapoint
 
 

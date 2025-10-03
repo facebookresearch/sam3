@@ -311,7 +311,10 @@ class PostProcess(nn.Module):
             assert target_size.size(0) == 1, "Expecting all target sizes to be equal"
             out_masks = (
                 interpolate(
-                    pred_masks, target_size.squeeze().tolist(), mode="bilinear"
+                    pred_masks,
+                    target_size.squeeze().tolist(),
+                    mode="bilinear",
+                    align_corners=False,
                 ).sigmoid()
                 > 0.5
             )
@@ -336,7 +339,10 @@ class PostProcess(nn.Module):
                 try:
                     interpolated = (
                         interpolate(
-                            mask.unsqueeze(1), (h, w), mode="bilinear"
+                            mask.unsqueeze(1),
+                            (h, w),
+                            mode="bilinear",
+                            align_corners=False,
                         ).sigmoid()
                         > 0.5
                     )
@@ -346,7 +352,10 @@ class PostProcess(nn.Module):
                     mask = mask.cpu()
                     interpolated = (
                         interpolate(
-                            mask.unsqueeze(1), (h, w), mode="bilinear"
+                            mask.unsqueeze(1),
+                            (h, w),
+                            mode="bilinear",
+                            align_corners=False,
                         ).sigmoid()
                         > 0.5
                     )

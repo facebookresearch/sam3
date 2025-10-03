@@ -13,7 +13,7 @@ import torch
 from torch import nn, Tensor
 from torchvision.ops.roi_align import RoIAlign
 
-from sam3.sam_original.transformer import RoPEAttention
+from sam3.sam.transformer import RoPEAttention
 
 from .act_ckpt_utils import activation_ckpt_wrapper
 
@@ -71,7 +71,7 @@ class TransformerDecoderLayer(nn.Module):
         return tensor if pos is None else tensor + pos
 
     def forward_ffn(self, tgt):
-        with torch.cuda.amp.autocast(enabled=False):
+        with torch.amp.autocast(device_type="cuda", enabled=False):
             tgt2 = self.linear2(self.dropout3(self.activation(self.linear1(tgt))))
         tgt = tgt + self.dropout4(tgt2)
         tgt = self.norm3(tgt)

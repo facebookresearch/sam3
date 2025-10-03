@@ -689,7 +689,8 @@ class Trainer:
 
             # compute output
             with torch.no_grad():
-                with torch.cuda.amp.autocast(
+                with torch.amp.autocast(
+                    device_type="cuda",
                     enabled=(self.optim_conf.amp.enabled if self.optim_conf else False),
                     dtype=(
                         get_amp_type(self.optim_conf.amp.amp_dtype)
@@ -945,7 +946,8 @@ class Trainer:
                 else contextlib.nullcontext()
             )
             with ddp_context:
-                with torch.cuda.amp.autocast(
+                with torch.amp.autocast(
+                    device_type="cuda",
                     enabled=self.optim_conf.amp.enabled,
                     dtype=get_amp_type(self.optim_conf.amp.amp_dtype),
                 ):
