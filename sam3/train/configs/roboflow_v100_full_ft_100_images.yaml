@@ -12,7 +12,7 @@ paths:
 
 # Roboflow dataset configuration
 roboflow_train:
-  num_images: 100
+  num_images: 100 # Note: This is the number of images used for training. If null, all images are used.
   supercategory: ${all_roboflow_supercategories.${string:${submitit.job_array.task_index}}}
 
   # Training transforms pipeline
@@ -334,7 +334,6 @@ trainer:
 
 
   # TODO (Kalyan): Expose more model parameters, droppath rate, dropout, etc
-  # TODO (Kalyan): Add support for presence token.
   model:
     _target_: sam3.model_builder.build_sam3_image_model
     bpe_path: /home/kalyanv/sam3/assets/bpe_simple_vocab_16e6.txt.gz
