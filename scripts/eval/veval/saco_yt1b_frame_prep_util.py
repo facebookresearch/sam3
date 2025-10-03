@@ -1,4 +1,5 @@
 import argparse
+import logging
 import os
 import re
 import shutil
@@ -10,6 +11,8 @@ import yt_dlp
 
 from tqdm import tqdm
 
+logger = logging.getLogger(__name__)
+
 
 class YtVideoPrep:
     def __init__(
@@ -18,10 +21,12 @@ class YtVideoPrep:
         data_dir: str,
         cookies_file: str,
         id_and_frame_map_path: str,
+        ffmpeg_timeout: int,
     ):
         self.saco_yt1b_id = saco_yt1b_id  # saco_yt1b_id is like saco_yt1b_000000
         self.data_dir = data_dir
         self.cookies_file = cookies_file
+        self.ffmpeg_timeout = ffmpeg_timeout
 
         self.id_and_frame_map_df = pd.read_json(id_and_frame_map_path)
         (
@@ -123,13 +128,10 @@ class YtVideoPrep:
             print(f"Error downloading video {self.yt_video_id}: {e}")
             return f"error {e}"
 
-    def generate_all_raw_frames(self, timeout_seconds=3600):
+    def generate_all_raw_frames(self):
         """
         Extract all frames from the raw video to raw_frames_resized_width_1080_dir.
         This is the first step before frame matching.
-
-        Args:
-            timeout_seconds: Timeout for ffmpeg operation in seconds (default: 3600 = 1 hour)
         """
         if not os.path.exists(self.raw_video_path):
             print(f"Error: Raw video file not found at {self.raw_video_path}")
@@ -160,10 +162,10 @@ class YtVideoPrep:
             self.raw_frames_resized_width_1080_pattern,
         ]
 
-        print(f"Starting ffmpeg with {timeout_seconds}s timeout...")
+        print(f"Starting ffmpeg with {self.ffmpeg_timeout}s timeout...")
         result = subprocess.run(
             ["ffmpeg"] + args,
-            timeout=timeout_seconds,
+            timeout=self.ffmpeg_timeout,
             capture_output=True,
             text=True,
         )
@@ -172,7 +174,7 @@ class YtVideoPrep:
             print(f"Failed to extract raw frames: {result.stderr}")
             if "TimeoutExpired" in str(result.stderr):
                 print(
-                    f"Operation timed out after {timeout_seconds} seconds. Consider increasing timeout for very large videos."
+                    f"Operation timed out after {self.ffmpeg_timeout} seconds. Consider increasing timeout for very large videos."
                 )
             return False
 
@@ -182,7 +184,7 @@ class YtVideoPrep:
         print(
             f"Successfully extracted {len(extracted_frames)} frames to {self.raw_frames_resized_width_1080_dir}"
         )
-        
+
         return True
 
     def generate_frames_by_frame_matching(self):
@@ -190,15 +192,33 @@ class YtVideoPrep:
         Copy and rename specific frames from raw_frames_resized_width_1080_dir to frames_by_frame_matching_dir
         based on the frame_matching list of [dst_frame_num, src_frame_num] pairs.
         """
-        # First ensure all raw frames are extracted
-        if not self.generate_all_raw_frames():
-            return False
-
         frame_matching = self.frame_matching
         total_frames = len(frame_matching)
 
-        print(f"Copying {total_frames} frames based on frame matching")
+        if len(os.listdir(self.frames_by_frame_matching_dir)) == total_frames:
+            print(
+                f"Note: the frames already exist in {self.frames_by_frame_matching_dir}, skip full frames extracting"
+            )
+            logger.info(
+                f"[frame matching][{self.saco_yt1b_id}] frames already exist in {self.frames_by_frame_matching_dir}, no need to re-copy by frame matching"
+            )
+            return True
 
+        # Extract full fps frames to use the frame matching map later
+        if not self.generate_all_raw_frames():
+            logger.warning(
+                f"[frame matching][{self.saco_yt1b_id}] failed, can't extract full fps frames"
+            )
+            return False
+
+        print(
+            f"Removing any existing frame in {self.frames_by_frame_matching_dir} to ensure re-copy consistency"
+        )
+        for old_files in glob(f"{self.frames_by_frame_matching_dir}/*.jpg"):
+            os.remove(old_files)
+        print("Existing frames cleared.")
+
+        print(f"Copying {total_frames} frames based on frame matching")
         success_count = 0
         for dst_frame_num, src_frame_num in tqdm(frame_matching, desc="Copying frames"):
             # Source frame file (from raw frames)
@@ -232,7 +252,17 @@ class YtVideoPrep:
         print(
             f"Successfully copied {success_count}/{total_frames} frames to {self.frames_by_frame_matching_dir}"
         )
-        return success_count == total_frames
+
+        status = success_count == total_frames
+        if status:
+            logger.info(
+                f"[frame matching][{self.saco_yt1b_id}] copy to {self.frames_by_frame_matching_dir} succeeded!"
+            )
+        else:
+            logger.warning(
+                f"[frame matching][{self.saco_yt1b_id}] failed, some frames got extracted but not match the number of frames needed extracted {success_count} != expected {total_frames}"
+            )
+        return status
 
 
 def main():
@@ -253,14 +283,36 @@ def main():
         type=str,
         required=True,
     )
+    parser.add_argument(
+        "--yt1b_frame_prep_log_path",
+        type=str,
+        required=True,
+    )
+    parser.add_argument(
+        "--ffmpeg_timeout",
+        type=str,
+        default=7200,  # Use longer timeout in case of large videos processing timeout
+    )
     args = parser.parse_args()
 
-    video_prep = YtVideoPrep(
-        args.saco_yt1b_id, args.data_dir, args.cookies_file, args.id_map_file
+    logging.basicConfig(
+        filename=args.yt1b_frame_prep_log_path,
+        format="%(asctime)s [%(threadName)s] %(levelname)s: %(message)s",
+        level=logging.INFO,
+        filemode="w",
     )
-    video_prep.download_youtube_video()
-    # Use longer timeout for large videos (2 hours)
-    video_prep.generate_all_raw_frames(timeout_seconds=7200)
+
+    video_prep = YtVideoPrep(
+        saco_yt1b_id=args.saco_yt1b_id,
+        data_dir=args.data_dir,
+        cookies_file=args.cookies_file,
+        id_and_frame_map_path=args.id_map_file,
+        ffmpeg_timeout=args.ffmpeg_timeout,
+    )
+
+    status = video_prep.download_youtube_video()
+    logger.info(f"[video download][{args.saco_yt1b_id}] download status {status}")
+
     video_prep.generate_frames_by_frame_matching()
 
 
