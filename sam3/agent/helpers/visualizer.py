@@ -1670,8 +1670,3 @@ class Visualizer:
             to the image.
         """
         return self.output
-
-
-
-
-

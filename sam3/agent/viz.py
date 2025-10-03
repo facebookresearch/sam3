@@ -4,7 +4,7 @@ import cv2
 import pycocotools.mask as mask_utils
 
 from .helpers.visualizer import Visualizer
-from .helpers.improving_check_each_mask import save_single_mask_para_visualization_zoomin
+from .helpers.zoom_in import render_zoom_in
 
 
 def visualize(
@@ -78,7 +78,7 @@ def visualize(
             },
         }
         pil_img = Image.open(img_path)
-        pil_mask_i_zoomed, color_hex = save_single_mask_para_visualization_zoomin(
+        pil_mask_i_zoomed, color_hex = render_zoom_in(
             object_data, pil_img, mask_alpha=mask_alpha
         )
 
