@@ -14,21 +14,47 @@ class TestModelBuilder(unittest.TestCase):
 
     def test_build_sam3_image_model(self):
         """Test that build_sam3_image_model creates a model with expected structure."""
-        # This is a placeholder test that would need to be implemented
-        # with proper mocking of dependencies
-        from sam3 import build_sam3_image_model
-        from sam3.model.sam3_demo import Sam3ImageInteractiveDemo
+        from sam3.model_builder import build_sam3_image_model
+        from sam3.model.sam3_image import Sam3Image
 
-        # For now, we'll just assert that the function exists
+        # Test that the function exists
         self.assertTrue(callable(build_sam3_image_model))
 
-        # In a real implementation, we would do something like:
+        # Test model creation without checkpoint
         bpe_path = "assets/bpe_simple_vocab_16e6.txt.gz"
-        model = build_sam3_image_model(bpe_path=bpe_path)
-        self.assertIsInstance(model, Sam3ImageInteractiveDemo)
+        model = build_sam3_image_model(
+            bpe_path=bpe_path,
+            checkpoint_path=None,
+            device="cpu",
+            eval_mode=True
+        )
+        self.assertIsInstance(model, Sam3Image)
 
-        # etc.
+        # Test that model has expected attributes
+        self.assertTrue(hasattr(model, 'backbone'))
+        self.assertTrue(hasattr(model, 'transformer'))
+        self.assertTrue(hasattr(model, 'segmentation_head'))
 
+    def test_build_sam3_video_model(self):
+        """Test that build_sam3_video_model creates a model with expected structure."""
+        from sam3.sam3_video_model_builder import build_sam3_video_model
+        from sam3.model.sam3_video_inference import Sam3VideoInferenceWithInstanceInteractivity
+
+        # Test that the function exists
+        self.assertTrue(callable(build_sam3_video_model))
+
+        # Test model creation without checkpoint
+        bpe_path = "assets/bpe_simple_vocab_16e6.txt.gz"
+        model = build_sam3_video_model(
+            bpe_path=bpe_path,
+            checkpoint_path=None,
+            device="cpu"
+        )
+        self.assertIsInstance(model, Sam3VideoInferenceWithInstanceInteractivity)
+
+        # Test that model has expected attributes
+        self.assertTrue(hasattr(model, 'sam2_model'))
+        self.assertTrue(hasattr(model, 'sam3_model'))
 
 if __name__ == "__main__":
     unittest.main()
