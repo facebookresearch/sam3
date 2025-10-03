@@ -45,7 +45,7 @@ python saco_yt1b_downloader.py \
 --data_dir /fsx-onevision/tym/sam3_and_data/data/media/saco_yt1b \
 --cookies_file /fsx-onevision/tym/sam3_and_data/data/media/saco_yt1b/cookies.txt \
 --id_map_file /fsx-onevision/tym/sam3_and_data/data/media/saco_yt1b/id_and_frame_map.json \
---download_result /fsx-onevision/tym/sam3_and_data/data/media/saco_yt1b/download_result.txt
+--yt1b_frame_prep_log_path /fsx-onevision/tym/sam3_and_data/data/media/saco_yt1b/yt1b_frame_prep_log.log
 ```
 * data_dir: The directoy where to store the downloaded youtube videos
 * cookies_file: This is required to download youtube videos. See instructions from yt-dlp [exporting-youtube-cookies](https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies) and [pass-cookies-to-yt-dlp](https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp) to prepare the cookies_file
