@@ -10,20 +10,7 @@ from typing import List, MutableSequence, Optional, Union
 
 import torch
 
-from sam3.train.data.sam3_image_dataset import (
-    Datapoint,
-    FindQuery,
-    Object,
-    QueryContent,
-    QueryType,
-)
-
-
-class FindNode:
-    def __init__(self, idx, find_children, get_children):
-        self.idx = idx
-        self.find_children = find_children
-        self.get_children = get_children
+from sam3.train.data.sam3_image_dataset import Datapoint, FindQuery, Object, QueryType
 
 
 class FilterDataPointQueries:
@@ -296,47 +283,6 @@ class FilterEmptyTargets(FilterDataPointQueries):
         self.find_ids_to_filter = set()
 
 
-class FilterContentQueries(FilterDataPointQueries):
-    """
-    Filters all queries with the specified query type and content type
-    """
-
-    def __init__(self, content_type_filter: str = None, query_type_filter: str = None):
-        try:
-            self.query_type_filter = QueryType[query_type_filter]
-        except KeyError:
-            raise KeyError(
-                f"Exception: {query_type_filter} is not a valid type of QueryType. Possible options are: {list(QueryType.__members__.keys())}"
-            )
-        try:
-            self.content_type_filter = QueryContent[content_type_filter]
-        except KeyError:
-            raise KeyError(
-                f"Exception: {content_type_filter} is not a valid type of QueryContent. Possible options are: {list(QueryContent.__members__.keys())}"
-            )
-
-    def identify_queries_to_filter(self, datapoint):
-        # if self.query_type_filter == QueryType.GetQuery:
-        #     list_queries = datapoint.get_queries
-        if self.query_type_filter == QueryType.FindQuery:
-            list_queries = datapoint.find_queries
-        else:
-            raise ValueError(f"{self.query_type_filter} filtering is not implemented")
-
-        # If a query predicts an object with zero area, drop the whole find query
-        del_ids = []
-        for i, f_q in enumerate(list_queries):
-            if f_q.query_content == self.content_type_filter:
-                del_ids.append(i)
-
-        self.obj_ids_to_filter = set()
-
-        self.find_ids_to_filter = set()
-
-        if self.query_type_filter == QueryType.FindQuery:
-            self.find_ids_to_filter = set(del_ids)
-
-
 class FilterNonExhaustiveFindQueries(FilterDataPointQueries):
     """
     Filters all find queries which are non-exhaustive
@@ -396,21 +342,6 @@ class FlexibleFilterFindGetQueries:
     ) -> None:
         self.query_filter = query_filter
         self.enabled = enabled
-
-    # def delete_all_children(self, datapoint, find_id, graph_id_to_node):
-    #     if find_id not in graph_id_to_node:
-    #         return
-    #     for g_i in graph_id_to_node[find_id].get_children:
-    #         datapoint.get_queries[g_i] = None
-    #     for f_i in graph_id_to_node[find_id].find_children:
-    #         datapoint.find_queries[f_i] = None
-    #         self.delete_all_children(datapoint, f_i, graph_id_to_node)
-
-    # def get_parent_node(self, node_id, graph_id_to_node):
-    #     if node_id not in graph_id_to_node:
-    #         graph_id_to_node[node_id] = FindNode(node_id, [], [])
-
-    #   return graph_id_to_node[node_id]
 
     def __call__(self, datapoint, **kwargs):
         if not self.enabled:

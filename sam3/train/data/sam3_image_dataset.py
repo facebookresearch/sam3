@@ -40,34 +40,6 @@ class QueryType(Enum):
     FindQuery = 0
 
 
-class QueryContent(Enum):
-    """
-    Enum representing the various possible content categories the queries query for.
-    In a Find queries, this refers to the input, in the Get queries, it can be either about input or output.
-    """
-
-    # Query about the category, or overall description of the object
-    # This includes full sentences, even if they describe relations
-    ContentCategory = 0
-
-    # Query about an attribute
-    ContentAttribute = 1
-
-    # Query about the predicate of a relation
-    ContentRelation = 2
-
-    # Query using geometry information
-    ContentGeometry = 3
-
-
-@dataclass
-class Pointer:
-    """Uniquely refers to an object: we need to know which query generated it and its index within that query"""
-
-    query_id: int
-    object_id: int
-
-
 @dataclass
 class InferenceMetadata:
     """Metadata required for postprocessing"""
@@ -130,18 +102,6 @@ class FindQuery:
     # covers every pixel belonging to the target class
     # Note that instance_exhaustive implies pixel_exhaustive
     is_pixel_exhaustive: Optional[bool] = None
-
-    query_content: Optional[QueryContent] = None
-
-    # If it's specified, it will be a tuple of (qids, attribute). The attribute may be empty. The qids is a comma separated list
-    # (our graph construction sometimes merge multiple qids into one)
-    wkdata_qid: Optional[Tuple[str, str]] = None
-    # Comma separated list of qids that are positive in the image (not necessarily exhaustive)
-    other_positive_qids: Optional[str] = None
-    # Comma separated list of qids that are negative in the image. If not provided, we assume exhaustive dataset and all the non positives are negatives
-    negative_qids: Optional[str] = None
-
-    source: Optional[str] = None
 
     # This adds a an ordering within each stage
     within_stage_order: int = -1
@@ -508,24 +468,6 @@ class CustomCocoDetectionAPI(VisionDataset):
                             original_size=(h, w),
                             object_id=object_id,
                         ),
-                        query_content=(
-                            QueryContent(query["query_content"])
-                            if "query_content" in query
-                            and query["query_content"] is not None
-                            else None
-                        ),
-                        wkdata_qid=(
-                            query["wkdata_qid"] if "wkdata_qid" in query else None
-                        ),
-                        other_positive_qids=(
-                            query["other_positive_qids"]
-                            if "other_positive_qids" in query
-                            else None
-                        ),
-                        negative_qids=(
-                            query["negative_qids"] if "negative_qids" in query else None
-                        ),
-                        source=query["source"] if "source" in query else None,
                     )
                 )
             else:

@@ -10,10 +10,7 @@ from sam3.model.data_misc import (
     BatchedDatapoint,
     BatchedFindTarget,
     BatchedInferenceMetadata,
-    # BatchedPointer,
     FindStage,
-    # GetStage,
-    PointerExtractBehaviour,
 )
 
 from sam3.model.model_misc import NestedTensor
