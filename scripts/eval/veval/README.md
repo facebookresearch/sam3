@@ -44,7 +44,7 @@ Run `saco_yt1b_downloader.py` to download youtube videos used in the SA-Co/VEVal
 python saco_yt1b_downloader.py \
 --data_dir /fsx-onevision/tym/sam3_and_data/data/media/saco_yt1b \
 --cookies_file /fsx-onevision/tym/sam3_and_data/data/media/saco_yt1b/cookies.txt \
---id_map_file /fsx-onevision/tym/sam3_and_data/data/media/saco_yt1b/id_and_frame_map.json \
+--id_map_file /fsx-onevision/tym/sam3_and_data/data/media/saco_yt1b/yt1b_id_frame_map.json \
 --yt1b_frame_prep_log_path /fsx-onevision/tym/sam3_and_data/data/media/saco_yt1b/yt1b_frame_prep_log.log
 ```
 * data_dir: The directoy where to store the downloaded youtube videos
