@@ -6,6 +6,8 @@ import shutil
 import subprocess
 from glob import glob
 
+import cv2
+
 import pandas as pd
 import yt_dlp
 
@@ -110,7 +112,7 @@ class YtVideoPrep:
             return "already exists"
 
         ydl_opts = {
-            "format": "best[height<=720]/best",  # 720p or lower
+            "format": "best[height<=720][ext=mp4][protocol^=https]/best[ext=mp4][protocol^=https]/best[height<=720]/best",  # Prefer https MP4 formats, avoid HLS/m3u8
             "outtmpl": outtmpl,
             "merge_output_format": "mp4",
             "noplaylist": True,
@@ -128,14 +130,32 @@ class YtVideoPrep:
             print(f"Error downloading video {self.yt_video_id}: {e}")
             return f"error {e}"
 
-    def generate_all_raw_frames(self):
+    def _get_video_frame_count(self):
+        cap = cv2.VideoCapture(self.raw_video_path)
+        frame_number = cap.get(cv2.CAP_PROP_FRAME_COUNT)
+        return frame_number
+
+    def _generate_all_raw_frames(self):
         """
         Extract all frames from the raw video to raw_frames_resized_width_1080_dir.
         This is the first step before frame matching.
         """
         if not os.path.exists(self.raw_video_path):
-            print(f"Error: Raw video file not found at {self.raw_video_path}")
+            logger.warning(
+                f"[frame extracting][{self.saco_yt1b_id}] Raw video file not found at {self.raw_video_path}"
+            )
             return False
+
+        already_extracted_frame_count = len(
+            os.listdir(self.raw_frames_resized_width_1080_dir)
+        )
+        expected_frame_count = self._get_video_frame_count()
+        if abs(already_extracted_frame_count - expected_frame_count) <= 1:
+            # soft compare due to sometimes cv2 frame number might be off a bit
+            logger.info(
+                f"[frame extracting][{self.saco_yt1b_id}] all frames already exist in {self.raw_frames_resized_width_1080_dir}, skip the full extract"
+            )
+            return True
 
         print(
             f"Extracting all frames from {self.raw_video_path} to {self.raw_frames_resized_width_1080_dir}"
@@ -171,18 +191,16 @@ class YtVideoPrep:
         )
 
         if result.returncode != 0:
-            print(f"Failed to extract raw frames: {result.stderr}")
-            if "TimeoutExpired" in str(result.stderr):
-                print(
-                    f"Operation timed out after {self.ffmpeg_timeout} seconds. Consider increasing timeout for very large videos."
-                )
+            logger.warning(
+                f"[frame extracting][{self.saco_yt1b_id}] Failed to extract raw frames: {result.stderr}"
+            )
             return False
 
         extracted_frames = glob(
             os.path.join(self.raw_frames_resized_width_1080_dir, "*.jpg")
         )
-        print(
-            f"Successfully extracted {len(extracted_frames)} frames to {self.raw_frames_resized_width_1080_dir}"
+        logger.info(
+            f"[frame extracting][{self.saco_yt1b_id}] Successfully extracted {len(extracted_frames)} frames to {self.raw_frames_resized_width_1080_dir}"
         )
 
         return True
@@ -196,19 +214,13 @@ class YtVideoPrep:
         total_frames = len(frame_matching)
 
         if len(os.listdir(self.frames_by_frame_matching_dir)) == total_frames:
-            print(
-                f"Note: the frames already exist in {self.frames_by_frame_matching_dir}, skip full frames extracting"
-            )
             logger.info(
                 f"[frame matching][{self.saco_yt1b_id}] frames already exist in {self.frames_by_frame_matching_dir}, no need to re-copy by frame matching"
             )
             return True
 
         # Extract full fps frames to use the frame matching map later
-        if not self.generate_all_raw_frames():
-            logger.warning(
-                f"[frame matching][{self.saco_yt1b_id}] failed, can't extract full fps frames"
-            )
+        if not self._generate_all_raw_frames():
             return False
 
         print(
@@ -237,9 +249,11 @@ class YtVideoPrep:
                 continue
 
             # Check if source frame exists
-            assert os.path.exists(
-                src_file
-            ), f"Source frame {src_frame_num:05d}.jpg not found"
+            if not os.path.exists(src_file):
+                logger.warning(
+                    f"[frame_matching][{self.saco_yt1b_id}] Source frame {src_file} not found"
+                )
+                raise ValueError(f"Source frame {src_file} not found")
 
             try:
                 shutil.copy2(src_file, dst_file)

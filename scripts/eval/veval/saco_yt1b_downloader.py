@@ -67,15 +67,15 @@ def main():
         filemode="w",
     )
 
-    YT_DLP_WARNNING_STR = """ ==========
+    YT_DLP_WARNING_STR = """ ==========
         NOTICE!!
         This script uses yt-dlp to download youtube videos.
         See the youtube account banning risk in https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies
         ==========
         """
 
-    print(YT_DLP_WARNNING_STR)
-    print(logger.info(YT_DLP_WARNNING_STR))
+    print(YT_DLP_WARNING_STR)
+    print(logger.info(YT_DLP_WARNING_STR))
 
     args = parser.parse_args()
 
