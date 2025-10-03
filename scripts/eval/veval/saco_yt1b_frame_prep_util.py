@@ -86,17 +86,17 @@ class YtVideoPrep:
             cap = cv2.VideoCapture(self.raw_video_path)
             if not cap.isOpened():
                 raise ValueError(f"Could not open video: {self.raw_video_path}")
-            
+
             # Get frame count from video metadata
             total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
             cap.release()
-            
+
             if total_frames > 0:
                 print(f"cv2 reports {total_frames} frames")
                 return total_frames
             else:
                 raise ValueError("cv2 could not determine frame count")
-                
+
         except Exception as e:
             print(f"Error getting frame count with cv2: {e}")
             raise ValueError("cv2 failed to get frame count")
@@ -153,7 +153,7 @@ class YtVideoPrep:
         """
         Extract all frames from the raw video to raw_frames_resized_width_1080_dir.
         This is the first step before frame matching.
-        
+
         Args:
             timeout_seconds: Timeout for ffmpeg operation in seconds (default: 3600 = 1 hour)
         """
@@ -177,37 +177,53 @@ class YtVideoPrep:
             # Allow 1-frame tolerance buffer for frame count comparison
             frame_diff = abs(existing_count - total_video_frames)
             if frame_diff <= 1:
-                print(f"cv2 frame count and the already extracted frame count differ by less than 1 frame. double checking by the precise ffprobe method")
-                
+                print(
+                    f"cv2 frame count and the already extracted frame count differ by less than 1 frame. double checking by the precise ffprobe method"
+                )
+
                 # Use ffprobe to get precise frame count
                 try:
                     cmd = [
                         "ffprobe",
-                        "-v", "error",
-                        "-select_streams", "v:0",
+                        "-v",
+                        "error",
+                        "-select_streams",
+                        "v:0",
                         "-count_frames",
-                        "-show_entries", "stream=nb_read_frames",
-                        "-of", "csv=p=0",
-                        self.raw_video_path
+                        "-show_entries",
+                        "stream=nb_read_frames",
+                        "-of",
+                        "csv=p=0",
+                        self.raw_video_path,
                     ]
-                    
-                    result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout_seconds)
+
+                    result = subprocess.run(
+                        cmd, capture_output=True, text=True, timeout=timeout_seconds
+                    )
                     if result.returncode == 0:
                         precise_frames = int(result.stdout.strip())
                         print(f"ffprobe precise count: {precise_frames} frames")
-                        
+
                         # Check if existing frames match the precise count
                         precise_diff = abs(existing_count - precise_frames)
                         if precise_diff <= 1:
-                            print(f"Existing frames match precise count (within 1-frame tolerance: {existing_count} vs {precise_frames}). Using existing frames.")
+                            print(
+                                f"Existing frames match precise count (within 1-frame tolerance: {existing_count} vs {precise_frames}). Using existing frames."
+                            )
                             return True
                         else:
-                            print(f"Precise count mismatch ({existing_count} vs {precise_frames}, diff: {precise_diff}). Re-generating frames.")
+                            print(
+                                f"Precise count mismatch ({existing_count} vs {precise_frames}, diff: {precise_diff}). Re-generating frames."
+                            )
                     else:
-                        print("ffprobe precise count failed, can't confirm the frame count matching, re-generating frames")
+                        print(
+                            "ffprobe precise count failed, can't confirm the frame count matching, re-generating frames"
+                        )
                         return False
                 except Exception as e:
-                    print(f"ffprobe precise count error: {e}, can't confirm the frame count matching, re-generating frames")
+                    print(
+                        f"ffprobe precise count error: {e}, can't confirm the frame count matching, re-generating frames"
+                    )
                     return False
             else:
                 print(
@@ -225,7 +241,9 @@ class YtVideoPrep:
         print(
             f"Extracting all frames from {self.raw_video_path} to {self.raw_frames_resized_width_1080_dir}"
         )
-        print(f"Video has {total_video_frames} frames. This may take several minutes...")
+        print(
+            f"Video has {total_video_frames} frames. This may take several minutes..."
+        )
 
         # Optimize ffmpeg args for large videos
         args = [
@@ -259,7 +277,9 @@ class YtVideoPrep:
         if result.returncode != 0:
             print(f"Failed to extract raw frames: {result.stderr}")
             if "TimeoutExpired" in str(result.stderr):
-                print(f"Operation timed out after {timeout_seconds} seconds. Consider increasing timeout for very large videos.")
+                print(
+                    f"Operation timed out after {timeout_seconds} seconds. Consider increasing timeout for very large videos."
+                )
             return False
 
         extracted_frames = glob(
@@ -268,10 +288,12 @@ class YtVideoPrep:
         print(
             f"Successfully extracted {len(extracted_frames)} frames to {self.raw_frames_resized_width_1080_dir}"
         )
-        
+
         # Verify we got the expected number of frames
-        assert len(extracted_frames) == total_video_frames, f"Expected {total_video_frames} frames but extracted {len(extracted_frames)}"
-        
+        assert (
+            len(extracted_frames) == total_video_frames
+        ), f"Expected {total_video_frames} frames but extracted {len(extracted_frames)}"
+
         return True
 
     def generate_frames_by_frame_matching(self):
