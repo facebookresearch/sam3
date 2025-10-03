@@ -8,37 +8,20 @@ defaults:
 paths:
   checkpoint_path: /fsx-onevision/kalyanv/paper_ckpts/sam3_v14_rc1_model_only_video.pt
   experiment_log_dir: /fsx-onevision/kalyanv/video_prediction_dump_dir/
-  ytvis_json :
-  ytvis_dir :
+  ytvis_json : /fsx-onevision/kalyanv/paper_ckpts/annotation/saco_veval_sav_test.json
+  ytvis_dir : /fsx-onevision/tym/sam3_and_data/data/media
   bpe_path: /home/kalyanv/sam3/assets/bpe_simple_vocab_16e6.txt.gz
+  num_videos: 2 #  default should null but setting it to 2 for testing
 
 # ============================================================================
 # Different helper parameters and functions
 # ============================================================================
 scratch:
-
   vid_mask_postprocessor:
-    _target_: onevision.models.detr.postprocessors.PostProcessNullOp
+    _target_: sam3.train.eval.postprocessors.PostProcessNullOp
 
   use_presence_eval: True
 
-  # base_val_transform:
-  #   - _target_: sam3.train.transforms.basic_for_api.ComposeAPI
-  #     transforms:
-  #       ######## transforms for validation (begin) ########
-  #       - _target_: sam3.train.transforms.basic_for_api.RandomResizeAPI
-  #         sizes: ${scratch.resolution}  # originally `resolution: 1024`
-  #         max_size:
-  #           _target_: sam3.train.transforms.basic.get_random_resize_max_size
-  #           size: ${scratch.resolution}  # originally `resolution: 1024`
-  #         square: true
-  #         consistent_transform: False
-  #       ######## transforms for validation (end) ########
-  #       - _target_: sam3.train.transforms.basic_for_api.ToTensorAPI
-  #       - _target_: sam3.train.transforms.basic_for_api.NormalizeAPI
-  #         mean: ${scratch.val_norm_mean}
-  #         std: ${scratch.val_norm_std}
-  
   video_transforms_val:
     - _target_: sam3.train.transforms.basic_for_api.ComposeAPI
       transforms:
@@ -52,37 +35,27 @@ scratch:
         - _target_: sam3.train.transforms.basic_for_api.NormalizeAPI
           mean: ${scratch.val_norm_mean}
           std: ${scratch.val_norm_std}
-        - _target_: sam3.train.transforms.mdetr.ApplyPosEmbedToBoxesAPI
-          pos_embed: ${scratch.pos_embed}
-
-  
+        # - _target_: sam3.train.transforms.mdetr.ApplyPosEmbedToBoxesAPI
+        #   pos_embed: ${scratch.pos_embed}
 
   # Model parameters
   d_model: 256
-  ${add:${scratch.d_model},2}
+  input_box_embedding_dim: ${add:${scratch.d_model},2}
 
   # Image processing parameters
   resolution: 1008
   
-
   # Normalization parameters
   train_norm_mean: [0.5, 0.5, 0.5]
   train_norm_std: [0.5, 0.5, 0.5]
   val_norm_mean: [0.5, 0.5, 0.5]
   val_norm_std: [0.5, 0.5, 0.5]
-
-  # Training parameters
   
   val_batch_size: 1
-  
   num_val_workers: 0
   max_data_epochs: 20
-  
   hybrid_repeats: 1
-  
   gather_pred_via_filesys: false
-
-
 
 
 # ============================================================================
@@ -114,11 +87,16 @@ trainer:
   data:
     train: null
     val:
-      _target_: omnivore.data.torch_dataset.TorchDataset
+      _target_: sam3.train.data.torch_dataset.TorchDataset
       dataset:
-        _target_: onevision.data.datasets.sam3_video_dataset.VideoGroundingDataset
-        img_folder: ???? #${paths.data.ytvis.img_folder_val}
-        ann_file: ???? #${paths.downstream_eval.ytvis.val.api_ann_path}
+        _target_: sam3.train.data.sam3_video_dataset.VideoGroundingDataset
+        limit_ids: ${paths.num_videos}
+        img_folder: ${paths.ytvis_dir}
+        ann_file: ${paths.ytvis_json}
+        coco_json_loader:
+          _target_: sam3.train.data.coco_json_loaders.SAM3_VEVAL_API_FROM_JSON_NP
+          _partial_: true
+
         transforms: ${scratch.video_transforms_val}
         max_ann_per_img: 100000  # filtered in transforms
         max_val_queries: 100000
@@ -142,14 +120,14 @@ trainer:
   
   
   model:
-    _target_: sam3.sam3_dense_tracking_builder.build_sam3_image_model
+    _target_: sam3.sam3_dense_tracking_builder.build_sam3_dense_tracking_model
     bpe_path: ${paths.bpe_path}
     checkpoint_path: ${paths.checkpoint_path}
     has_presence_token: True
     geo_encoder_use_img_cross_attn: True
 
     
-    
+    # TODO: Check if these are correctly set in model builder cc Ronghang
     # score_threshold_detection: 0.5
     # assoc_iou_thresh: 0.1
     # det_nms_thresh: 0.1
@@ -171,8 +149,8 @@ trainer:
     val:
       ytvis_val:
         pred_file: # key
-          _target_: onevision.data.datasets.ytvis_eval.YTVISResultsWriter
-          dump_file: ${launcher.experiment_log_dir}/preds/ytvis_val_preds.json
+          _target_: sam3.train.eval.ytvis_eval.YTVISResultsWriter
+          dump_file: ${launcher.experiment_log_dir}/preds/val_preds.json
           postprocessor: ${scratch.vid_mask_postprocessor}
           gather_pred_via_filesys: ${scratch.gather_pred_via_filesys}
 
@@ -182,8 +160,6 @@ trainer:
       amp_dtype: bfloat16
 
     
-    
-
   checkpoint:
     save_dir: ${launcher.experiment_log_dir}/checkpoints
     save_freq: 0  # 0 only last checkpoint is saved.
@@ -205,7 +181,7 @@ trainer:
 
 launcher:
   num_nodes: 1
-  gpus_per_node: 8
+  gpus_per_node: 1
   experiment_log_dir: ${paths.experiment_log_dir}
   multiprocessing_context: forkserver
 

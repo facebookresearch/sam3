@@ -14,16 +14,13 @@ from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 import torch
 import torchvision
+
 # from decord import cpu, VideoReader
 
 from iopath.common.file_io import PathManager
-
-from .sam3_image_dataset import (
-    Datapoint,
-    Sam3ImageDataset,
-)
 from PIL import Image as PILImage
 
+from .sam3_image_dataset import Datapoint, Sam3ImageDataset
 
 
 SEED = 42
@@ -89,16 +86,13 @@ class VideoGroundingDataset(Sam3ImageDataset):
         self.rng = random.Random()
         self.set_curr_epoch(0)
 
-        
-
     def set_curr_epoch(self, epoch: int):
         super().set_curr_epoch(epoch)
         self.rng.seed(SEED + epoch)
 
     def _load_datapoint(self, index: int) -> Datapoint:
         id = self.ids[index].item()
-        annotations = self._load_annotations(id)
-        queries = self.coco.loadQueriesFromDatapoint(id)
+        queries, annotations = self.coco.loadQueriesAndAnnotationsFromDatapoint(id)
 
         # we subsample the video frames during training
         if self.training and not self.is_tiling_single_image:

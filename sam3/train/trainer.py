@@ -21,6 +21,7 @@ from hydra.utils import instantiate
 from iopath.common.file_io import g_pathmgr
 
 from sam3.model.data_misc import BatchedDatapoint
+from sam3.model.model_misc import SAM3Output
 
 from sam3.train.optim.optimizer import construct_optimizer
 
@@ -34,7 +35,6 @@ from sam3.train.utils.checkpoint_utils import (
 from sam3.train.utils.distributed import all_reduce_max, barrier, get_rank
 
 from sam3.train.utils.logger import Logger, setup_logging
-
 from sam3.train.utils.train_utils import (
     AverageMeter,
     collect_dict_keys,
@@ -551,9 +551,10 @@ class Trainer:
                     key=key,
                 )
             # Cleanup memory
-            for fs in find_stages:
-                for k in list(fs.keys()):
-                    del fs[k]
+            if isinstance(find_stages, SAM3Output):
+                for fs in find_stages:
+                    for k in list(fs.keys()):
+                        del fs[k]
 
         return ret_tuple
 

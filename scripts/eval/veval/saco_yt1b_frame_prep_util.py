@@ -86,17 +86,17 @@ class YtVideoPrep:
             cap = cv2.VideoCapture(self.raw_video_path)
             if not cap.isOpened():
                 raise ValueError(f"Could not open video: {self.raw_video_path}")
-            
+
             # Get frame count from video metadata
             total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
             cap.release()
-            
+
             if total_frames > 0:
                 print(f"cv2 reports {total_frames} frames")
                 return total_frames
             else:
                 raise ValueError("cv2 could not determine frame count")
-                
+
         except Exception as e:
             print(f"Error getting frame count with cv2: {e}")
             raise ValueError("cv2 failed to get frame count")

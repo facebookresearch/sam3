@@ -36,7 +36,7 @@ class PostProcessNullOp(nn.Module):
         pass
 
     def process_results(self, **kwargs):
-        return kwargs["out"]
+        return kwargs["find_stages"]
 
 
 class PostProcessFlickr(nn.Module):

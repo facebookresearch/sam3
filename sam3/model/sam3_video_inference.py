@@ -1044,7 +1044,11 @@ class Sam3VideoInferenceMultiGPU(Sam3VideoInferenceMixin, Sam3VideoBase):
         # revert the model to the original GPU and rank
         self.rank = self.sam3_model.rank = orig_rank
         self.world_size = self.sam3_model.world_size = orig_world_size
-        return {video_id: preds}
+        return {video_id: preds}, None
+
+    def back_convert(self, targets):
+        # Needed for retraining compatibility with trainer
+        return targets
 
 
 class Sam3VideoInferenceMultiGPUWithInstanceInteractivity(Sam3VideoInferenceMultiGPU):
@@ -1840,6 +1844,8 @@ class Sam3VideoInferenceMultiGPUWithInstanceInteractivity(Sam3VideoInferenceMult
 
 
 def is_image_type(resource_path: str) -> bool:
+    if isinstance(resource_path, list):
+        return len(resource_path) == 1
     if resource_path.lower().endswith(
         (".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp")
     ):

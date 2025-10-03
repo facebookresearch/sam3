@@ -448,3 +448,112 @@ class SAM3_EVAL_API_FROM_JSON_NP:
             }
         ]
         return images
+
+
+class SAM3_VEVAL_API_FROM_JSON_NP:
+
+    def __init__(
+        self,
+        annotation_file,
+    ):
+        with open(annotation_file, "r") as f:
+            data = json.load(f)
+        assert "video_np_pairs" in data, "Incorrect data format"
+
+        self._video_data = data["videos"]
+        self._video_id_to_np_ids = defaultdict(list)
+
+        self._cat_id_to_np = {}
+
+        for cat_dict in data["categories"]:
+            self._cat_id_to_np[cat_dict["id"]] = cat_dict["name"]
+
+        for video_np_dict in data["video_np_pairs"]:
+            self._video_id_to_np_ids[video_np_dict["video_id"]].append(
+                video_np_dict["category_id"]
+            )
+            assert (
+                self._cat_id_to_np[video_np_dict["category_id"]]
+                == video_np_dict["noun_phrase"]
+            ), "Category name does not match text input"
+
+    def getDatapointIds(self):
+        # return all the ids / idx's that will be used for trianing (make sure you use limit filter)
+        return list(range(len(self._video_data)))
+
+    def loadQueriesAndAnnotationsFromDatapoint(self, idx):
+
+        cur_vid_data = self._video_data[idx]
+
+        queries = []
+        annotations = []
+        query_template = {
+            "id": None,  # for now keeping as index within the datapoint
+            "original_cat_id": None,
+            "object_ids_output": None,
+            "query_text": None,
+            "query_processing_order": 0,
+            "ptr_x_query_id": None,
+            "ptr_y_query_id": None,
+            "query_type": 0,  # QueryType.FindQuery,
+            "image_id": 0,  # since we have only one image per datapoint, this is always 0
+            "input_box": None,
+            "input_box_label": None,
+            "input_points": None,
+            "is_exhaustive": True,
+            "within_stage_order": -1,
+        }
+
+        # raw_annotations = self._raw_data[img_idx]["annotations"]
+        # image_info = self._raw_data[img_idx]["image"]
+        # width, height = (
+        #     image_info["width"],
+        #     image_info["height"],
+        # )
+
+        # annot_template = {
+        #     "image_id": 0,  # within the datapoint image id / image index
+        #     "bbox": None,  # Normalized bbox in xywh
+        #     "area": None,  # unnomalized aera
+        #     "segmentation": None,  # output of ann_to_rle(segm, image_info)
+        #     "object_id": None,  # todo: object id from objects list
+        #     "is_crowd": None,  # comes from objects
+        #     "id": None,  # Check this! (for now keeping as index within the datapoint)
+        # }
+
+        all_np_ids = self._video_id_to_np_ids[cur_vid_data["id"]]
+
+        for np_id in all_np_ids:
+            text_input = self._cat_id_to_np[np_id]
+
+            for i, image_path in enumerate(cur_vid_data["file_names"]):
+                query = query_template.copy()
+                query["id"] = len(queries)
+                query["original_cat_id"] = np_id
+                query["query_text"] = text_input
+                query["image_id"] = i
+                query["query_processing_order"] = i
+                query["object_ids_output"] = []
+                queries.append(query)
+
+        # Create a query for this category
+
+        return queries, annotations
+
+    def loadImagesFromDatapoint(self, idx):
+
+        video_data = self._video_data[idx]
+        images = [
+            {
+                "id": i,
+                "file_name": "/fsx-onevision/tym/sam3_and_data/data/media/saco_sg/JPEGImages_6fps/saco_sg_000145/00003.jpg",  # file_name,
+                "original_img_id": video_data[
+                    "id"
+                ],  # TODO: Check if this shoulde 'id' or 'original_img_id'
+                "coco_img_id": video_data[
+                    "id"
+                ],  # TODO: Check if this shoulde 'id' or 'original_img_id'
+            }
+            for i, file_name in enumerate(video_data["file_names"])
+        ]
+        return images
