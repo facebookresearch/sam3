@@ -14,7 +14,7 @@ import torch
 from pycocotools.cocoeval import COCOeval
 from typing_extensions import override
 
-from sam3.train.box_ops import box_xywh_inter_union
+from sam3.model.box_ops import box_xywh_inter_union
 
 from sam3.train.eval.coco_eval import CocoEvaluator, convert_to_xywh
 from sam3.train.eval.demo_eval import DemoEval
