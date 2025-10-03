@@ -31,7 +31,8 @@ def download_and_extract_frames(saco_yt1b_id, args):
 def main():
     print(
         """ ==========
-        NOTICE!!: This script uses yt-dlp to download youtube videos.
+        NOTICE!!
+        This script uses yt-dlp to download youtube videos.
         See the youtube account banning risk in https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies
         ==========
         """
@@ -78,6 +79,13 @@ def main():
 
         f.write("\n".join(download_statuses))
 
+    print(f""" ==========
+        All DONE!!
+        Download, frame extraction, and frame matching is all done! YT1B frames are not ready to use in {args.data_dir}/JPEGImages_6fps
+        Check video downloading status at {args.download_result}
+        Some videos might not be available any more which will affect the eval reproducibility
+        ==========
+    """)
 
 if __name__ == "__main__":
     main()
