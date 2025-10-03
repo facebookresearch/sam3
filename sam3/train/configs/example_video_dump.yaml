@@ -9,7 +9,7 @@ paths:
   checkpoint_path: /fsx-onevision/kalyanv/paper_ckpts/sam3_v14_rc1_model_only_video.pt
   experiment_log_dir: /fsx-onevision/kalyanv/video_prediction_dump_dir/
   ytvis_json : /fsx-onevision/kalyanv/paper_ckpts/annotation/saco_veval_sav_test.json
-  ytvis_dir : /fsx-onevision/tym/sam3_and_data/data/media
+  ytvis_dir : /fsx-onevision/tym/sam3_and_data/data/media/saco_sav/JPEGImages_24fps
   bpe_path: /home/kalyanv/sam3/assets/bpe_simple_vocab_16e6.txt.gz
   num_videos: 2 #  default should null but setting it to 2 for testing
 
