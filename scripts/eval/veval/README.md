@@ -39,6 +39,7 @@ media/
         └── JPEGImages_24fps [merged from the two JPEGImages_24fps above]
 ```
 #### SA-Co/VEval - YT1B
+[TODO: provide the latest yt1b_id_frame_map to download that fixes the yt1b frame matching]
 Run `saco_yt1b_downloader.py` to download youtube videos used in the SA-Co/VEVal - YT1B dataset.
 ```
 python saco_yt1b_downloader.py \
