@@ -39,57 +39,6 @@ class QueryType(Enum):
     # Standard find query
     FindQuery = 0
 
-    # Tracking query meant for adjacent frames
-    FindAgainClose = 1
-
-    # Tracking query meant for distant frames
-    FindAgainFar = 2
-
-    # Get query
-    GetQuery = 3
-
-
-class QueryContent(Enum):
-    """
-    Enum representing the various possible content categories the queries query for.
-    In a Find queries, this refers to the input, in the Get queries, it can be either about input or output.
-    """
-
-    # Query about the category, or overall description of the object
-    # This includes full sentences, even if they describe relations
-    ContentCategory = 0
-
-    # Query about an attribute
-    ContentAttribute = 1
-
-    # Query about the predicate of a relation
-    ContentRelation = 2
-
-    # Query using geometry information
-    ContentGeometry = 3
-
-
-@dataclass
-class Pointer:
-    """Uniquely refers to an object: we need to know which query generated it and its index within that query"""
-
-    query_id: int
-    object_id: int
-
-
-@dataclass
-class GetQuery:
-    # id: int
-    query_type: QueryType
-    query_text: str
-    ptr_x: Optional[Pointer]
-    ptr_y: Optional[Pointer]
-
-    # Output of the query
-    text_output: str
-
-    query_content: Optional[QueryContent] = None
-
 
 @dataclass
 class InferenceMetadata:
@@ -114,8 +63,6 @@ class InferenceMetadata:
     # Index of the frame in the media (0 if single image)
     frame_index: int
 
-    get_text_input: Optional[str] = None
-
     # Whether it is for conditioning only, e.g., 0-th frame in TA is for conditioning
     # as we assume GT available in frame 0.
     is_conditioning_only: Optional[bool] = False
@@ -127,8 +74,6 @@ class FindQuery:
 
     query_type: QueryType
     query_text: str
-    ptr_x: Optional[Pointer]
-    ptr_y: Optional[Pointer]
 
     image_id: int
 
@@ -144,10 +89,6 @@ class FindQuery:
     # This index tells us at which round this query should be done
     query_processing_order: int
 
-    # Pointers to the conditional segments
-    # (GT segments used to initialize the tracking)
-    ptrs_seg: Optional[List[Pointer]] = None
-
     # Input geometry, initially in denormalized XYXY format. Expected to be transformed as follows:
     # 1. converted to normalized CxCyWH by the Normalize transform
     # 2. converted to a position-encoding based representation by the ApplyPosEmbedToBoxesAPI transform
@@ -155,26 +96,12 @@ class FindQuery:
     input_bbox_label: Optional[torch.Tensor] = None
     input_points: Optional[torch.Tensor] = None
 
-    ptr_mem: Optional[List[Pointer]] = None
-
     semantic_target: Optional[torch.Tensor] = None
 
     # pixel exhaustivity: true iff the union of all segments (including crowds)
     # covers every pixel belonging to the target class
     # Note that instance_exhaustive implies pixel_exhaustive
     is_pixel_exhaustive: Optional[bool] = None
-
-    query_content: Optional[QueryContent] = None
-
-    # If it's specified, it will be a tuple of (qids, attribute). The attribute may be empty. The qids is a comma separated list
-    # (our graph construction sometimes merge multiple qids into one)
-    wkdata_qid: Optional[Tuple[str, str]] = None
-    # Comma separated list of qids that are positive in the image (not necessarily exhaustive)
-    other_positive_qids: Optional[str] = None
-    # Comma separated list of qids that are negative in the image. If not provided, we assume exhaustive dataset and all the non positives are negatives
-    negative_qids: Optional[str] = None
-
-    source: Optional[str] = None
 
     # This adds a an ordering within each stage
     within_stage_order: int = -1
@@ -224,7 +151,6 @@ class Datapoint:
     """Refers to an image/video and all its annotations"""
 
     find_queries: List[FindQueryLoaded]
-    get_queries: List[GetQuery]
     images: List[Image]
     raw_images: Optional[List[PILImage.Image]] = None
 
@@ -249,7 +175,6 @@ class CustomCocoDetectionAPI(VisionDataset):
         annFile: str,
         load_segmentation: bool,
         fix_fname: bool = False,
-        # db_map_cache_dir: Optional[str] = None,
         training: bool = True,
         blurring_masks_path: Optional[str] = None,
         use_caching: bool = True,
@@ -261,7 +186,6 @@ class CustomCocoDetectionAPI(VisionDataset):
         super().__init__(root)
 
         self.annFile = annFile
-        # self.db_map_cache_dir = db_map_cache_dir
         self.use_caching = use_caching
         self.zstd_dict_path = zstd_dict_path
 
@@ -412,15 +336,12 @@ class CustomCocoDetectionAPI(VisionDataset):
             id2index_obj[annotation["id"]] = len(images[image_id].objects) - 1
 
         find_queries = []
-        get_queries = []
         stage2num_queries = Counter()
         for i, query in enumerate(queries):
             stage2num_queries[query["query_processing_order"]] += 1
             qtype = QueryType(query["query_type"])
             if qtype in [
                 QueryType.FindQuery,
-                QueryType.FindAgainClose,
-                QueryType.FindAgainFar,
             ]:
                 id2index_find_query[query["id"]] = i
 
@@ -435,8 +356,6 @@ class CustomCocoDetectionAPI(VisionDataset):
             qtype = QueryType(query["query_type"])
             if qtype in [
                 QueryType.FindQuery,
-                QueryType.FindAgainClose,
-                QueryType.FindAgainFar,
             ]:
                 h, w = id2imsize[query["image_id"]]
                 if (
@@ -514,25 +433,6 @@ class CustomCocoDetectionAPI(VisionDataset):
                             if query["query_text"] is not None
                             else ""
                         ),
-                        ptr_x=(
-                            Pointer(
-                                query_id=id2index_find_query[query["ptr_x_query_id"]],
-                                object_id=query["ptr_x_object_id"],
-                            )
-                            if query["ptr_x_query_id"] is not None
-                            and query["ptr_x_query_id"] != -1
-                            else None
-                        ),
-                        ptr_y=(
-                            Pointer(
-                                query_id=id2index_find_query[query["ptr_y_query_id"]],
-                                object_id=query["ptr_y_object_id"],
-                            )
-                            if query["ptr_y_query_id"] is not None
-                            and query["ptr_y_query_id"] != -1
-                            else None
-                        ),
-                        ptr_mem=None,
                         image_id=id2index_img[query["image_id"]],
                         input_bbox=bbox,
                         input_bbox_label=bbox_label,
@@ -568,24 +468,6 @@ class CustomCocoDetectionAPI(VisionDataset):
                             original_size=(h, w),
                             object_id=object_id,
                         ),
-                        query_content=(
-                            QueryContent(query["query_content"])
-                            if "query_content" in query
-                            and query["query_content"] is not None
-                            else None
-                        ),
-                        wkdata_qid=(
-                            query["wkdata_qid"] if "wkdata_qid" in query else None
-                        ),
-                        other_positive_qids=(
-                            query["other_positive_qids"]
-                            if "other_positive_qids" in query
-                            else None
-                        ),
-                        negative_qids=(
-                            query["negative_qids"] if "negative_qids" in query else None
-                        ),
-                        source=query["source"] if "source" in query else None,
                     )
                 )
             else:
@@ -594,7 +476,6 @@ class CustomCocoDetectionAPI(VisionDataset):
 
         return Datapoint(
             find_queries=find_queries,
-            get_queries=get_queries,
             images=images,
             raw_images=[p[1] for p in pil_images],
         )
@@ -615,10 +496,7 @@ class Sam3ImageDataset(CustomCocoDetectionAPI):
         load_segmentation: bool = False,
         max_train_queries: int = 81,
         max_val_queries: int = 300,
-        max_train_get_queries: int = 81,
-        max_val_get_queries: int = 300,
         fix_fname: bool = False,
-        # db_map_cache_dir: Optional[str] = None,
         is_sharded_annotation_dir: bool = False,
         blurring_masks_path: Optional[str] = None,
         use_caching: bool = True,
@@ -632,7 +510,6 @@ class Sam3ImageDataset(CustomCocoDetectionAPI):
             ann_file,
             fix_fname=fix_fname,
             load_segmentation=load_segmentation,
-            # db_map_cache_dir=db_map_cache_dir,
             training=training,
             blurring_masks_path=blurring_masks_path,
             use_caching=use_caching,
@@ -647,8 +524,6 @@ class Sam3ImageDataset(CustomCocoDetectionAPI):
         self.max_ann_per_img = max_ann_per_img
         self.max_train_queries = max_train_queries
         self.max_val_queries = max_val_queries
-        self.max_train_get_queries = max_train_get_queries
-        self.max_val_get_queries = max_val_get_queries
 
         self.repeat_factors = torch.ones(len(self.ids), dtype=torch.float32)
 
@@ -680,18 +555,10 @@ class Sam3ImageDataset(CustomCocoDetectionAPI):
                 max_queries = (
                     self.max_train_queries if self.training else self.max_val_queries
                 )
-                max_get_queries = (
-                    self.max_train_get_queries
-                    if self.training
-                    else self.max_val_get_queries
-                )
-                if (
-                    len(datapoint.find_queries) > max_queries
-                    or len(datapoint.get_queries) > max_get_queries
-                ):
+
+                if len(datapoint.find_queries) > max_queries:
                     raise DecompressionBombError(
                         f"Too many find queries ({len(datapoint.find_queries)})"
-                        f" or get queries ({len(datapoint.get_queries)})"
                     )
 
                 if len(datapoint.find_queries) == 0:

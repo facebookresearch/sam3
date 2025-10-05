@@ -85,8 +85,8 @@ class FindStage:
     input_points_mask: MyTensor
     input_points_mask__type = torch.bool
 
-    ptrs: Optional[BatchedPointer]
-    ptrs_seg: Optional[BatchedPointer]
+    # ptrs: Optional[BatchedPointer]
+    # ptrs_seg: Optional[BatchedPointer]
     # We track the object ids referred to by this query.
     # This is beneficial for tracking in videos without the need for pointers.
     object_ids: Optional[List[List]] = None  # List of objects per query
@@ -96,14 +96,6 @@ class FindStage:
 
     input_points_before_embed: Optional[MyTensor] = None
     input_points_before_embed__type = torch.float
-
-
-@dataclass
-class GetStage:
-    text_inputs: List[str]
-    text_output: List[str]
-    ptrs_x: BatchedPointer
-    ptrs_y: BatchedPointer
 
 
 @dataclass
@@ -175,7 +167,7 @@ class BatchedInferenceMetadata:
     frame_index__type = torch.long
 
     # Adding for relations inference
-    get_text_input: List[Optional[str]]
+    # get_text_input: List[Optional[str]]
 
     # Adding for TA conditional inference
     is_conditioning_only: List[Optional[bool]]
@@ -210,10 +202,6 @@ class BatchedDatapoint:
     find_inputs: List[FindStage]
     find_targets: List[BatchedFindTarget]
     find_metadatas: List[BatchedInferenceMetadata]
-    get_queries: GetStage
-    ptr_behaviour: PointerExtractBehaviour = field_ptr_behaviour(
-        default_factory=lambda: PointerExtractBehaviour()
-    )
     raw_images: Optional[List[Any]] = None
 
     def pin_memory(self, device=None):

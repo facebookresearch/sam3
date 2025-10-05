@@ -15,7 +15,7 @@ from torch import nn
 
 from sam3.model import box_ops
 
-from sam3.model.data_misc import BatchedInferenceMetadata, clean_pointers, interpolate
+from sam3.model.data_misc import BatchedInferenceMetadata, interpolate
 
 from sam3.train.masks_ops import (
     compute_boundary,
@@ -37,125 +37,6 @@ class PostProcessNullOp(nn.Module):
 
     def process_results(self, **kwargs):
         return kwargs["find_stages"]
-
-
-class PostProcessFlickr(nn.Module):
-    """This module converts the model's output for Flickr30k entities evaluation.
-
-    This processor is intended for recall@k evaluation with respect to each phrase in the sentence.
-    It requires a description of each phrase (as a binary mask), and returns a sorted list of boxes for each phrase.
-    """
-
-    def __init__(self, focal_loss):
-        super().__init__()
-        self.focal_loss = focal_loss
-
-    @torch.no_grad()
-    def forward(self, outputs, target_sizes, positive_map, items_per_batch_element):
-        """Perform the computation.
-        Args:
-            outputs: raw outputs of the model
-            target_sizes: tensor of dimension [batch_size x 2] containing the size of each images of the batch
-                          For evaluation, this must be the original image size (before any data augmentation)
-                          For visualization, this should be the image size after data augment, but before padding
-            positive_map: tensor [total_nbr_phrases x max_seq_len] for each phrase in the batch, contains a binary
-                          mask of the tokens that correspond to that sentence. Note that this is a "collapsed" batch,
-                          meaning that all the phrases of all the batch elements are stored sequentially.
-            items_per_batch_element: list[int] number of phrases corresponding to each batch element.
-        """
-        out_logits, out_bbox = outputs["pred_logits"], outputs["pred_boxes"]
-
-        assert len(out_logits) == len(target_sizes)
-        assert target_sizes.shape[1] == 2
-
-        batch_size = target_sizes.shape[0]
-
-        if self.focal_loss:
-            prob = F.sigmoid(out_logits)
-        else:
-            prob = F.softmax(out_logits, -1)
-
-        # convert to [x0, y0, x1, y1] format
-        boxes = box_ops.box_cxcywh_to_xyxy(out_bbox).cpu()
-        img_h, img_w = target_sizes.unbind(1)
-        scale_fct = torch.stack([img_w, img_h, img_w, img_h], dim=1).cpu()
-        # and from relative [0, 1] to absolute [0, height] coordinates
-        boxes = boxes * scale_fct[:, None, :]
-
-        cum_sum = np.cumsum(items_per_batch_element)
-
-        curr_batch_index = 0
-        # binarize the map if not already binary
-        pos = positive_map > 1e-6
-
-        predicted_boxes = [[] for _ in range(batch_size)]
-
-        # The collapsed batch dimension must match the number of items
-        assert len(pos) == cum_sum[-1]
-
-        if len(pos) == 0:
-            return predicted_boxes
-
-        # if the first batch elements don't contain elements, skip them.
-        while cum_sum[curr_batch_index] == 0:
-            curr_batch_index += 1
-
-        for i in range(len(pos)):
-            # scores are computed by taking the max over the scores assigned to the positive tokens
-
-            cur_pos = pos[i].unsqueeze(0)
-            scores, _ = torch.max(
-                cur_pos * prob[curr_batch_index, :, : cur_pos.shape[1]], dim=-1
-            )
-
-            _, indices = torch.sort(scores, descending=True)
-
-            assert items_per_batch_element[curr_batch_index] > 0
-            predicted_boxes[curr_batch_index].append(
-                boxes[curr_batch_index][indices.cpu()].tolist()
-            )
-            if i == len(pos) - 1:
-                break
-
-            # check if we need to move to the next batch element
-            while i >= cum_sum[curr_batch_index] - 1:
-                curr_batch_index += 1
-                assert curr_batch_index < len(cum_sum)
-
-        return predicted_boxes
-
-    def process_results(
-        self,
-        outputs,
-        targets,
-        batched_targets,
-        detection_results,
-        orig_target_sizes,
-        model,
-    ):
-        """Retrieve the results from the postprocessor
-
-        Args:
-            postprocessor: Post processor class to use
-            outputs: output dictionary from the model
-            targets: targets from the dataset
-            detection_results: post-processed detection (and possibly segmentation) results
-            orig_target_sizes: tensor containing the original dimension of the images
-        """
-        image_ids = [t["original_img_id"] for t in targets]
-        sentence_ids = [t["sentence_id"] for t in targets]
-        items_per_batch_element = [t["nb_eval"] for t in targets]
-        positive_map_eval = batched_targets["positive_map_eval"]
-        flickr_results = self(
-            outputs, orig_target_sizes, positive_map_eval, items_per_batch_element
-        )
-        assert len(flickr_results) == len(image_ids) == len(sentence_ids)
-        flickr_res = []
-        for im_id, sent_id, output in zip(image_ids, sentence_ids, flickr_results):
-            flickr_res.append(
-                {"image_id": im_id, "sentence_id": sent_id, "boxes": output}
-            )
-        return flickr_res
 
 
 class PostProcess(nn.Module):
@@ -1057,67 +938,6 @@ class PostProcessPromptToTrack(PostProcess):
             pred_mask_wo_padding.append(mask[..., :oh, :ow])
 
         outputs["pred_masks"] = pred_mask_wo_padding
-
-
-class PostProcessCaptioning(nn.Module):
-    def __init__(
-        self,
-    ):
-        super().__init__()
-
-    def forward(self, outputs, targets, model):
-        # TODO: Expose text generator as an overridable argument in the constructor.
-        # Different captioning evaluators might use different generators.
-        decoded_text = model.text_generator.decode(
-            encoder_hidden_states=outputs["encoder_hidden_states"],
-            mask=outputs["masks"],
-            unprojected_context=outputs["context"],
-            encoder_pos_embed=outputs["encoder_pos_embed"],
-            context_attention_mask=outputs["context_mask"],
-            previous_context_embeds=outputs["previous_context_embeds"],
-            previous_context_mask=outputs["previous_context_mask"],
-        )
-        decoded_text = [clean_pointers(t) for t in decoded_text]
-        assert len(decoded_text) == len(targets)
-        try:
-            captioning_res = [
-                (
-                    {"image_id": int(target["original_img_id"]), "caption": output}
-                    if "original_img_id" in target
-                    else {"image_id": int(target["image_id"]), "caption": output}
-                )
-                # {"image_id": target["image_id"].item(), "caption": output}
-                for target, output in zip(targets, decoded_text)
-            ]
-        except:
-            captioning_res = [
-                {"image_id": target["original_id"], "caption": output}
-                for target, output in zip(targets, decoded_text)
-            ]
-        for c in captioning_res:
-            print(c["image_id"], c["caption"])
-
-        return captioning_res
-
-    def process_results(
-        self,
-        outputs,
-        targets,
-        batched_targets,
-        detection_results,
-        orig_target_sizes,
-        model,
-    ):
-        """Retrieve the results from the postprocessor
-
-        Args:
-            postprocessor: Post processor class to use
-            outputs: output dictionary from the model
-            targets: targets from the dataset
-            detection_results: post-processed detection (and possibly segmentation) results
-            orig_target_sizes: tensor containing the original dimension of the images
-        """
-        return self(outputs, targets, model)
 
 
 class PostProcessChain:

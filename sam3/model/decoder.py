@@ -212,7 +212,7 @@ class TransformerDecoder(nn.Module):
         presence_token: bool = False,
         clamp_presence_logits: bool = True,
         clamp_presence_logit_max_val: float = 10.0,
-        use_normed_output_consistently: bool = False,
+        use_normed_output_consistently: bool = True,
         separate_box_head_instance: bool = False,
         separate_norm_instance: bool = False,
         resolution: Optional[int] = None,
