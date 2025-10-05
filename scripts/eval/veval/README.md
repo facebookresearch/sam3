@@ -11,11 +11,11 @@
 Install the SA-Co/VEVal required environment
 ```
 pip install -e ".[veval]"
-cd scripts/eval/veval/sam3_video_evaluators/onevision_cpp_ops
-pip install -e .
 ```
 ### Download annotations
-The GT annotations can be downloaded from the following [location](https://drive.google.com/drive/folders/1BadVFUfENo5JsehDWKuYbTllS20JtmiX) folder `gt` [TODO: update to HF]
+The GT annotations can be downloaded from the following [location](https://drive.google.com/drive/folders/1BadVFUfENo5JsehDWKuYbTllS20JtmiX) folder `gt`
+[TODO: update to HF]
+[TODO: update the GDrive files gt and pred to the latest launched ver.]
 
 ### Download videos or frames
 #### SA-Co/VEval - SAV
@@ -49,7 +49,7 @@ python saco_yt1b_downloader.py \
 ```
 * data_dir: The directoy where to store the downloaded youtube videos
 * cookies_file: This is required to download youtube videos. See instructions from yt-dlp [exporting-youtube-cookies](https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies) and [pass-cookies-to-yt-dlp](https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp) to prepare the cookies_file
-* id_map_file: download from [location](https://drive.google.com/drive/folders/1BadVFUfENo5JsehDWKuYbTllS20JtmiX) `id_and_frame_map.json`
+* id_map_file: download from [location](https://drive.google.com/drive/folders/1BadVFUfENo5JsehDWKuYbTllS20JtmiX) `yt1b_id_frame_map.json`
 * download_result: a log file to track if the youtube videos are still downloadable or not
 #### SA-Co/VEval - SmartGlasses
 [TODO: HF setup]
