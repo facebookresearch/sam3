@@ -17,7 +17,6 @@ from sam3.model.act_ckpt_utils import clone_output_wrapper
 from sam3.model.box_ops import box_xywh_to_cxcywh, box_xyxy_to_xywh
 from sam3.model.data_misc import (
     BatchedDatapoint,
-    BatchedPointer,
     convert_my_tensors,
     FindStage,
     recursive_to,
@@ -116,7 +115,6 @@ class Sam3VideoInference(Sam3VideoBase):
             inference_state["per_frame_geometric_prompt"][t] = None
             inference_state["per_frame_cur_step"][t] = 0
 
-        inference_state["backbone_out"] = None
         inference_state["visual_prompt_embed"] = None
         inference_state["visual_prompt_mask"] = None
         gc.collect()
@@ -192,7 +190,6 @@ class Sam3VideoInference(Sam3VideoBase):
 
         # placeholders for cached outputs
         # (note: currently, a single visual prompt embedding is shared for all frames)
-        inference_state["backbone_out"] = None
         inference_state["visual_prompt_embed"] = None
         inference_state["visual_prompt_mask"] = None
 
@@ -938,27 +935,10 @@ class Sam3VideoInference(Sam3VideoBase):
 
             inference_state["per_frame_geometric_prompt"][frame_idx] = geometric_prompt
 
-        inference_state["backbone_out"] = self._init_backbone_out(inference_state)
         out = self._run_single_frame_inference(
             inference_state, frame_idx, reverse=False
         )
         return frame_idx, self._postprocess_output(inference_state, out)
-
-    def _init_backbone_out(self, inference_state):
-        """
-        Initialize a backbone_out dictionary and extract the text features.
-
-        Note that the visual features of each frame are not extracted here. They will be
-        extracted on the fly when running inference on each frame.
-        """
-        input = inference_state["input_batch"]
-        device = self.device
-        backbone_out = {"img_batch_all_stages": input.img_batch}
-        text_outputs = self.sam3_model.backbone.forward_text(
-            input.find_text_batch, device=device
-        )
-        backbone_out.update(text_outputs)
-        return backbone_out
 
     @torch.autocast(device_type="cuda", dtype=torch.bfloat16)
     def forward(self, input: BatchedDatapoint, is_inference: bool = False):
