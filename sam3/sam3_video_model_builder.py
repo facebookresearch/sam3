@@ -478,8 +478,8 @@ def _create_sam3_geometry_encoder(
 def build_sam3_video_model(
     checkpoint_path: Optional[str] = None,
     bpe_path: Optional[str] = None,
-    has_presence_token: bool = False,
-    geo_encoder_use_img_cross_attn: bool = False,
+    has_presence_token: bool = True,
+    geo_encoder_use_img_cross_attn: bool = True,
     strict_state_dict_loading: bool = True,
 ) -> Sam3VideoInferenceWithInstanceInteractivity:
     """
