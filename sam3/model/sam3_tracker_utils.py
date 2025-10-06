@@ -19,9 +19,9 @@ def sample_box_points(
     Sample a noised version of the top left and bottom right corners of a given `bbox`
 
     Inputs:
-    - masks: [B, 1, H,W] boxes, dtype=torch.Tensor
+    - masks: [B, 1, H, W] tensor
     - noise: noise as a fraction of box width and height, dtype=float
-    - noise_bound: maximum amount of noise (in pure pixesl), dtype=int
+    - noise_bound: maximum amount of noise (in pure pixels), dtype=int
 
     Returns:
     - box_coords: [B, num_pt, 2], contains (x, y) coordinates of top left and bottom right box corners, dtype=torch.float
@@ -59,7 +59,7 @@ def mask_to_box(masks: torch.Tensor):
     compute bounding box given an input mask
 
     Inputs:
-    - masks: [B, 1, H,W] boxes, dtype=torch.Tensor
+    - masks: [B, 1, H, W] tensor
 
     Returns:
     - box_coords: [B, 1, 4], contains (x, y) coordinates of top left and bottom right box corners, dtype=torch.Tensor
@@ -374,7 +374,7 @@ def fill_holes_in_mask_scores(mask, max_area, fill_holes=True, remove_sprinkles=
     Note that it relies on the "cc_torch" package to find connected components. You can
     install it via the following command (`TORCH_CUDA_ARCH_LIST=8.0` is for A100 GPUs):
     ```
-    pip uninstall -y cc_torch; TORCH_CUDA_ARCH_LIST=8.0 pip install git+https://github.com/ronghanghu/cc_torch
+    pip uninstall -y cc_torch; TORCH_CUDA_ARCH_LIST=8.0 9.0 pip install git+https://github.com/ronghanghu/cc_torch
     ```
     """
 
