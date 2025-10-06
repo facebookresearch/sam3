@@ -6,23 +6,18 @@ import os
 import queue
 import re
 import time
-from abc import ABC, abstractmethod
-from io import BytesIO
 from threading import Condition, get_ident, Lock, Thread
-from typing import List, Optional, Tuple
 
 import numpy as np
 import torch
 import torch.nn.functional as F
-import torchvision
 import torchvision.transforms.functional as TF
-from iopath.common.file_io import g_pathmgr
 from numpy.typing import NDArray
 
 from PIL import Image
 from tqdm import tqdm
 
-from .edt import edt_triton
+from sam3.model.edt import edt_triton
 
 IS_MAIN_PROCESS = os.getenv("IS_MAIN_PROCESS", "1") == "1"
 RANK = int(os.getenv("RANK", "0"))
@@ -34,7 +29,7 @@ def sample_box_points(
     noise_bound: int = 20,  # SAM default
     top_left_label: int = 2,
     bottom_right_label: int = 3,
-) -> Tuple[np.array, np.array]:
+) -> tuple[NDArray, NDArray]:
     """
     Sample a noised version of the top left and bottom right corners of a given `bbox`
 
@@ -450,247 +445,6 @@ class AsyncVideoFrameLoader:
         return len(self.images)
 
 
-class AsyncVideoFileLoader:
-    """
-    Loading frames from video files asynchronously without blocking session start.
-    """
-
-    def __init__(
-        self,
-        video_path_or_bytes,
-        image_size,
-        offload_video_to_cpu,
-        img_mean,
-        img_std,
-        gpu_acceleration=True,
-        gpu_device=None,
-    ):
-        from torchaudio.io import StreamReader
-        from torchaudio.utils import ffmpeg_utils
-
-        # Check whether GPU-accelerated decoding is available (and fall back to CPU decoding)
-        if gpu_acceleration and "h264_cuvid" not in ffmpeg_utils.get_video_decoders():
-            logging.warning(
-                "Falling back to CPU video decoding as h264_cuvid is not available in ffmpeg. "
-                "To use GPU-accelerated decoding, please compile and install ffmpeg with "
-                "--enable-nvdec (see https://pytorch.org/audio/2.3.0/build.ffmpeg.html)."
-            )
-            gpu_acceleration = False
-        # Check and possibly infer the output device (and also get its GPU id when applicable)
-        assert gpu_device is None or gpu_device.type == "cuda"
-        gpu_id = (gpu_device.index or 0) if gpu_device is not None else 0
-        if offload_video_to_cpu:
-            out_device = torch.device("cpu")
-        else:
-            out_device = torch.device("cuda") if gpu_device is None else gpu_device
-        self.out_device = out_device
-        self.gpu_acceleration = gpu_acceleration
-        self.gpu_id = gpu_id
-        self.image_size = image_size
-        self.offload_video_to_cpu = offload_video_to_cpu
-        if not isinstance(img_mean, torch.Tensor):
-            img_mean = torch.tensor(img_mean, dtype=torch.float16)[:, None, None]
-        self.img_mean = img_mean
-        if not isinstance(img_std, torch.Tensor):
-            img_std = torch.tensor(img_std, dtype=torch.float16)[:, None, None]
-        self.img_std = img_std
-
-        # see https://pytorch.org/audio/2.2.0/generated/torio.io.StreamingMediaDecoder.html#add-basic-video-stream
-        if gpu_acceleration:
-            self.img_mean = self.img_mean.to(f"cuda:{self.gpu_id}")
-            self.img_std = self.img_std.to(f"cuda:{self.gpu_id}")
-            stream_options = {
-                "frames_per_chunk": -1,
-                "buffer_chunk_size": -1,
-                "decoder": "h264_cuvid",  # NVDEC for GPU-accelerated MP4 decoding
-                "hw_accel": f"cuda:{self.gpu_id}",
-                "decoder_option": {
-                    "gpu": f"{self.gpu_id}",
-                    "resize": f"{image_size}x{image_size}",
-                },
-            }
-        else:
-            self.img_mean = self.img_mean.cpu()
-            self.img_std = self.img_std.cpu()
-            stream_options = {
-                "frames_per_chunk": -1,
-                "buffer_chunk_size": -1,
-                "decoder": "h264",
-                "filter_desc": f"scale={image_size}:{image_size}:sws_flags=bicubic",
-                "decoder_option": {"threads": "4"},  # 4 threads seems good enough
-            }
-        # An asynchronous reader to load frames in a background thread, and also
-        # a synchronous reader to randomly seek to any single frame (in case the
-        # async reader haven't reached this frame yet).
-        if isinstance(video_path_or_bytes, str):
-            # local file path, manifold path, or S3 path in this case
-            f_async = g_pathmgr.open(video_path_or_bytes, "rb")
-            self.async_reader = StreamReader(f_async)  # f_async needs to remain open
-            # only open sync_reader if the file object supports `seek` method
-            if hasattr(f_async, "seek"):
-                f_sync = g_pathmgr.open(video_path_or_bytes, "rb")
-                self.sync_reader = StreamReader(f_sync)  # f_sync needs to remain open
-            else:
-                logging.warning(
-                    f"{video_path_or_bytes} doesn't support random file seeking, so "
-                    f"accessing a random frame (other than the 1st frame) will be "
-                    f"blocked until the entire video is loaded."
-                )
-                self.sync_reader = None
-        elif isinstance(video_path_or_bytes, bytes):
-            # raw video bytes in this case
-            self.async_reader = StreamReader(BytesIO(video_path_or_bytes))
-            self.sync_reader = StreamReader(BytesIO(video_path_or_bytes))
-        else:
-            raise RuntimeError(f"unsupported video type: {type(video_path_or_bytes)}")
-        self.async_reader.add_video_stream(**stream_options)
-        if self.sync_reader is not None:
-            self.sync_reader.add_video_stream(**stream_options)
-        video_info = self.async_reader.get_src_stream_info(0)
-        if not (video_info.codec == "h264" and video_info.format.startswith("yuv")):
-            raise RuntimeError("only MP4 videos in H.264 format is supported")
-        if not video_info.num_frames > 0:
-            # The video has invalid frame numbers in its metadata, which should be rare.
-            # We can handle it in principle by falling back to synchronized loading,
-            # but it's better to transcode all videos to a standard format instead.
-            raise RuntimeError("video metadata does not have valid frame number info")
-        self.num_frames = video_info.num_frames
-        self.video_height = video_info.height
-        self.video_width = video_info.width
-        self.fps = video_info.frame_rate
-        # items in `self._images` will be loaded asynchronously
-        self.images = [None] * self.num_frames
-        # catch and raise any exceptions in the async loading thread
-        self.exception = None
-        self._start_video_loading()
-
-    def _start_video_loading(self):
-        self.num_loaded_frames = 0
-        desc = f"frame loading (MP4 w/ {'GPU' if self.gpu_acceleration else 'CPU'}) [rank={RANK}]"
-        self.pbar = tqdm(desc=desc, total=self.num_frames)
-        # load the first frame to cache it before the session is opened
-        # (since it's most likely where the user will click)
-        loaded_num, _ = self._load_chunk(self.async_reader, 0)
-        self.num_loaded_frames += loaded_num
-        self.pbar.update(n=loaded_num)
-        self.all_frames_loaded = self.num_loaded_frames == self.num_frames
-
-        # load the frames asynchronously without blocking the session start
-        def _load_frames():
-            try:
-                finished = self.all_frames_loaded
-                while not finished:
-                    loaded_num, finished = self._load_chunk(
-                        self.async_reader, self.num_loaded_frames
-                    )
-                    self.num_loaded_frames += loaded_num
-                    self.pbar.update(n=loaded_num)
-
-                # finished -- check whether we have loaded the total number of frames
-                if self.num_loaded_frames < self.num_frames:
-                    raise RuntimeError(
-                        f"There are {self.num_frames} frames in the video, but only "
-                        f"{self.num_loaded_frames} frames can be loaded successfully."
-                    )
-                else:
-                    self.all_frames_loaded = True
-                    self.pbar.close()
-                    # all the video frames have been loaded, so we can release async_reader
-                    # also remove pbar and thread (which shouldn't be a part of session saving)
-                    self.async_reader = None
-                    self.pbar = None
-                    self.thread = None
-            except Exception as e:
-                self.exception = e
-
-        self.thread = Thread(target=_load_frames, daemon=True)
-        self.thread.start()
-
-    def _load_chunk(
-        self, reader, begin_frame_idx, fill_one_frame_only=False, overwrite=True
-    ):
-        loaded_num = 0
-        finished = reader.fill_buffer()
-        (frames,) = reader.pop_chunks()
-        if frames is not None:
-            loaded_num = frames.size(0)
-            if fill_one_frame_only:
-                # load one frame (mostly for the case of random seeking with sync_reader)
-                frames = frames[:1]
-            # Videos are encoded in H.264 YUV color space, so we must convert it to RGB
-            # first (and we also subtract mean and divide by std in this conversion).
-            frames = _yuv_to_rgb(frames, self.img_mean, self.img_std)
-            # store the frame tensors
-            for n, img in enumerate(frames):
-                if self.offload_video_to_cpu:
-                    img = img.cpu()
-                elif img.device != self.out_device:
-                    img = img.to(device=self.out_device, non_blocking=True)
-                frame_idx = begin_frame_idx + n
-                if frame_idx < self.num_frames and (
-                    overwrite or self.images[frame_idx] is None
-                ):
-                    self.images[frame_idx] = img
-
-        return loaded_num, finished
-
-    def __getitem__(self, index):
-        if self.exception is not None:
-            raise RuntimeError("Failure in frame loading thread") from self.exception
-
-        img = self.images[index]
-        if img is not None:
-            if self.all_frames_loaded:
-                # async_reader has finished loading all frames, so we also release
-                # sync_reader (to close its underlying file object)
-                self.sync_reader = None
-            return img
-
-        sync_reader = self.sync_reader
-        if sync_reader is None:
-            # We didn't open sync_reader because the file object doesn't support "seek".
-            # method. In this case, there is nothing we can do other than just waiting
-            # for async_reader to finish loading the video first (usually fast enough).
-            async_thread = self.thread
-            if async_thread is not None:
-                # wait for the async loading to finish and try again
-                async_thread.join()
-            return self.__getitem__(index)
-
-        # async_reader hasn't reached this frame yet, and we have an opened sync_reader,
-        # so we use sync_reader to seek to the corresponding frame and load just one frame.
-        if index < 0:
-            index += self.num_frames
-        assert index >= 0 and index < self.num_frames
-        sync_reader.seek(timestamp=index / self.fps, mode="precise")
-        # There could be potential racing between sync_reader and async_reader, and we use
-        # `overwrite=False` to keep async_reader's results if it has just reached this frame.
-        loaded_num, _ = self._load_chunk(
-            sync_reader, index, fill_one_frame_only=True, overwrite=False
-        )
-        assert loaded_num == 1
-        return self.images[index]
-
-    def __len__(self):
-        return len(self.images)
-
-    def __getstate__(self):
-        """
-        Remove a few attributes during pickling, so that this async video loader can be
-        saved and loaded as a part of the model session.
-        """
-        # wait for async video loading to finish before pickling
-        async_thread = self.thread
-        if async_thread is not None:
-            async_thread.join()
-        # release a few objects that cannot be pickled
-        self.async_reader = None
-        self.sync_reader = None
-        self.pbar = None
-        self.thread = None
-        return self.__dict__.copy()
-
-
 class TorchCodecDecoder:
     """
     A wrapper to support GPU device and num_threads in TorchCodec decoder,
@@ -784,7 +538,7 @@ class AsyncVideoFileLoaderWithTorchCodec:
 
     def __init__(
         self,
-        video_path_or_bytes,
+        video_path,
         image_size,
         offload_video_to_cpu,
         img_mean,
@@ -792,7 +546,6 @@ class AsyncVideoFileLoaderWithTorchCodec:
         gpu_acceleration=True,
         gpu_device=torch.device("cuda:0"),
         use_rand_seek_in_loading=False,
-        load_frames_in_rank0_only=None,  # if None, will be inferred automatically
     ):
         # Check and possibly infer the output device (and also get its GPU id when applicable)
         assert gpu_device is None or gpu_device.type == "cuda"
@@ -824,35 +577,13 @@ class AsyncVideoFileLoaderWithTorchCodec:
 
         self.rank = int(os.environ.get("RANK", "0"))
         self.world_size = int(os.environ.get("WORLD_SIZE", "1"))
-        if load_frames_in_rank0_only is None:
-            # if "load_frames_in_rank0_only" is not specified, we load frames
-            # in rank 0 only when running distributedly and without GPU acceleration
-            load_frames_in_rank0_only = (
-                torch.distributed.is_initialized() and not gpu_acceleration
-            )
-        self.load_frames_in_rank0_only = load_frames_in_rank0_only
-        if self.rank == 0 or not self.load_frames_in_rank0_only:
-            self.async_reader = TorchCodecDecoder(video_path_or_bytes, **decoder_option)
+        self.async_reader = TorchCodecDecoder(video_path, **decoder_option)
 
-            # `num_frames_from_content` is the true number of frames in the video content
-            # from the scan operation (rather than from the metadata, which could be wrong)
-            self.num_frames = self.async_reader.metadata.num_frames_from_content
-            self.video_height = self.async_reader.metadata.height
-            self.video_width = self.async_reader.metadata.width
-        else:
-            self.async_reader = None
-
-        # broadcast video info from rank 0 to all other ranks
-        if self.world_size > 1 and self.load_frames_in_rank0_only:
-            logging.info(f"{self.rank=} video will be loaded on rank 0 only")
-            buffer = torch.zeros(3, dtype=torch.int32, device="cuda")
-            if self.rank == 0:
-                buffer[0] = self.num_frames
-                buffer[1] = self.video_height
-                buffer[2] = self.video_width
-            torch.distributed.broadcast(buffer, src=0)
-            if self.rank != 0:
-                self.num_frames, self.video_height, self.video_width = buffer.tolist()
+        # `num_frames_from_content` is the true number of frames in the video content
+        # from the scan operation (rather than from the metadata, which could be wrong)
+        self.num_frames = self.async_reader.metadata.num_frames_from_content
+        self.video_height = self.async_reader.metadata.height
+        self.video_width = self.async_reader.metadata.width
 
         # items in `self._images` will be loaded asynchronously
         self.images_loaded = [False] * self.num_frames
@@ -875,22 +606,7 @@ class AsyncVideoFileLoaderWithTorchCodec:
         self._start_video_loading()
 
     def _load_one_frame(self, idx):
-        if self.rank == 0 or not self.load_frames_in_rank0_only:
-            frame_resized = self._transform_frame(self.async_reader[idx])
-
-        # broadcast video frames from rank 0 to all other ranks
-        if self.world_size > 1 and self.load_frames_in_rank0_only:
-            shape = (3, self.image_size, self.image_size)
-            if self.rank == 0:
-                assert frame_resized.shape == shape
-                assert frame_resized.dtype == torch.float16
-                buffer = frame_resized.cuda().contiguous()
-            else:
-                buffer = torch.zeros(*shape, dtype=torch.float16, device="cuda")
-            torch.distributed.broadcast(buffer, src=0)
-            if self.rank != 0:
-                frame_resized = buffer.to(device=self.out_device)
-
+        frame_resized = self._transform_frame(self.async_reader[idx])
         return frame_resized
 
     @torch.inference_mode()
@@ -1041,7 +757,7 @@ def load_resource_as_video_frames(
     img_mean=(0.485, 0.456, 0.406),
     img_std=(0.229, 0.224, 0.225),
     async_loading_frames=False,
-    use_torchcodec=False,
+    use_torchcodec=True,
     use_cv2=False,
 ):
     """
@@ -1124,129 +840,6 @@ def load_image_as_single_frame_video(
     return images, image_height, image_width
 
 
-class StreamingFrameLoaderInterface(ABC):
-    @abstractmethod
-    def get_image(self, index) -> np.ndarray:
-        raise NotImplementedError
-
-    @abstractmethod
-    def get_total_num_frames(self) -> int:
-        raise NotImplementedError
-
-    @abstractmethod
-    def get_video_width(self) -> int:
-        raise NotImplementedError
-
-    @abstractmethod
-    def get_video_height(self) -> int:
-        raise NotImplementedError
-
-
-class FrameLoader(StreamingFrameLoaderInterface):
-    def __init__(
-        self,
-        video_width: int,
-        video_height: int,
-        total_num_frames_override: Optional[int],
-    ) -> None:
-        self.frames: List[Optional[NDArray]] = []
-        self.video_width: int = video_width
-        self.video_height: int = video_height
-
-        # Set in streaming decoding setup to tell the model to initialize state for this many video frames
-        # This is because there are certain parts of the model that depends on the number of frames
-        # And when in streaming decoding setup, we don't know the number of frames
-        self.__total_num_frames_override = total_num_frames_override
-
-    def get_image(self, index: int) -> NDArray:
-        if index > len(self.frames):
-            raise Exception(f"Frame index {index} is out of range")
-        frame = self.frames[index]
-        if frame is None:
-            raise Exception(f"Frame {index} is not published yet")
-        return frame
-
-    def publish(self, frame_num: int, image_frame: NDArray) -> None:
-        if (
-            image_frame.shape[0] != self.video_height
-            or image_frame.shape[1] != self.video_width
-        ):
-            raise Exception(
-                f"FrameLoader.publish: Frame {frame_num} has incorrect shape {image_frame.shape}. Expected shape {self.video_height}x{self.video_width}"
-            )
-        if frame_num >= len(self.frames):
-            self.frames += [None] * (frame_num + 1 - len(self.frames))
-        self.frames[frame_num] = image_frame
-        self.video_height = image_frame.shape[0]
-        self.video_width = image_frame.shape[1]
-
-    def get_total_num_frames(self) -> int:
-        if self.__total_num_frames_override is None:
-            return len(self.frames)
-        else:
-            return self.__total_num_frames_override
-
-    def get_video_width(self) -> int:
-        return self.video_width
-
-    def get_video_height(self) -> int:
-        return self.video_height
-
-
-class StreamingVideoFrameLoader:
-    def __init__(
-        self,
-        stream_loader: StreamingFrameLoaderInterface,
-        image_size,
-        offload_video_to_cpu,
-        img_mean,
-        img_std,
-        compute_device,
-    ):
-        self.stream_loader = stream_loader
-
-        self.image_size = image_size
-        self.offload_video_to_cpu = offload_video_to_cpu
-        self.img_mean = torch.tensor(img_mean, dtype=torch.float16)[:, None, None].to(
-            compute_device
-        )
-        self.img_std = torch.tensor(img_std, dtype=torch.float16)[:, None, None].to(
-            compute_device
-        )
-        self.compute_device = compute_device
-
-    def __getitem__(self, index):
-        img_np = self.stream_loader.get_image(index)
-        img_tensor = torch.from_numpy(img_np).permute(2, 0, 1)
-        if not self.offload_video_to_cpu:
-            img_tensor = img_tensor.to(self.compute_device, non_blocking=True)
-        img_tensor = torchvision.transforms.functional.resize(
-            img_tensor,
-            (self.image_size, self.image_size),
-            interpolation=torchvision.transforms.InterpolationMode.BICUBIC,
-        )
-        if img_tensor.dtype == torch.uint8:
-            img_tensor = img_tensor / 255.0
-
-        if not img_tensor.is_contiguous():
-            img_tensor = img_tensor.contiguous()
-
-        # normalize by mean and std
-        img_tensor -= self.img_mean
-        img_tensor /= self.img_std
-
-        return img_tensor
-
-    def __len__(self):
-        return self.stream_loader.get_total_num_frames()
-
-    def get_width(self) -> int:
-        return self.stream_loader.get_video_width()
-
-    def get_height(self) -> int:
-        return self.stream_loader.get_video_height()
-
-
 def load_video_frames(
     video_path,
     image_size,
@@ -1267,7 +860,6 @@ def load_video_frames(
     is_bytes = isinstance(video_path, bytes)
     is_str = isinstance(video_path, str)
     is_mp4_path = is_str and os.path.splitext(video_path)[-1] in [".mp4", ".MP4"]
-    is_streaming = isinstance(video_path, StreamingFrameLoaderInterface)
     if is_str and video_path.startswith("<load-dummy-video"):
         # Check for pattern <load-dummy-video-N> where N is an integer
         match = re.match(r"<load-dummy-video-(\d+)>", video_path)
@@ -1279,7 +871,7 @@ def load_video_frames(
         return load_dummy_video(image_size, offload_video_to_cpu, num_frames=num_frames)
     elif is_bytes or is_mp4_path:
         return load_video_frames_from_video_file(
-            video_path_or_bytes=video_path,
+            video_path=video_path,
             image_size=image_size,
             offload_video_to_cpu=offload_video_to_cpu,
             img_mean=img_mean,
@@ -1297,16 +889,6 @@ def load_video_frames(
             img_std=img_std,
             async_loading_frames=async_loading_frames,
         )
-    elif is_streaming:
-        lazy_images = StreamingVideoFrameLoader(
-            stream_loader=video_path,
-            image_size=image_size,
-            offload_video_to_cpu=offload_video_to_cpu,
-            img_mean=img_mean,
-            img_std=img_std,
-            compute_device="cuda",
-        )
-        return lazy_images, lazy_images.get_height(), lazy_images.get_width()
     else:
         raise NotImplementedError(
             "Only MP4 video and JPEG folder are supported at this moment"
@@ -1379,7 +961,7 @@ def load_video_cv2(
     image_size: int,
     img_mean: tuple = (0.485, 0.456, 0.406),
     img_std: tuple = (0.229, 0.224, 0.225),
-    gpu_acceleration: bool = False,
+    offload_video_to_cpu: bool = False,
 ) -> torch.Tensor:
     """
     Load video from path, convert to normalized tensor with specified preprocessing
@@ -1429,7 +1011,7 @@ def load_video_cv2(
 
     video_tensor = video_tensor.half()  # Convert to float16
 
-    if gpu_acceleration:
+    if not offload_video_to_cpu:
         video_tensor = video_tensor.to("cuda")
 
     video_tensor = video_tensor.permute(1, 0, 2, 3)  # [T, C, H, W]
@@ -1438,7 +1020,7 @@ def load_video_cv2(
 
 
 def load_video_frames_from_video_file(
-    video_path_or_bytes,
+    video_path,
     image_size,
     offload_video_to_cpu,
     img_mean,
@@ -1452,12 +1034,16 @@ def load_video_frames_from_video_file(
     """Load the video frames from a video file."""
     if use_cv2:
         return load_video_cv2(
-            video_path_or_bytes, image_size, img_mean, img_std, gpu_acceleration
+            video_path=video_path,
+            image_size=image_size,
+            img_mean=img_mean,
+            img_std=img_std,
+            offload_video_to_cpu=offload_video_to_cpu,
         )
-    if use_torchcodec:
+    elif use_torchcodec:
         logging.info("Using torchcodec to load video file")
         lazy_images = AsyncVideoFileLoaderWithTorchCodec(
-            video_path_or_bytes=video_path_or_bytes,
+            video_path=video_path,
             image_size=image_size,
             offload_video_to_cpu=offload_video_to_cpu,
             img_mean=img_mean,
@@ -1466,15 +1052,7 @@ def load_video_frames_from_video_file(
             gpu_device=gpu_device,
         )
     else:
-        lazy_images = AsyncVideoFileLoader(
-            video_path_or_bytes=video_path_or_bytes,
-            image_size=image_size,
-            offload_video_to_cpu=offload_video_to_cpu,
-            img_mean=img_mean,
-            img_std=img_std,
-            gpu_acceleration=gpu_acceleration,
-            gpu_device=gpu_device,
-        )
+        raise RuntimeError("at least one of use_torchcodec or use_cv2 must be True")
     # The `AsyncVideoFileLoader` class always loads the videos asynchronously, so
     # we just wait for its loading thread to finish if async_loading_frames=False.
     if not async_loading_frames:
@@ -1485,68 +1063,12 @@ def load_video_frames_from_video_file(
 
 
 def _load_img_as_tensor(img_path, image_size):
-    # img_pil = Image.open(img_path)
-    # img_np = np.array(img_pil.convert("RGB").resize((image_size, image_size)))
-    # if img_np.dtype == np.uint8:  # np.uint8 is expected for JPEG images
-    #     img_np = img_np / 255.0
-    # else:
-    #     raise RuntimeError(f"Unknown image dtype: {img_np.dtype} on {img_path}")
-    # img = torch.from_numpy(img_np).permute(2, 0, 1)
-    # video_width, video_height = img_pil.size  # the original video size
-    # return img, video_height, video_width
-
-    # Use the FA Playground pipeline to load the image as a tensor
-    return fa_load_image(img_path, image_size=image_size, img_mean=None, img_std=None)
-
-
-def fa_load_image(
-    img_path,
-    image_size=1008,
-    img_mean=(0.5, 0.5, 0.5),
-    img_std=(0.5, 0.5, 0.5),
-    max_size=1280,
-):
-    """Load and resize an image as tensor following the FA Playground pipeline."""
+    """Load and resize an image and convert it into a PyTorch tensor."""
     img = Image.open(img_path).convert("RGB")
     orig_width, orig_height = img.width, img.height
-    scale = max_size / max(orig_width, orig_height)
-    if scale < 1.0:
-        # if the image is larger than max_size, downsize it first (with JPEG compression)
-        new_width = max(round(orig_width * scale), 1)
-        new_height = max(round(orig_height * scale), 1)
-        img = img.resize((new_width, new_height))
-        buf = BytesIO()
-        img.save(buf, format="JPEG")
-        img = Image.open(buf)
-
     img = TF.resize(img, size=(image_size, image_size))
     img = TF.to_tensor(img)
-    if img_mean is not None and img_std is not None:
-        img = TF.normalize(img, mean=img_mean, std=img_std)
     return img, orig_height, orig_width
-
-
-def _yuv_to_rgb(frames, img_mean, img_std):
-    """Convert frames from YUV to RGB and also substract mean and divide by std."""
-    # frames must be uint8 dtype and have at least 3 channels in YUV
-    assert frames.dtype == torch.uint8 and frames.size(-2) >= 3
-    frames = frames[..., :3, :, :].half()  # uint8 to float16 (remove any alpha channel)
-    frames /= 255
-    frames[..., 1:3, :, :] -= 0.5  # U, V in range -0.5 to +0.5
-
-    # Using YUV => RGB formula from Wikipedia
-    # https://en.wikipedia.org/wiki/Y%E2%80%B2UV#Y.27UV420p_.28and_Y.27V12_or_YV12.29_to_RGB888_conversion
-    rgb = torch.zeros_like(frames)
-    y = frames[..., 0, :, :]
-    u = frames[..., 1, :, :]
-    v = frames[..., 2, :, :]
-    rgb[..., 0, :, :] = y + 1.13983 * v
-    rgb[..., 1, :, :] = y - 0.39465 * u - 0.58060 * v
-    rgb[..., 2, :, :] = y + 2.03211 * u
-    rgb.clamp_(0, 1)
-    rgb -= img_mean
-    rgb /= img_std
-    return rgb
 
 
 def fill_holes_in_mask_scores(mask, max_area, fill_holes=True, remove_sprinkles=True):
