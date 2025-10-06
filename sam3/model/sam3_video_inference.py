@@ -22,11 +22,9 @@ from sam3.model.data_misc import (
     recursive_to,
 )
 from sam3.model.geometry_encoders import Prompt
+from sam3.model.io_utils import load_resource_as_video_frames
 from sam3.model.model_misc import NestedTensor
-from sam3.model.sam3_tracker_utils import (
-    fill_holes_in_mask_scores,
-    load_resource_as_video_frames,
-)
+from sam3.model.sam3_tracker_utils import fill_holes_in_mask_scores
 from sam3.model.sam3_video_base import MaskletConfirmationStatus, Sam3VideoBase
 from sam3.perflib.compile import compile_wrapper, shape_logging_wrapper
 from sam3.perflib.masks_to_boxes import masks_to_boxes as perf_masks_to_boxes
@@ -65,8 +63,7 @@ class Sam3VideoInference(Sam3VideoBase):
         resource_path,
         offload_video_to_cpu=False,
         async_loading_frames=False,
-        use_torchcodec=False,
-        use_cv2=False,
+        video_loader_type="torchcodec",
     ):
         """Initialize an inference state from `resource_path` (an image or a video)."""
         images, orig_height, orig_width = load_resource_as_video_frames(
@@ -76,8 +73,7 @@ class Sam3VideoInference(Sam3VideoBase):
             img_mean=self.image_mean,
             img_std=self.image_std,
             async_loading_frames=async_loading_frames,
-            use_torchcodec=use_torchcodec,
-            use_cv2=use_cv2,
+            video_loader_type=video_loader_type,
         )
         inference_state = {}
         inference_state["image_size"] = self.image_size
@@ -1024,15 +1020,13 @@ class Sam3VideoInferenceWithInstanceInteractivity(Sam3VideoInference):
         resource_path,
         offload_video_to_cpu=False,
         async_loading_frames=False,
-        use_torchcodec=False,
-        use_cv2=False,
+        video_loader_type="torchcodec",
     ):
         inference_state = super().init_state(
             resource_path=resource_path,
             offload_video_to_cpu=offload_video_to_cpu,
             async_loading_frames=async_loading_frames,
-            use_torchcodec=use_torchcodec,
-            use_cv2=use_cv2,
+            video_loader_type=video_loader_type,
         )
         # initialize extra states
         inference_state["action_history"] = []  # for logging user actions

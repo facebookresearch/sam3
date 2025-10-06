@@ -23,7 +23,286 @@ IS_MAIN_PROCESS = os.getenv("IS_MAIN_PROCESS", "1") == "1"
 RANK = int(os.getenv("RANK", "0"))
 
 
-class AsyncVideoFrameLoader:
+def load_resource_as_video_frames(
+    resource_path,
+    image_size,
+    offload_video_to_cpu,
+    img_mean=(0.485, 0.456, 0.406),
+    img_std=(0.229, 0.224, 0.225),
+    async_loading_frames=False,
+    video_loader_type="torchcodec",
+):
+    """
+    Load video frames from either a video or an image (as a single-frame video).
+    Alternatively, if input is a list of PIL images, convert its format
+    """
+    image_exts = [".jpg", ".JPG", ".jpeg", ".JPEG", ".png", ".PNG"]
+    is_image = (
+        isinstance(resource_path, str)
+        and os.path.splitext(resource_path)[1] in image_exts
+    )
+    if is_image:
+        return load_image_as_single_frame_video(
+            image_path=resource_path,
+            image_size=image_size,
+            offload_video_to_cpu=offload_video_to_cpu,
+            img_mean=img_mean,
+            img_std=img_std,
+        )
+    else:
+        return load_video_frames(
+            video_path=resource_path,
+            image_size=image_size,
+            offload_video_to_cpu=offload_video_to_cpu,
+            img_mean=img_mean,
+            img_std=img_std,
+            async_loading_frames=async_loading_frames,
+            video_loader_type=video_loader_type,
+        )
+
+
+def load_image_as_single_frame_video(
+    image_path,
+    image_size,
+    offload_video_to_cpu,
+    img_mean=(0.485, 0.456, 0.406),
+    img_std=(0.229, 0.224, 0.225),
+):
+    """Load an image as a single-frame video."""
+    images, image_height, image_width = _load_img_as_tensor(image_path, image_size)
+    images = images.unsqueeze(0).half()
+
+    img_mean = torch.tensor(img_mean, dtype=torch.float16)[:, None, None]
+    img_std = torch.tensor(img_std, dtype=torch.float16)[:, None, None]
+    if not offload_video_to_cpu:
+        images = images.cuda()
+        img_mean = img_mean.cuda()
+        img_std = img_std.cuda()
+    # normalize by mean and std
+    images -= img_mean
+    images /= img_std
+    return images, image_height, image_width
+
+
+def load_video_frames(
+    video_path,
+    image_size,
+    offload_video_to_cpu,
+    img_mean=(0.485, 0.456, 0.406),
+    img_std=(0.229, 0.224, 0.225),
+    async_loading_frames=False,
+    video_loader_type="torchcodec",
+):
+    """
+    Load the video frames from video_path. The frames are resized to image_size as in
+    the model and are loaded to GPU if offload_video_to_cpu=False. This is used by the demo.
+    """
+    assert isinstance(video_path, str)
+    is_mp4_path = os.path.splitext(video_path)[-1] in [".mp4", ".MP4"]
+    if video_path.startswith("<load-dummy-video"):
+        # Check for pattern <load-dummy-video-N> where N is an integer
+        match = re.match(r"<load-dummy-video-(\d+)>", video_path)
+        if match:
+            num_frames = int(match.group(1))
+        else:
+            # Default for original <load-dummy-video> path
+            num_frames = 60
+        return load_dummy_video(image_size, offload_video_to_cpu, num_frames=num_frames)
+    elif os.path.isdir(video_path):
+        return load_video_frames_from_jpg_images(
+            jpg_folder=video_path,
+            image_size=image_size,
+            offload_video_to_cpu=offload_video_to_cpu,
+            img_mean=img_mean,
+            img_std=img_std,
+            async_loading_frames=async_loading_frames,
+        )
+    elif is_mp4_path:
+        return load_video_frames_from_video_file(
+            video_path=video_path,
+            image_size=image_size,
+            offload_video_to_cpu=offload_video_to_cpu,
+            img_mean=img_mean,
+            img_std=img_std,
+            async_loading_frames=async_loading_frames,
+            video_loader_type=video_loader_type,
+        )
+    else:
+        raise NotImplementedError("Only MP4 video and JPEG folder are supported")
+
+
+def load_video_frames_from_jpg_images(
+    jpg_folder,
+    image_size,
+    offload_video_to_cpu,
+    img_mean,
+    img_std,
+    async_loading_frames,
+):
+    """
+    Load the video frames from a directory of JPEG files ("<frame_index>.jpg" format)
+    """
+    frame_names = [p for p in os.listdir(jpg_folder) if p.endswith(".jpg")]
+    try:
+        frame_names.sort(key=lambda p: int(os.path.splitext(p)[0]))
+    except ValueError:
+        # fallback to lexicographic sort if the format is not "<frame_index>.jpg"
+        logger.warning(
+            f'frame names are not in "<frame_index>.jpg" format: {frame_names[:5]=}, '
+            f"falling back to lexicographic sort."
+        )
+        frame_names.sort()
+    num_frames = len(frame_names)
+    if num_frames == 0:
+        raise RuntimeError(f"no images found in {jpg_folder}")
+    img_paths = [os.path.join(jpg_folder, frame_name) for frame_name in frame_names]
+    img_mean = torch.tensor(img_mean, dtype=torch.float16)[:, None, None]
+    img_std = torch.tensor(img_std, dtype=torch.float16)[:, None, None]
+
+    if async_loading_frames:
+        lazy_images = AsyncJpegFrameLoader(
+            img_paths, image_size, offload_video_to_cpu, img_mean, img_std
+        )
+        return lazy_images, lazy_images.video_height, lazy_images.video_width
+
+    # float16 precision should be sufficient for image tensor storage
+    images = torch.zeros(num_frames, 3, image_size, image_size, dtype=torch.float16)
+    for n, img_path in enumerate(
+        tqdm(img_paths, desc=f"frame loading (JPEG) [rank={RANK}]")
+    ):
+        images[n], video_height, video_width = _load_img_as_tensor(img_path, image_size)
+    if not offload_video_to_cpu:
+        images = images.cuda()
+        img_mean = img_mean.cuda()
+        img_std = img_std.cuda()
+    # normalize by mean and std
+    images -= img_mean
+    images /= img_std
+    return images, video_height, video_width
+
+
+def load_video_frames_from_video_file(
+    video_path,
+    image_size,
+    offload_video_to_cpu,
+    img_mean,
+    img_std,
+    async_loading_frames,
+    gpu_acceleration=False,
+    gpu_device=None,
+    video_loader_type="torchcodec",
+):
+    """Load the video frames from a video file."""
+    if video_loader_type == "cv2":
+        return load_video_frames_from_video_file_using_cv2(
+            video_path=video_path,
+            image_size=image_size,
+            img_mean=img_mean,
+            img_std=img_std,
+            offload_video_to_cpu=offload_video_to_cpu,
+        )
+    elif video_loader_type == "torchcodec":
+        logger.info("Using torchcodec to load video file")
+        lazy_images = AsyncVideoFileLoaderWithTorchCodec(
+            video_path=video_path,
+            image_size=image_size,
+            offload_video_to_cpu=offload_video_to_cpu,
+            img_mean=img_mean,
+            img_std=img_std,
+            gpu_acceleration=gpu_acceleration,
+            gpu_device=gpu_device,
+        )
+        # The `AsyncVideoFileLoaderWithTorchCodec` class always loads the videos asynchronously,
+        # so we just wait for its loading thread to finish if async_loading_frames=False.
+        if not async_loading_frames:
+            async_thread = lazy_images.thread
+            if async_thread is not None:
+                async_thread.join()
+        return lazy_images, lazy_images.video_height, lazy_images.video_width
+    else:
+        raise RuntimeError("video_loader_type must be either 'cv2' or 'torchcodec'")
+
+
+def load_video_frames_from_video_file_using_cv2(
+    video_path: str,
+    image_size: int,
+    img_mean: tuple = (0.485, 0.456, 0.406),
+    img_std: tuple = (0.229, 0.224, 0.225),
+    offload_video_to_cpu: bool = False,
+) -> torch.Tensor:
+    """
+    Load video from path, convert to normalized tensor with specified preprocessing
+
+    Args:
+        video_path: Path to video file
+        image_size: Target size for square frames (height and width)
+        img_mean: Normalization mean (RGB)
+        img_std: Normalization standard deviation (RGB)
+
+    Returns:
+        torch.Tensor: Preprocessed video tensor in shape (T, C, H, W) with float16 dtype
+    """
+    import cv2  # delay OpenCV import to avoid unnecessary dependency
+
+    # Initialize video capture
+    cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        raise ValueError(f"Could not open video: {video_path}")
+
+    original_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    original_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+
+    frames = []
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
+
+        # Convert BGR to RGB and resize
+        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        frame_resized = cv2.resize(
+            frame_rgb, (image_size, image_size), interpolation=cv2.INTER_CUBIC
+        )
+        frames.append(frame_resized)
+    cap.release()
+
+    # Convert to tensor
+    frames_np = np.stack(frames, axis=0).astype(np.float32)  # (T, H, W, C)
+    video_tensor = torch.from_numpy(frames_np).permute(0, 3, 1, 2)  # (T, C, H, W)
+
+    img_mean = torch.tensor(img_mean, dtype=torch.float16).view(1, 3, 1, 1)
+    img_std = torch.tensor(img_std, dtype=torch.float16).view(1, 3, 1, 1)
+    if not offload_video_to_cpu:
+        video_tensor = video_tensor.cuda()
+        img_mean = img_mean.cuda()
+        img_std = img_std.cuda()
+    # normalize by mean and std
+    video_tensor -= img_mean
+    video_tensor /= img_std
+    return video_tensor, original_height, original_width
+
+
+def load_dummy_video(image_size, offload_video_to_cpu, num_frames=60):
+    """
+    Load a dummy video with random frames for testing and compilation warmup purposes.
+    """
+    video_height, video_width = 480, 640  # dummy original video sizes
+    images = torch.randn(num_frames, 3, image_size, image_size, dtype=torch.float16)
+    if not offload_video_to_cpu:
+        images = images.cuda()
+    return images, video_height, video_width
+
+
+def _load_img_as_tensor(img_path, image_size):
+    """Load and resize an image and convert it into a PyTorch tensor."""
+    img = Image.open(img_path).convert("RGB")
+    orig_width, orig_height = img.width, img.height
+    img = TF.resize(img, size=(image_size, image_size))
+    img = TF.to_tensor(img)
+    return img, orig_height, orig_width
+
+
+class AsyncJpegFrameLoader:
     """
     A list of video frames to be load asynchronously without blocking session start.
     """
@@ -390,321 +669,3 @@ class AsyncVideoFileLoaderWithTorchCodec:
         self.rand_seek_idx_queue = None
         self.torchcodec_access_lock = contextlib.nullcontext()
         return self.__dict__.copy()
-
-
-def load_resource_as_video_frames(
-    resource_path,
-    image_size,
-    offload_video_to_cpu,
-    img_mean=(0.485, 0.456, 0.406),
-    img_std=(0.229, 0.224, 0.225),
-    async_loading_frames=False,
-    use_torchcodec=True,
-    use_cv2=False,
-):
-    """
-    Load video frames from either a video or an image (as a single-frame video).
-    Alternatively, if input is a list of PIL images, convert its format
-    """
-    if isinstance(resource_path, list):
-        img_mean = torch.tensor(img_mean, dtype=torch.float16)[:, None, None]
-        img_std = torch.tensor(img_std, dtype=torch.float16)[:, None, None]
-        assert all(isinstance(img_pil, Image.Image) for img_pil in resource_path)
-        assert len(resource_path) is not None
-        orig_height, orig_width = resource_path[0].size
-        orig_height, orig_width = (
-            orig_width,
-            orig_height,
-        )  # For some reason, this method returns these swapped
-        images = []
-        for img_pil in resource_path:
-            img_np = np.array(img_pil.convert("RGB").resize((image_size, image_size)))
-            assert img_np.dtype == np.uint8, "np.uint8 is expected for JPEG images"
-            img_np = img_np / 255.0
-            img = torch.from_numpy(img_np).permute(2, 0, 1)
-            # float16 precision should be sufficient for image tensor storage
-            img = img.to(dtype=torch.float16)
-            # normalize by mean and std
-            img -= img_mean
-            img /= img_std
-            images.append(img)
-        images = torch.stack(images)
-        if not offload_video_to_cpu:
-            images = images.cuda()
-        return images, orig_height, orig_width
-
-    image_exts = [".jpg", ".JPG", ".jpeg", ".JPEG", ".png", ".PNG"]
-    is_image = (
-        isinstance(resource_path, str)
-        and os.path.splitext(resource_path)[1] in image_exts
-    )
-    if is_image:
-        return load_image_as_single_frame_video(
-            image_path=resource_path,
-            image_size=image_size,
-            offload_video_to_cpu=offload_video_to_cpu,
-            img_mean=img_mean,
-            img_std=img_std,
-        )
-    else:
-        return load_video_frames(
-            video_path=resource_path,
-            image_size=image_size,
-            offload_video_to_cpu=offload_video_to_cpu,
-            img_mean=img_mean,
-            img_std=img_std,
-            async_loading_frames=async_loading_frames,
-            use_torchcodec=use_torchcodec,
-            use_cv2=use_cv2,
-        )
-
-
-def load_image_as_single_frame_video(
-    image_path,
-    image_size,
-    offload_video_to_cpu,
-    img_mean=(0.485, 0.456, 0.406),
-    img_std=(0.229, 0.224, 0.225),
-):
-    """Load an image as a single-frame video."""
-    images, image_height, image_width = _load_img_as_tensor(image_path, image_size)
-    images = images.unsqueeze(0).half()
-
-    img_mean = torch.tensor(img_mean, dtype=torch.float16)[:, None, None]
-    img_std = torch.tensor(img_std, dtype=torch.float16)[:, None, None]
-    if not offload_video_to_cpu:
-        images = images.cuda()
-        img_mean = img_mean.cuda()
-        img_std = img_std.cuda()
-    # normalize by mean and std
-    images -= img_mean
-    images /= img_std
-    return images, image_height, image_width
-
-
-def load_video_frames(
-    video_path,
-    image_size,
-    offload_video_to_cpu,
-    img_mean=(0.485, 0.456, 0.406),
-    img_std=(0.229, 0.224, 0.225),
-    async_loading_frames=False,
-    use_torchcodec=False,
-    use_cv2=False,
-):
-    """
-    Load the video frames from video_path. The frames are resized to image_size as in
-    the model and are loaded to GPU if offload_video_to_cpu=False. This is used by the demo.
-    """
-    if isinstance(video_path, tuple):
-        # Video is already loaded
-        return video_path
-    is_bytes = isinstance(video_path, bytes)
-    is_str = isinstance(video_path, str)
-    is_mp4_path = is_str and os.path.splitext(video_path)[-1] in [".mp4", ".MP4"]
-    if is_str and video_path.startswith("<load-dummy-video"):
-        # Check for pattern <load-dummy-video-N> where N is an integer
-        match = re.match(r"<load-dummy-video-(\d+)>", video_path)
-        if match:
-            num_frames = int(match.group(1))
-        else:
-            # Default for original <load-dummy-video> path
-            num_frames = 60
-        return load_dummy_video(image_size, offload_video_to_cpu, num_frames=num_frames)
-    elif is_bytes or is_mp4_path:
-        return load_video_frames_from_video_file(
-            video_path=video_path,
-            image_size=image_size,
-            offload_video_to_cpu=offload_video_to_cpu,
-            img_mean=img_mean,
-            img_std=img_std,
-            async_loading_frames=async_loading_frames,
-            use_torchcodec=use_torchcodec,
-            use_cv2=use_cv2,
-        )
-    elif is_str and os.path.isdir(video_path):
-        return load_video_frames_from_jpg_images(
-            jpg_folder=video_path,
-            image_size=image_size,
-            offload_video_to_cpu=offload_video_to_cpu,
-            img_mean=img_mean,
-            img_std=img_std,
-            async_loading_frames=async_loading_frames,
-        )
-    else:
-        raise NotImplementedError(
-            "Only MP4 video and JPEG folder are supported at this moment"
-        )
-
-
-def load_dummy_video(image_size, offload_video_to_cpu, num_frames=60):
-    """
-    Load a dummy video with random frames for testing and compilation warmup purposes.
-    """
-    video_height, video_width = 480, 640  # dummy original video sizes
-    images = torch.randn(num_frames, 3, image_size, image_size, dtype=torch.float16)
-    if not offload_video_to_cpu:
-        images = images.cuda()
-    return images, video_height, video_width
-
-
-def load_video_frames_from_jpg_images(
-    jpg_folder,
-    image_size,
-    offload_video_to_cpu,
-    img_mean,
-    img_std,
-    async_loading_frames,
-):
-    """
-    Load the video frames from a directory of JPEG files ("<frame_index>.jpg" format)
-    """
-    frame_names = [p for p in os.listdir(jpg_folder) if p.endswith(".jpg")]
-    try:
-        frame_names.sort(key=lambda p: int(os.path.splitext(p)[0]))
-    except ValueError:
-        # fallback to lexicographic sort if the format is not "<frame_index>.jpg"
-        logger.warning(
-            f'frame names are not in "<frame_index>.jpg" format: {frame_names[:5]=}, '
-            f"falling back to lexicographic sort."
-        )
-        frame_names.sort()
-    num_frames = len(frame_names)
-    if num_frames == 0:
-        raise RuntimeError(f"no images found in {jpg_folder}")
-    img_paths = [os.path.join(jpg_folder, frame_name) for frame_name in frame_names]
-    img_mean = torch.tensor(img_mean, dtype=torch.float16)[:, None, None]
-    img_std = torch.tensor(img_std, dtype=torch.float16)[:, None, None]
-
-    if async_loading_frames:
-        lazy_images = AsyncVideoFrameLoader(
-            img_paths, image_size, offload_video_to_cpu, img_mean, img_std
-        )
-        return lazy_images, lazy_images.video_height, lazy_images.video_width
-
-    # float16 precision should be sufficient for image tensor storage
-    images = torch.zeros(num_frames, 3, image_size, image_size, dtype=torch.float16)
-    for n, img_path in enumerate(
-        tqdm(img_paths, desc=f"frame loading (JPEG) [rank={RANK}]")
-    ):
-        images[n], video_height, video_width = _load_img_as_tensor(img_path, image_size)
-    if not offload_video_to_cpu:
-        images = images.cuda()
-        img_mean = img_mean.cuda()
-        img_std = img_std.cuda()
-    # normalize by mean and std
-    images -= img_mean
-    images /= img_std
-    return images, video_height, video_width
-
-
-def load_video_cv2(
-    video_path: str,
-    image_size: int,
-    img_mean: tuple = (0.485, 0.456, 0.406),
-    img_std: tuple = (0.229, 0.224, 0.225),
-    offload_video_to_cpu: bool = False,
-) -> torch.Tensor:
-    """
-    Load video from path, convert to normalized tensor with specified preprocessing
-
-    Args:
-        video_path: Path to video file
-        image_size: Target size for square frames (height and width)
-        img_mean: Normalization mean (RGB)
-        img_std: Normalization standard deviation (RGB)
-
-    Returns:
-        torch.Tensor: Preprocessed video tensor in shape (T, C, H, W) with float16 dtype
-    """
-    import cv2  # delay OpenCV import to avoid unnecessary dependency
-
-    # Initialize video capture
-    cap = cv2.VideoCapture(video_path)
-    if not cap.isOpened():
-        raise ValueError(f"Could not open video: {video_path}")
-
-    original_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    original_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-
-    frames = []
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            break
-
-        # Convert BGR to RGB and resize
-        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        frame_resized = cv2.resize(
-            frame_rgb, (image_size, image_size), interpolation=cv2.INTER_CUBIC
-        )
-        frames.append(frame_resized)
-
-    cap.release()
-
-    # Convert to tensor
-    video_np = np.stack(frames, axis=0).astype(np.float32)  # (T, H, W, C)
-    video_tensor = torch.from_numpy(video_np).permute(3, 0, 1, 2)  # (C, T, H, W)
-
-    # Normalize
-    mean = torch.tensor(img_mean).view(3, 1, 1, 1)
-    std = torch.tensor(img_std).view(3, 1, 1, 1)
-    video_tensor = (video_tensor / 255.0 - mean) / std
-    video_tensor = video_tensor.half()  # Convert to float16
-    if not offload_video_to_cpu:
-        video_tensor = video_tensor.to("cuda")
-
-    video_tensor = video_tensor.permute(1, 0, 2, 3)  # [T, C, H, W]
-    return video_tensor, original_height, original_width
-
-
-def load_video_frames_from_video_file(
-    video_path,
-    image_size,
-    offload_video_to_cpu,
-    img_mean,
-    img_std,
-    async_loading_frames,
-    gpu_acceleration=True,
-    gpu_device=None,
-    use_torchcodec=False,
-    use_cv2=False,
-):
-    """Load the video frames from a video file."""
-    if use_cv2:
-        return load_video_cv2(
-            video_path=video_path,
-            image_size=image_size,
-            img_mean=img_mean,
-            img_std=img_std,
-            offload_video_to_cpu=offload_video_to_cpu,
-        )
-    elif use_torchcodec:
-        logger.info("Using torchcodec to load video file")
-        lazy_images = AsyncVideoFileLoaderWithTorchCodec(
-            video_path=video_path,
-            image_size=image_size,
-            offload_video_to_cpu=offload_video_to_cpu,
-            img_mean=img_mean,
-            img_std=img_std,
-            gpu_acceleration=gpu_acceleration,
-            gpu_device=gpu_device,
-        )
-    else:
-        raise RuntimeError("at least one of use_torchcodec or use_cv2 must be True")
-    # The `AsyncVideoFileLoader` class always loads the videos asynchronously, so
-    # we just wait for its loading thread to finish if async_loading_frames=False.
-    if not async_loading_frames:
-        async_thread = lazy_images.thread
-        if async_thread is not None:
-            async_thread.join()
-    return lazy_images, lazy_images.video_height, lazy_images.video_width
-
-
-def _load_img_as_tensor(img_path, image_size):
-    """Load and resize an image and convert it into a PyTorch tensor."""
-    img = Image.open(img_path).convert("RGB")
-    orig_width, orig_height = img.width, img.height
-    img = TF.resize(img, size=(image_size, image_size))
-    img = TF.to_tensor(img)
-    return img, orig_height, orig_width
