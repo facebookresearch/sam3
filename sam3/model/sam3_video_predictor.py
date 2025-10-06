@@ -33,9 +33,11 @@ class Sam3VideoPredictor:
         strict_state_dict_loading=True,
         default_output_prob_thresh=0.5,
         async_loading_frames=False,
+        video_loader_type="torchcodec",
     ):
         self.default_output_prob_thresh = default_output_prob_thresh
         self.async_loading_frames = async_loading_frames
+        self.video_loader_type = video_loader_type
 
         self.model = (
             build_sam3_video_model(
@@ -109,7 +111,9 @@ class Sam3VideoPredictor:
         """
         # get an initial inference_state from the model
         inference_state = self.model.init_state(
-            resource_path=resource_path, async_loading_frames=self.async_loading_frames
+            resource_path=resource_path,
+            async_loading_frames=self.async_loading_frames,
+            video_loader_type=self.video_loader_type,
         )
         if not session_id:
             session_id = str(uuid.uuid4())
