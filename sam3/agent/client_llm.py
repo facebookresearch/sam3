@@ -85,7 +85,7 @@ def send_generate_request(messages, server_url=None, model="meta-llama/Llama-4-M
             processed_message["content"] = processed_content
         processed_messages.append(processed_message)
     
-    print("processed_messages:", processed_messages)
+    #print("processed_messages:", processed_messages)
     
     # Create OpenAI client with custom base URL
     client = OpenAI(
