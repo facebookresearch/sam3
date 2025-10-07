@@ -946,9 +946,8 @@ class Sam3Image(torch.nn.Module):
             #     self._offload_outputs_to_cpu(previous_stages_out, frame_idx)
         # if DEBUG:
         #     previous_stages_out[0]["initial_prompt"] = initial_prompt
-        get_queries = None
         # self.memory_bank.reset()
-        return previous_stages_out, get_queries
+        return previous_stages_out
 
     def back_convert(self, targets):
         batched_targets = {

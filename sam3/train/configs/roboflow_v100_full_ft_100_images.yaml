@@ -12,7 +12,7 @@ paths:
 
 # Roboflow dataset configuration
 roboflow_train:
-  num_images: 100
+  num_images: 100 # Note: This is the number of images used for training. If null, all images are used.
   supercategory: ${all_roboflow_supercategories.${string:${submitit.job_array.task_index}}}
 
   # Training transforms pipeline
@@ -59,10 +59,6 @@ roboflow_train:
 
   # Validation transforms pipeline
   val_transforms:
-    - _target_: sam3.train.transforms.filter_query_transforms.FlexibleFilterFindGetQueries
-      query_filter:
-          _target_: sam3.train.transforms.filter_query_transforms.DeleteContextQueries
-    - _target_: sam3.train.transforms.filter_query_transforms.DropGeoPromptsInLastStage
     - _target_: sam3.train.transforms.basic_for_api.ComposeAPI
       transforms:
         - _target_: sam3.train.transforms.basic_for_api.RandomResizeAPI
@@ -91,7 +87,7 @@ roboflow_train:
       alpha: 0.3
       threshold: 0.4
       topk: 4
-    use_o2m_matcher_on_o2m_aux: false
+    use_o2m_matcher_on_o2m_aux: false # Another option is true
     loss_fns_find:
       - _target_: sam3.train.loss.loss_fns.Boxes
         weight_dict:
@@ -301,9 +297,7 @@ trainer:
         max_ann_per_img: 500000
         multiplier: 1
         max_train_queries: 50000
-        max_train_get_queries: 50000
         max_val_queries: 50000
-        max_val_get_queries: 50000
         training: true
         use_caching: False
         img_folder: ${paths.roboflow_vl_100_root}/${roboflow_train.supercategory}/train/
@@ -340,7 +334,6 @@ trainer:
 
 
   # TODO (Kalyan): Expose more model parameters, droppath rate, dropout, etc
-  # TODO (Kalyan): Add support for presence token.
   model:
     _target_: sam3.model_builder.build_sam3_image_model
     bpe_path: /home/kalyanv/sam3/assets/bpe_simple_vocab_16e6.txt.gz

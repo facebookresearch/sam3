@@ -71,7 +71,7 @@ class TransformerDecoderLayer(nn.Module):
         return tensor if pos is None else tensor + pos
 
     def forward_ffn(self, tgt):
-        with torch.cuda.amp.autocast(enabled=False):
+        with torch.amp.autocast(device_type="cuda", enabled=False):
             tgt2 = self.linear2(self.dropout3(self.activation(self.linear1(tgt))))
         tgt = tgt + self.dropout4(tgt2)
         tgt = self.norm3(tgt)
@@ -212,7 +212,7 @@ class TransformerDecoder(nn.Module):
         presence_token: bool = False,
         clamp_presence_logits: bool = True,
         clamp_presence_logit_max_val: float = 10.0,
-        use_normed_output_consistently: bool = False,
+        use_normed_output_consistently: bool = True,
         separate_box_head_instance: bool = False,
         separate_norm_instance: bool = False,
         resolution: Optional[int] = None,

@@ -15,7 +15,7 @@ import psutil
 import torch
 
 from sam3.logger import get_logger
-from sam3.sam3_dense_tracking_builder import build_sam3_dense_tracking_model
+from sam3.sam3_video_model_builder import build_sam3_video_model
 
 logger = get_logger(__name__)
 
@@ -26,21 +26,23 @@ class Sam3VideoPredictor:
 
     def __init__(
         self,
-        bpe_path,
         checkpoint_path,
+        bpe_path=None,
         has_presence_token=False,
         geo_encoder_use_img_cross_attn=False,
         strict_state_dict_loading=True,
         default_output_prob_thresh=0.5,
-        async_loading_frames=True,
+        async_loading_frames=False,
+        video_loader_type="torchcodec",
     ):
         self.default_output_prob_thresh = default_output_prob_thresh
         self.async_loading_frames = async_loading_frames
+        self.video_loader_type = video_loader_type
 
         self.model = (
-            build_sam3_dense_tracking_model(
-                bpe_path=bpe_path,
+            build_sam3_video_model(
                 checkpoint_path=checkpoint_path,
+                bpe_path=bpe_path,
                 has_presence_token=has_presence_token,
                 geo_encoder_use_img_cross_attn=geo_encoder_use_img_cross_attn,
                 strict_state_dict_loading=strict_state_dict_loading,
@@ -109,7 +111,9 @@ class Sam3VideoPredictor:
         """
         # get an initial inference_state from the model
         inference_state = self.model.init_state(
-            resource_path=resource_path, async_loading_frames=self.async_loading_frames
+            resource_path=resource_path,
+            async_loading_frames=self.async_loading_frames,
+            video_loader_type=self.video_loader_type,
         )
         if not session_id:
             session_id = str(uuid.uuid4())
@@ -157,9 +161,6 @@ class Sam3VideoPredictor:
             box_labels=bounding_box_labels,
             clear_old_boxes=clear_old_boxes,
             output_prob_thresh=output_prob_thresh,
-        )
-        logger.info(
-            f"got {len(outputs['out_probs'])} objects on frame {frame_idx} in session {session_id}"
         )
         return {"frame_index": frame_idx, "outputs": outputs}
 

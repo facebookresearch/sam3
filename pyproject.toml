@@ -68,6 +68,14 @@ train = [
     "cc_torch @ git+https://github.com/ronghanghu/cc_torch.git",
     "torch_generic_nms @ git+https://github.com/ronghanghu/torch_generic_nms.git",
 ]
+veval = [
+    "yt-dlp",
+    "pandas",
+    "opencv-python",
+    "pycocotools",
+    "numba",
+    "python-rapidjson",
+]
 
 [project.urls]
 "Homepage" = "https://github.com/facebookresearch/sam3"

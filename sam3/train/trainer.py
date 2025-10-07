@@ -21,6 +21,7 @@ from hydra.utils import instantiate
 from iopath.common.file_io import g_pathmgr
 
 from sam3.model.data_misc import BatchedDatapoint
+from sam3.model.model_misc import SAM3Output
 
 from sam3.train.optim.optimizer import construct_optimizer
 
@@ -34,7 +35,6 @@ from sam3.train.utils.checkpoint_utils import (
 from sam3.train.utils.distributed import all_reduce_max, barrier, get_rank
 
 from sam3.train.utils.logger import Logger, setup_logging
-
 from sam3.train.utils.train_utils import (
     AverageMeter,
     collect_dict_keys,
@@ -503,12 +503,12 @@ class Trainer:
         key, batch = batch.popitem()
         batch = copy_data_to_device(batch, self.device, non_blocking=True)
 
-        find_stages, get_stage = model(batch, is_inference=is_inference)
+        find_stages = model(batch, is_inference=is_inference)
         find_targets = [
             unwrap_ddp_if_wrapped(model).back_convert(x) for x in batch.find_targets
         ]
         batch_size = len(batch.img_batch.tensors)
-        loss = self._find_loss(key)(find_stages, find_targets, get_stage)
+        loss = self._find_loss(key)(find_stages, find_targets)
 
         loss_str = f"Losses/{phase}_{key}_loss"
 
@@ -551,9 +551,10 @@ class Trainer:
                     key=key,
                 )
             # Cleanup memory
-            for fs in find_stages:
-                for k in list(fs.keys()):
-                    del fs[k]
+            if isinstance(find_stages, SAM3Output):
+                for fs in find_stages:
+                    for k in list(fs.keys()):
+                        del fs[k]
 
         return ret_tuple
 
@@ -688,7 +689,8 @@ class Trainer:
 
             # compute output
             with torch.no_grad():
-                with torch.cuda.amp.autocast(
+                with torch.amp.autocast(
+                    device_type="cuda",
                     enabled=(self.optim_conf.amp.enabled if self.optim_conf else False),
                     dtype=(
                         get_amp_type(self.optim_conf.amp.amp_dtype)
@@ -944,7 +946,8 @@ class Trainer:
                 else contextlib.nullcontext()
             )
             with ddp_context:
-                with torch.cuda.amp.autocast(
+                with torch.amp.autocast(
+                    device_type="cuda",
                     enabled=self.optim_conf.amp.enabled,
                     dtype=get_amp_type(self.optim_conf.amp.amp_dtype),
                 ):

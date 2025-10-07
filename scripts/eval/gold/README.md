@@ -6,7 +6,7 @@ SA-Co/Gold is an evaluation dataset comprising of 7 subsets, each targeting a di
 
 ### Download annotations
 
-The GT annotations can be downloaded from the following [location](https://drive.google.com/drive/folders/1jT8Bsvrnz8nOqtksQjLlwrUcYFjO1kH8?usp=sharing)
+The GT annotations can be downloaded from the following [location](https://drive.google.com/drive/folders/1fLP-6WrNSCDBsHII9ST_4xDTuIKDog3k?usp=sharing)
 
 ### Download images
 

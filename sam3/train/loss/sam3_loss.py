@@ -161,7 +161,7 @@ class Sam3LossWrapper(torch.nn.Module):
         losses[CORE_LOSS_KEY] = total_core_loss
         return losses
 
-    def forward(self, find_stages: SAM3Output, find_targets, get_stages):
+    def forward(self, find_stages: SAM3Output, find_targets):
         if find_stages.loss_stages is not None:
             find_targets = [find_targets[i] for i in find_stages.loss_stages]
         with SAM3Output.iteration_mode(
