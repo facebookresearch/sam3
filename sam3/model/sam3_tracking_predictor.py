@@ -74,6 +74,7 @@ class Sam3TrackerPredictor(Sam3TrackerBase):
         # the original video height and width, used for resizing final output scores
         inference_state["video_height"] = video_height
         inference_state["video_width"] = video_width
+        # TODO: support arbitrary device and remove all ".cuda()" calls
         inference_state["device"] = torch.device("cuda")
         if offload_state_to_cpu:
             inference_state["storage_device"] = torch.device("cpu")
@@ -956,10 +957,21 @@ class Sam3TrackerPredictor(Sam3TrackerBase):
             frame_idx, (None, None)
         )
         if backbone_out is None:
-            raise RuntimeError(
-                f"Image features for frame {frame_idx} are not cached. "
-                "Please run inference on this frame first."
-            )
+            if self.backbone is None:
+                raise RuntimeError(
+                    f"Image features for frame {frame_idx} are not cached. "
+                    "Please run inference on this frame first."
+                )
+            else:
+                # Cache miss -- we will run inference on a single image
+                image = inference_state["images"][frame_idx].cuda().float().unsqueeze(0)
+                backbone_out = self.forward_image(
+                    NestedTensor(tensors=image, mask=None)
+                )
+                # Cache the most recent frame's feature (for repeated interactions with
+                # a frame; we can use an LRU cache for more frames in the future).
+                inference_state["cached_features"] = {frame_idx: (image, backbone_out)}
+
         backbone_out = backbone_out["sam2_backbone_out"]  # Extract SAM2 backbone output
 
         # expand the features to have the same dimension as the number of objects
