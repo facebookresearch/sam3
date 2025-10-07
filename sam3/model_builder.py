@@ -32,7 +32,7 @@ def build_sam3_image_model(
     eval_mode=True,
     checkpoint_path=None,
     enable_segmentation=True,
-    has_presence_token=False,
+    has_presence_token=True,
 ):
     """
     This function replaces the Hydra-based configuration in sam3_image_v1.4.yaml

@@ -56,27 +56,24 @@ pip install -e ".[dev]"
 ```python
 import torch
 from sam3 import build_sam3_image_model
+from sam3.model.sam3_image_processor import Sam3Processor
 from PIL import Image
 import numpy as np
 
 # Load the model
 model = build_sam3_image_model(bpe_path="path/to/bpe/vocabulary.txt", checkpoint_path="path/to/checkpoint.pth")
+processor = Sam3Processor()
 
-# Load the image into model
-inference_state = model.init_state("path/to/image.jpg")
+# Load an image
+image = Image.open("your_image_path.jpg")
+inference_state = processor(image, instance_prompt=False)
 
-# Run text-to-mask inference
-outputs = model.predict(
-    inference_state,
-    text_str="your_text_query",
-    output_prob_thresh=0.5,
-)
+# Pass your text prompt to the model
+processor.add_prompt(inference_state, text_str="YOUR CONCEPT",  instance_prompt=False)
+outputs = processor.postprocess_output(inference_state ,output_prob_thresh=0.5)
 
 # Get the masks, bounding boxes, and scores
 masks, boxes, scores = outputs["out_binary_masks"], outputs["out_boxes_xywh"], outputs["out_probs"]
-
-# Reset state
-model.reset_state(inference_state)
 
 # For point-to-mask and box-to-mask inference, please checkout the examples directory
 ```
