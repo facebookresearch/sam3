@@ -260,8 +260,6 @@ class Sam3VideoInference(Sam3VideoBase):
         start_frame_idx=None,
         max_frame_num_to_track=None,
         reverse=False,
-        output_prob_thresh=0.5,
-        compute_stability_score=False,
         is_instance_processing=False,
     ):
         """
@@ -863,7 +861,6 @@ class Sam3VideoInference(Sam3VideoBase):
         boxes_xywh=None,
         box_labels=None,
         clear_old_boxes=True,
-        output_prob_thresh=0.5,
     ):
         """
         Add text, point or box prompts on a single frame. This method returns the inference
@@ -1055,8 +1052,6 @@ class Sam3VideoInferenceWithInstanceInteractivity(Sam3VideoInference):
         start_frame_idx=None,
         max_frame_num_to_track=None,
         reverse=False,
-        output_prob_thresh=0.5,
-        compute_stability_score=False,
         is_instance_processing=False,
     ):
         # step 1: check which type of propagation to run, should be the same for all GPUs.
@@ -1425,7 +1420,6 @@ class Sam3VideoInferenceWithInstanceInteractivity(Sam3VideoInference):
         boxes_xywh=None,
         box_labels=None,
         clear_old_boxes=True,
-        output_prob_thresh=0.5,
         obj_id=None,
         rel_coordinates=True,
     ):
@@ -1459,7 +1453,6 @@ class Sam3VideoInferenceWithInstanceInteractivity(Sam3VideoInference):
                 boxes_xywh=boxes_xywh,
                 box_labels=box_labels,
                 clear_old_boxes=clear_old_boxes,
-                output_prob_thresh=output_prob_thresh,
             )
 
     @torch.inference_mode()
