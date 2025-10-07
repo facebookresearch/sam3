@@ -170,21 +170,6 @@ class Sam3VideoBase(nn.Module):
         timeout = datetime.timedelta(seconds=SAM3_COLLECTIVE_OP_TIMEOUT_SEC)
         self._dist_pg_cpu = dist.new_group(backend="gloo", timeout=timeout)
 
-    def all_gather_cpu(self, tensor_list, tensor):
-        if self._dist_pg_cpu is None:
-            self._init_dist_pg_cpu()
-        dist.broadcast(tensor_list, tensor, group=self._dist_pg_cpu)
-
-    def all_gather_python_obj_cpu(self, object_list, python_obj):
-        if self._dist_pg_cpu is None:
-            self._init_dist_pg_cpu()
-        dist.all_gather_object(object_list, python_obj, group=self._dist_pg_cpu)
-
-    def broadcast_cpu(self, x, src):
-        if self._dist_pg_cpu is None:
-            self._init_dist_pg_cpu()
-        dist.broadcast(x, src=src, group=self._dist_pg_cpu)
-
     def broadcast_python_obj_cpu(self, python_obj_list, src):
         if self._dist_pg_cpu is None:
             self._init_dist_pg_cpu()
