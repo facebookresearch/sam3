@@ -460,9 +460,6 @@ class Sam3Processor:
         # 3) find_inputs
         input_box_embedding_dim = 258  # historical default
         input_points_embedding_dim = 257  # historical default
-        dummy_ptrs = BatchedPointer(
-            stage_ids=[], query_ids=[], object_ids=[], ptr_mask=[], ptr_types=[]
-        )
         stages = [
             FindStage(
                 img_ids=[stage_id],
@@ -474,8 +471,6 @@ class Sam3Processor:
                 input_points=[torch.empty(0, input_points_embedding_dim)],
                 input_points_before_embed=[torch.empty(0, 3)],
                 input_points_mask=[torch.empty(0)],
-                ptrs=dummy_ptrs,
-                ptrs_seg=dummy_ptrs,
                 object_ids=[],
             )
             for stage_id in range(num_frames)
@@ -489,7 +484,6 @@ class Sam3Processor:
             find_text_batch=find_text_batch,
             find_inputs=stages,
             find_targets=[None] * num_frames,
-            get_queries=None,
             find_metadatas=[None] * num_frames,
         )
         input_batch = recursive_to(input_batch, device, non_blocking=True)
