@@ -33,8 +33,8 @@ class MaskletConfirmationStatus(Enum):
 class Sam3VideoBase(nn.Module):
     def __init__(
         self,
-        sam2_model,
-        sam3_model,
+        detector,
+        tracker,
         # prob threshold for detection outputs -- only keep detections above this threshold
         # enters NMS and det-to-track matching
         score_threshold_detection=0.5,
@@ -79,8 +79,8 @@ class Sam3VideoBase(nn.Module):
         **kwargs,
     ):
         super().__init__()
-        self.sam2_predictor = sam2_model
-        self.sam3_model = sam3_model
+        self.detector = detector
+        self.tracker = tracker
         self.score_threshold_detection = score_threshold_detection
         self.det_nms_thresh = det_nms_thresh
         self.assoc_iou_thresh = assoc_iou_thresh
@@ -176,7 +176,7 @@ class Sam3VideoBase(nn.Module):
         """
 
         # Step 1: run backbone and FA in a distributed manner -- this is done via Sam3ImageOnVideoMultiGPU,
-        # a MultiGPU FA model (assigned to `self.sam3_model`) that shards frames in a round-robin manner.
+        # a MultiGPU FA model (assigned to `self.detector`) that shards frames in a round-robin manner.
         # It returns a "det_out" dict for `frame_idx` and fills SAM2 backbone features for `frame_idx`
         # into `feature_cache`. Despite its distributed inference under the hood, the results would be
         # the same as if it is running backbone and FA for every frame on a single GPU.
@@ -316,7 +316,7 @@ class Sam3VideoBase(nn.Module):
         # Step 1: if text feature is not cached in `feature_cache`, compute and cache it
         text_batch_key = tuple(input_batch.find_text_batch)
         if "text" not in feature_cache or text_batch_key not in feature_cache["text"]:
-            text_outputs = self.sam3_model.backbone.forward_text(
+            text_outputs = self.detector.backbone.forward_text(
                 input_batch.find_text_batch, device=self.device
             )
             # note: we only cache the text feature of the most recent prompt
@@ -326,7 +326,7 @@ class Sam3VideoBase(nn.Module):
 
         # Step 2: run backbone, FA detection, and post-processing with NMS
         if "multigpu_buffer" not in feature_cache:
-            # "multigpu_buffer" is a buffer cache used by `self.sam3_model` and it needs
+            # "multigpu_buffer" is a buffer cache used by `self.detector` and it needs
             # to be passed to `forward_video_grounding_multigpu` for every call
             feature_cache["multigpu_buffer"] = {}
 
@@ -335,7 +335,7 @@ class Sam3VideoBase(nn.Module):
         max_frame_num_to_track = tracking_bounds.get("max_frame_num_to_track")
         start_frame_idx = tracking_bounds.get("propagate_in_video_start_frame_idx")
 
-        sam3_image_out, _ = self.sam3_model.forward_video_grounding_multigpu(
+        sam3_image_out, _ = self.detector.forward_video_grounding_multigpu(
             backbone_out={
                 "img_batch_all_stages": input_batch.img_batch,
                 **text_outputs,
@@ -370,7 +370,7 @@ class Sam3VideoBase(nn.Module):
 
         # Step 3: build SAM2 backbone features and store them in `feature_cache`
         backbone_cache = {}
-        sam_mask_decoder = self.sam2_predictor.sam_mask_decoder
+        sam_mask_decoder = self.tracker.sam_mask_decoder
         sam2_backbone_fpn = [
             sam_mask_decoder.conv_s0(sam3_image_out["sam2_backbone_fpn_0"]),
             sam_mask_decoder.conv_s1(sam3_image_out["sam2_backbone_fpn_1"]),
@@ -454,7 +454,7 @@ class Sam3VideoBase(nn.Module):
         # Recondition the masklets based on the new detections
         for trk_obj_id, det_idx in trk_id_to_max_iou_high_conf_det.items():
             new_mask = det_out["mask"][det_idx : det_idx + 1]
-            input_mask_res = self.sam2_predictor.input_mask_size
+            input_mask_res = self.tracker.input_mask_size
             new_mask_binary = (
                 F.interpolate(
                     new_mask.unsqueeze(1),
@@ -478,7 +478,7 @@ class Sam3VideoBase(nn.Module):
                     logger.debug(
                         f"Adding new mask for track {trk_obj_id} at frame {frame_idx}. Objects {inference_state['obj_ids']} are all reconditioned."
                     )
-                    self.sam2_predictor.add_new_mask(
+                    self.tracker.add_new_mask(
                         inference_state=inference_state,
                         frame_idx=frame_idx,
                         obj_id=trk_obj_id,
@@ -487,7 +487,7 @@ class Sam3VideoBase(nn.Module):
                     reconditioned_states_idx.add(state_idx)
 
             for idx in reconditioned_states_idx:
-                self.sam2_predictor.propagate_in_video_preflight(
+                self.tracker.propagate_in_video_preflight(
                     sam2_states_local[idx], run_mem_encoder=True
                 )
         return sam2_states_local
@@ -1103,7 +1103,7 @@ class Sam3VideoBase(nn.Module):
 
             # propagate one frame
             num_frames_propagated = 0
-            for out in self.sam2_predictor.propagate_in_video(
+            for out in self.tracker.propagate_in_video(
                 inference_state,
                 start_frame_idx=frame_idx,
                 # end_frame_idx = start_frame_idx + max_frame_num_to_track
@@ -1128,7 +1128,7 @@ class Sam3VideoBase(nn.Module):
             obj_scores_list.append(out_obj_scores.squeeze(1))
 
         # concatenate the output masklets from all local inference states
-        H_mask = W_mask = self.sam2_predictor.low_res_mask_size
+        H_mask = W_mask = self.tracker.low_res_mask_size
         if len(low_res_masks_list) > 0:
             low_res_masks_local = torch.cat(low_res_masks_list, dim=0)
             obj_scores_local = torch.cat(obj_scores_list, dim=0)
@@ -1441,7 +1441,7 @@ class Sam3VideoBase(nn.Module):
             return
         # Avoid an extra interpolation step by directly interpolating to `interpol_size`
         high_res_H, high_res_W = (
-            self.sam2_predictor.maskmem_backbone.mask_downsampler.interpol_size
+            self.tracker.maskmem_backbone.mask_downsampler.interpol_size
         )
         # NOTE: inspect this part if we observe OOMs in the demo
         high_res_masks = F.interpolate(
@@ -1453,7 +1453,7 @@ class Sam3VideoBase(nn.Module):
         # We first apply non-overlapping constraints before memory encoding. This may include some suppression heuristics.
         if not hasattr(self, "_warm_up_complete") or self._warm_up_complete:
             # TODO: try _apply_object_wise_non_overlapping_constraints instead
-            high_res_masks = self.sam2_predictor._suppress_object_pw_area_shrinkage(
+            high_res_masks = self.tracker._suppress_object_pw_area_shrinkage(
                 high_res_masks
             )
         # Instead of gathering the predicted object scores, we use mask areas as a proxy.
@@ -1477,7 +1477,7 @@ class Sam3VideoBase(nn.Module):
             local_batch_size = local_high_res_masks.size(0)
             # Run Sam2 memory encoder. Note that we do not re-enforce the non-overlapping constraint as it is turned off by default
 
-            encoded_mem = self.sam2_predictor._run_memory_encoder(
+            encoded_mem = self.tracker._run_memory_encoder(
                 sam2_state,
                 frame_idx,
                 local_batch_size,
@@ -1499,7 +1499,7 @@ class Sam3VideoBase(nn.Module):
                 ]
                 # for batched inference state, we also need to add per-object
                 # memory slides to support instance interactivity
-                self.sam2_predictor._add_output_per_object(
+                self.tracker._add_output_per_object(
                     inference_state=sam2_state,
                     frame_idx=frame_idx,
                     current_out=output_dict[storage_key][frame_idx],
@@ -1524,7 +1524,7 @@ class Sam3VideoBase(nn.Module):
         # prepare inference_state
         # batch objects that first appear on the same frame together
         # Clear inference state. Keep the cached image features if available.
-        new_sam2_state = self.sam2_predictor.init_state(
+        new_sam2_state = self.tracker.init_state(
             cached_features=feature_cache,
             video_height=orig_vid_height,
             video_width=orig_vid_width,
@@ -1539,8 +1539,8 @@ class Sam3VideoBase(nn.Module):
         assert len(new_obj_ids) == new_obj_masks.size(0)
         assert new_obj_masks.is_floating_point()
         # TODO consider removing this interpolation -- it's probably no longer needed
-        # we should edit `self.sam2_predictor.add_new_mask` to directly take low-res input masks
-        input_mask_res = self.sam2_predictor.input_mask_size
+        # we should edit `self.tracker.add_new_mask` to directly take low-res input masks
+        input_mask_res = self.tracker.input_mask_size
         new_obj_masks = F.interpolate(
             new_obj_masks.unsqueeze(1),
             size=(input_mask_res, input_mask_res),
@@ -1551,7 +1551,7 @@ class Sam3VideoBase(nn.Module):
 
         # add object one by one
         for new_obj_id, new_mask in zip(new_obj_ids, new_obj_masks):
-            self.sam2_predictor.add_new_mask(
+            self.tracker.add_new_mask(
                 inference_state=new_sam2_state,
                 frame_idx=frame_idx,
                 obj_id=new_obj_id,
@@ -1559,9 +1559,7 @@ class Sam3VideoBase(nn.Module):
                 add_mask_to_memory=True,
             )
         # NOTE: we skip enforcing the non-overlapping constraint **globally** when adding new objects.
-        self.sam2_predictor.propagate_in_video_preflight(
-            new_sam2_state, run_mem_encoder=True
-        )
+        self.tracker.propagate_in_video_preflight(new_sam2_state, run_mem_encoder=True)
         sam2_states_local.append(new_sam2_state)
         return sam2_states_local
 
@@ -1575,7 +1573,7 @@ class Sam3VideoBase(nn.Module):
         for sam2_inference_state in sam2_states_local_before_removal:
             # we try to remove `obj_id` on every inference state with `strict=False`
             # it will not do anything if an inference state doesn't contain `obj_id`
-            new_obj_ids, _ = self.sam2_predictor.remove_object(
+            new_obj_ids, _ = self.tracker.remove_object(
                 sam2_inference_state, obj_id, strict=False, need_output=False
             )
             # only keep an inference state if it's non-empty after object removal
@@ -1742,7 +1740,7 @@ class Sam3VideoBase(nn.Module):
         return preds
 
     def _encode_prompt(self, **kwargs):
-        return self.sam3_model._encode_prompt(**kwargs)
+        return self.detector._encode_prompt(**kwargs)
 
     def _drop_new_det_with_obj_limit(self, new_det_fa_inds, det_scores_np, num_to_keep):
         """

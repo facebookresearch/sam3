@@ -65,37 +65,6 @@ def _setup_tf32() -> None:
 _setup_tf32()
 
 
-class Sam2Predictor(nn.Module):
-    """
-    Wrapper for SAM2 predictor model.
-
-    This class wraps the SAM2 video tracking model to provide a consistent
-    interface for dense tracking applications.
-    """
-
-    def __init__(self, model: nn.Module) -> None:
-        """
-        Initialize SAM2 predictor wrapper.
-
-        Args:
-            model: The underlying SAM2 model
-        """
-        super().__init__()
-        self.model = model
-
-    def forward(self, *args, **kwargs):
-        """Forward pass is not implemented - use predictor APIs instead."""
-        raise NotImplementedError(
-            "Use the sam2 predictor APIs instead. Check Sam3TrackerPredictor class for details."
-        )
-
-    def __getattr__(self, name):
-        model = super().__getattr__("model")
-        if name == "model":
-            return model
-        return getattr(model, name)
-
-
 def _create_sam2_components():
     """Create SAM2 model components."""
     # Position encoding for mask memory backbone
@@ -197,12 +166,12 @@ def _create_sam2_transformer():
     return transformer
 
 
-def build_sam2_model() -> Sam2Predictor:
+def build_tracker() -> Sam3TrackerPredictor:
     """
-    Build SAM2 model for video tracking.
+    Build the tracker module for video tracking.
 
     Returns:
-        Sam2Predictor: Wrapped SAM2 model for video tracking
+        Sam3TrackerPredictor: Wrapped SAM3 tracker module
     """
 
     # Create model components
@@ -243,7 +212,7 @@ def build_sam2_model() -> Sam2Predictor:
         fill_hole_area=0,
     )
 
-    return Sam2Predictor(model)
+    return model
 
 def build_sam3_tracking_predictor(sam3_ckpt=None) -> Sam3TrackerBase:
     """
@@ -549,7 +518,7 @@ def build_sam3_video_model(
         )
 
     # Build SAM2 model
-    sam2_model = build_sam2_model()
+    tracker = build_tracker()
 
     # Create SAM3 components
     visual_neck = _create_sam3_visual_backbone()
@@ -578,7 +547,7 @@ def build_sam3_video_model(
     )
 
     # Create SAM3 model
-    sam3_model = Sam3ImageOnVideoMultiGPU(
+    detector = Sam3ImageOnVideoMultiGPU(
         num_feature_levels=1,
         backbone=backbone,
         transformer=transformer,
@@ -592,8 +561,8 @@ def build_sam3_video_model(
 
     # Create the main dense tracking model
     model = Sam3VideoInferenceWithInstanceInteractivity(
-        sam2_model=sam2_model,
-        sam3_model=sam3_model,
+        detector=detector,
+        tracker=tracker,
         ckpt_path=None,
         score_threshold_detection=0.5,
         assoc_iou_thresh=0.1,
@@ -615,6 +584,16 @@ def build_sam3_video_model(
         ckpt = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
         if "model" in ckpt and isinstance(ckpt["model"], dict):
             ckpt = ckpt["model"]
+
+        # remap keys in old checkpoints for compatibility (TODO remove this when we have the final checkpoints)
+        for key in list(ckpt.keys()):
+            if key.startswith("sam2_predictor.model."):
+                new_key = "tracker." + key[len("sam2_predictor.model.") :]
+                ckpt[new_key] = ckpt.pop(key)
+            elif key.startswith("sam3_model."):
+                new_key = "detector." + key[len("sam3_model.") :]
+                ckpt[new_key] = ckpt.pop(key)
+
         missing_keys, unexpected_keys = model.load_state_dict(
             ckpt, strict=strict_state_dict_loading
         )
