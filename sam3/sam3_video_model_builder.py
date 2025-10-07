@@ -82,7 +82,6 @@ class Sam2Predictor(nn.Module):
         """
         super().__init__()
         self.model = model
-        self.per_obj_inference = False
 
     def forward(self, *args, **kwargs):
         """Forward pass is not implemented - use predictor APIs instead."""

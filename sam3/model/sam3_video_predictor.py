@@ -394,10 +394,8 @@ class Sam3VideoPredictorMultiGPU(Sam3VideoPredictor):
         assert not torch.distributed.is_initialized()
         # use the "env://" init method with environment variables set in start_worker_processes
         # a short 3-min timeout to quickly detect any synchronization failures
-        SAM3_COLLECTIVE_OP_TIMEOUT_SEC = int(
-            os.getenv("SAM3_COLLECTIVE_OP_TIMEOUT_SEC", "180")
-        )
-        timeout = datetime.timedelta(seconds=SAM3_COLLECTIVE_OP_TIMEOUT_SEC)
+        timeout_sec = int(os.getenv("SAM3_COLLECTIVE_OP_TIMEOUT_SEC", "180"))
+        timeout = datetime.timedelta(seconds=timeout_sec)
         torch.distributed.init_process_group(
             backend="nccl",
             init_method="env://",

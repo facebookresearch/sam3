@@ -30,28 +30,6 @@ class MaskletConfirmationStatus(Enum):
     CONFIRMED = 2  # confirmed by at least one detection
 
 
-class Sam2Predictor(nn.Module):
-    def __init__(
-        self,
-        model,
-    ):
-        super().__init__()
-        self.model = model
-        self.per_obj_inference = False
-
-    def forward(self, *args, **kwargs):
-        raise NotImplementedError(
-            "Use the sam2 predictor APIs instead. Check Sam3TrackerPredictor class for details."
-        )
-
-    def __getattr__(self, name):
-        # Expose all attributes of the underlying model
-        model = super().__getattr__("model")
-        if name == "model":
-            return model
-        return getattr(model, name)
-
-
 class Sam3VideoBase(nn.Module):
     def __init__(
         self,
@@ -101,9 +79,7 @@ class Sam3VideoBase(nn.Module):
         **kwargs,
     ):
         super().__init__()
-        # assert isinstance(sam2_model, Sam2Predictor)
         self.sam2_predictor = sam2_model
-        # assert isinstance(sam3_model, Sam3ImageOnVideoMultiGPU)
         self.sam3_model = sam3_model
         self.score_threshold_detection = score_threshold_detection
         self.det_nms_thresh = det_nms_thresh
@@ -164,10 +140,8 @@ class Sam3VideoBase(nn.Module):
 
     def _init_dist_pg_cpu(self):
         # a short 3-min timeout to quickly detect any synchronization failures
-        SAM3_COLLECTIVE_OP_TIMEOUT_SEC = int(
-            os.getenv("SAM3_COLLECTIVE_OP_TIMEOUT_SEC", "180")
-        )
-        timeout = datetime.timedelta(seconds=SAM3_COLLECTIVE_OP_TIMEOUT_SEC)
+        timeout_sec = int(os.getenv("SAM3_COLLECTIVE_OP_TIMEOUT_SEC", "180"))
+        timeout = datetime.timedelta(seconds=timeout_sec)
         self._dist_pg_cpu = dist.new_group(backend="gloo", timeout=timeout)
 
     def broadcast_python_obj_cpu(self, python_obj_list, src):
@@ -1548,33 +1522,19 @@ class Sam3VideoBase(nn.Module):
         prev_sam2_state = sam2_states_local[0] if len(sam2_states_local) > 0 else None
 
         # prepare inference_state
-        if self.sam2_predictor.per_obj_inference:
-            # in per_obj_inference mode, init_state happens only once,
-            # new obj_ids will be added to the existing inference state
-            if prev_sam2_state is not None:
-                new_sam2_state = prev_sam2_state
-            else:
-                new_sam2_state = self.sam2_predictor.init_state(
-                    cached_features=feature_cache,
-                    video_height=orig_vid_height,
-                    video_width=orig_vid_width,
-                    num_frames=num_frames,
-                )
-                new_sam2_state["backbone_out"] = None
-        else:
-            # batch objects that first appear on the same frame together
-            # Clear inference state. Keep the cached image features if available.
-            new_sam2_state = self.sam2_predictor.init_state(
-                cached_features=feature_cache,
-                video_height=orig_vid_height,
-                video_width=orig_vid_width,
-                num_frames=num_frames,
-            )
-            new_sam2_state["backbone_out"] = (
-                prev_sam2_state.get("backbone_out", None)
-                if prev_sam2_state is not None
-                else None
-            )
+        # batch objects that first appear on the same frame together
+        # Clear inference state. Keep the cached image features if available.
+        new_sam2_state = self.sam2_predictor.init_state(
+            cached_features=feature_cache,
+            video_height=orig_vid_height,
+            video_width=orig_vid_width,
+            num_frames=num_frames,
+        )
+        new_sam2_state["backbone_out"] = (
+            prev_sam2_state.get("backbone_out", None)
+            if prev_sam2_state is not None
+            else None
+        )
 
         assert len(new_obj_ids) == new_obj_masks.size(0)
         assert new_obj_masks.is_floating_point()
@@ -1602,10 +1562,7 @@ class Sam3VideoBase(nn.Module):
         self.sam2_predictor.propagate_in_video_preflight(
             new_sam2_state, run_mem_encoder=True
         )
-        if self.sam2_predictor.per_obj_inference:
-            sam2_states_local = [new_sam2_state]
-        else:
-            sam2_states_local.append(new_sam2_state)
+        sam2_states_local.append(new_sam2_state)
         return sam2_states_local
 
     def _sam2_remove_object(self, sam2_states_local: List[Any], obj_id: int):
