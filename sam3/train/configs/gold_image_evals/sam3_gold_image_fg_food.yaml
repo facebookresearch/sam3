@@ -9,7 +9,7 @@ paths:
   checkpoint_path: /fsx-onevision/shoubhikdn/sam3_ckpts/paper_image_only_checkpoint_presence_0.35_completed_model_only.pt
   experiment_log_dir: /fsx-onevision/shoubhikdn/omnivision_onevision/release_experiments/gold_fg_food/
   coco_gt : /fsx-onevision/shoubhikdn/release/gold_test_set/original/gold_fg_food_merged_a_test.json
-  coco_gts :         
+  coco_gts :
     - /fsx-onevision/shoubhikdn/release/gold_test_set/original/gold_fg_food_merged_a_test.json
     - /fsx-onevision/shoubhikdn/release/gold_test_set/original/gold_fg_food_merged_b_test.json
     - /fsx-onevision/shoubhikdn/release/gold_test_set/original/gold_fg_food_merged_c_test.json
@@ -48,27 +48,21 @@ scratch:
 
   # Box processing
   original_box_postprocessor:
-    _target_: sam3.train.eval.postprocessors.PostProcessAPI
-    soft_token: true
-    focal_loss: true
+    _target_: sam3.train.eval.postprocessors.PostProcessImage
     max_dets_per_img: -1  # infinite detections
     use_original_ids: true
     use_original_sizes: true
     use_presence: ${scratch.use_presence_eval}
 
   box_postprocessor:
-    _target_: sam3.train.eval.postprocessors.PostProcessAPI
-    soft_token: true
-    focal_loss: true
+    _target_: sam3.train.eval.postprocessors.PostProcessImage
     max_dets_per_img: -1 #infinite detections
     use_original_ids: false
     use_original_sizes: false
     use_presence: ${scratch.use_presence_eval}
 
   box_postprocessor_thresholded:
-    _target_: sam3.train.eval.postprocessors.PostProcessAPI
-    soft_token: true
-    focal_loss: true
+    _target_: sam3.train.eval.postprocessors.PostProcessImage
     max_dets_per_img: -1 #infinite detections
     use_original_ids: false
     use_original_sizes: false
@@ -76,9 +70,7 @@ scratch:
     use_presence: ${scratch.use_presence_eval}
 
   mask_postprocessor_w_boundary_thresholded:
-    _target_: sam3.train.eval.postprocessors.PostProcessAPI
-    soft_token: true
-    focal_loss: true
+    _target_: sam3.train.eval.postprocessors.PostProcessImage
     max_dets_per_img: -1 #infinite detections
     iou_type: "segm"
     use_original_ids: false
