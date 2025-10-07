@@ -1,5 +1,6 @@
 # Copyright (c) Meta, Inc. and its affiliates. All Rights Reserved
 
+import datetime
 import gc
 import multiprocessing as mp
 import os
@@ -392,9 +393,15 @@ class Sam3VideoPredictorMultiGPU(Sam3VideoPredictor):
         logger.info(f"starting NCCL process group on {rank=} with {world_size=}")
         assert not torch.distributed.is_initialized()
         # use the "env://" init method with environment variables set in start_worker_processes
+        # a short 3-min timeout to quickly detect any synchronization failures
+        SAM3_COLLECTIVE_OP_TIMEOUT_SEC = int(
+            os.getenv("SAM3_COLLECTIVE_OP_TIMEOUT_SEC", "180")
+        )
+        timeout = datetime.timedelta(seconds=SAM3_COLLECTIVE_OP_TIMEOUT_SEC)
         torch.distributed.init_process_group(
             backend="nccl",
             init_method="env://",
+            timeout=timeout,
             device_id=self.device,
         )
         # warm-up the NCCL process group by running a dummy all-reduce

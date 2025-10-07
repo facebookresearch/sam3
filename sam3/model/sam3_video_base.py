@@ -4,7 +4,6 @@ import datetime
 import logging
 import math
 import os
-import sys
 from collections import defaultdict
 from copy import deepcopy
 from enum import Enum
@@ -58,8 +57,6 @@ class Sam3VideoBase(nn.Module):
         self,
         sam2_model,
         sam3_model,
-        ckpt_path=None,
-        sam3_ckpt_path=None,
         # prob threshold for detection outputs -- only keep detections above this threshold
         # enters NMS and det-to-track matching
         score_threshold_detection=0.5,
@@ -108,11 +105,6 @@ class Sam3VideoBase(nn.Module):
         self.sam2_predictor = sam2_model
         # assert isinstance(sam3_model, Sam3ImageOnVideoMultiGPU)
         self.sam3_model = sam3_model
-        if sam3_ckpt_path:
-            ckpt = torch.load(sam3_ckpt_path, map_location="cpu", weights_only=True)
-            self.sam3_model.load_state_dict(ckpt["model"], strict=False)
-        elif ckpt_path:
-            self._load_checkpoint(ckpt_path, strict=False)
         self.score_threshold_detection = score_threshold_detection
         self.det_nms_thresh = det_nms_thresh
         self.assoc_iou_thresh = assoc_iou_thresh
