@@ -712,8 +712,7 @@ class Sam3VideoInference(Sam3VideoBase):
             for b in range(1, self.num_obj_for_compile + 1):
                 for i in range(
                     1,
-                    self.tracker.max_cond_frames_in_attn
-                    + self.tracker.num_maskmem,
+                    self.tracker.max_cond_frames_in_attn + self.tracker.num_maskmem,
                 ):
                     for j in range(
                         self.tracker.max_cond_frames_in_attn
@@ -1017,11 +1016,6 @@ class Sam3VideoInferenceWithInstanceInteractivity(Sam3VideoInference):
         )
         # initialize extra states
         inference_state["action_history"] = []  # for logging user actions
-        if self.tracker.per_obj_inference:
-            # in per_obj mode only 1 inference state is needed, we init it here.
-            inference_state["sam2_inference_states"] = [
-                self._init_new_sam2_state(inference_state)
-            ]
         return inference_state
 
     @torch.inference_mode()
@@ -1029,10 +1023,6 @@ class Sam3VideoInferenceWithInstanceInteractivity(Sam3VideoInference):
         super().reset_state(inference_state)
         # reset extra states
         inference_state["action_history"].clear()
-        if self.tracker.per_obj_inference:
-            inference_state["sam2_inference_states"] = [
-                self._init_new_sam2_state(inference_state)
-            ]
 
     def _init_new_sam2_state(self, inference_state):
         return self.tracker.init_state(
@@ -1518,12 +1508,9 @@ class Sam3VideoInferenceWithInstanceInteractivity(Sam3VideoInference):
 
             # get sam2 inference state for the new object
             if self.rank == obj_rank:
-                if self.tracker.per_obj_inference:
-                    sam2_state = inference_state["sam2_inference_states"][0]
-                else:
-                    # for batched inference, we create a new inference state
-                    sam2_state = self._init_new_sam2_state(inference_state)
-                    inference_state["sam2_inference_states"].append(sam2_state)
+                # for batched inference, we create a new inference state
+                sam2_state = self._init_new_sam2_state(inference_state)
+                inference_state["sam2_inference_states"].append(sam2_state)
 
             # update metadata
             sam2_metadata["obj_ids_per_gpu"][obj_rank] = np.concatenate(
@@ -1614,9 +1601,7 @@ class Sam3VideoInferenceWithInstanceInteractivity(Sam3VideoInference):
 
             # TODO: will this cause issue when user switching to refine another object?
             # Since the mem encoder has already run for the current input points?
-            self.tracker.propagate_in_video_preflight(
-                sam2_state, run_mem_encoder=True
-            )
+            self.tracker.propagate_in_video_preflight(sam2_state, run_mem_encoder=True)
             # Clear detector conditioning frames when user clicks are received to allow
             # model updating masks on these frames. It is a noop if user is refining on the
             # detector conditioning frames or adding new objects.

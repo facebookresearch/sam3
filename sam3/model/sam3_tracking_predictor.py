@@ -47,7 +47,6 @@ class Sam3TrackerPredictor(Sam3TrackerBase):
 
         self.bf16_context = torch.autocast(device_type="cuda", dtype=torch.bfloat16)
         self.bf16_context.__enter__()  # keep using for the entire model process
-        self.per_obj_inference = False
 
     @torch.inference_mode()
     def init_state(
@@ -290,7 +289,6 @@ class Sam3TrackerPredictor(Sam3TrackerBase):
         frame_idx,
         obj_id,
         mask,
-        # for compatibility with per_obj_inference class, not used here
         add_mask_to_memory=False,
     ):
         """Add new mask to a frame."""
