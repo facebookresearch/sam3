@@ -1,4 +1,7 @@
 # @package _global_
+
+# command to run locally:  python sam3/train/train.py -c configs/dbg_grad_roboflow_v100_full_ft_100_images.yaml --use-cluster 0
+
 defaults:
   - _self_
 
@@ -6,14 +9,22 @@ defaults:
 # Paths Configuration (Chage this to your own paths)
 # ============================================================================
 paths:
-  checkpoint_path: /home/kalyanv/sam3/assets/checkpoints/checkpoint_model_only_presence_0_5.pt
+  # on fair-sc
+  checkpoint_path: /checkpoint/sam3/shared/sam3_release/ckpts/sam3_official_ckpts/sam3_image_model_only.pt
   roboflow_vl_100_root: /checkpoint/sam3/kalyanv/datasets/all_rf100/rf100-vl #/checkpoint/onevision/datasets/all_rf100/rf100-vl
-  experiment_log_dir:  /home/kalyanv/roboflow_dbg #/checkpoint/onevision/kalyanv/sam3_oss_train_dump_after_cleanup_lr_0_1
+
+
+  # # on a100
+  # checkpoint_path: /fsx-onevision/shared/ckpts_fair_sc/checkpoint/sam3/chayryali/omnivision_onevision/config/experiments/chayryali/sam3v1_stage3/final/paper_launch_model_oct/launch_stage3_v2.yaml/0/checkpoints/checkpoint.pt
+  # roboflow_vl_100_root: /fsx-onevision/kalyanv/all_rf100/rf100-vl
+
+  experiment_log_dir:  /home/${env:USER}/roboflow_dbg
+
 
 # Roboflow dataset configuration
 roboflow_train:
-  num_images: 100 # Note: This is the number of images used for training. If null, all images are used.
-  supercategory: ${all_roboflow_supercategories.${string:${submitit.job_array.task_index}}}
+  num_images: 100
+  supercategory: zebrasatasturias # ${all_roboflow_supercategories.${string:${submitit.job_array.task_index}}}
 
   # Training transforms pipeline
   train_transforms:
@@ -87,7 +98,7 @@ roboflow_train:
       alpha: 0.3
       threshold: 0.4
       topk: 4
-    use_o2m_matcher_on_o2m_aux: false # Another option is true
+    use_o2m_matcher_on_o2m_aux: false
     loss_fns_find:
       - _target_: sam3.train.loss.loss_fns.Boxes
         weight_dict:
@@ -207,7 +218,7 @@ scratch:
   val_norm_std: [0.5, 0.5, 0.5]
 
   # Training parameters
-  num_train_workers: 10
+  num_train_workers: 0
   num_val_workers: 0
   max_data_epochs: 20
   target_epoch_size: 1500
@@ -236,26 +247,26 @@ scratch:
     dict_key: roboflow100
     with_seg_masks: ${scratch.enable_segmentation} # Note: Set this to true if using segmentation masks!
 
-  gradient_accumulation_steps: 1
-  train_batch_size: 1
-  collate_fn:
-    _target_: sam3.train.data.collator.collate_fn_api
-    _partial_: true
-    input_box_embedding_dim: ${scratch.input_box_embedding_dim}
-    repeats: ${scratch.hybrid_repeats}
-    dict_key: all
-    with_seg_masks: ${scratch.enable_segmentation} # Note: Set this to true if using segmentation masks!
-
-  # Note: usin this setting if using gradient accumulation
-  # gradient_accumulation_steps: 2
   # collate_fn:
-  #   _target_: sam3.train.data.collator.collate_fn_api_with_chunking
+  # gradient_accumulation_steps: 1
+  # train_batch_size: 1
+  #   _target_: sam3.train.data.collator.collate_fn_api
   #   _partial_: true
-  #   num_chunks: ${scratch.gradient_accumulation_steps}
   #   input_box_embedding_dim: ${scratch.input_box_embedding_dim}
   #   repeats: ${scratch.hybrid_repeats}
   #   dict_key: all
-  #   with_seg_masks:  ${scratch.enable_segmentation} # Note: Set this to true if using segmentation masks!
+  #   with_seg_masks: ${scratch.enable_segmentation} # Note: Set this to true if using segmentation masks!
+
+  # Note: usin this setting if using gradient accumulation
+  gradient_accumulation_steps: 2
+  collate_fn:
+    _target_: sam3.train.data.collator.collate_fn_api_with_chunking
+    _partial_: true
+    num_chunks: ${scratch.gradient_accumulation_steps}
+    input_box_embedding_dim: ${scratch.input_box_embedding_dim}
+    repeats: ${scratch.hybrid_repeats}
+    dict_key: all
+    with_seg_masks:  ${scratch.enable_segmentation} # Note: Set this to true if using segmentation masks!
 
 # ============================================================================
 # Trainer Configuration
@@ -270,8 +281,8 @@ trainer:
   max_epochs: 20
   accelerator: cuda
   seed_value: 123
-  val_epoch_freq: 10
-  mode: train
+  val_epoch_freq: 1
+  mode:  train
   gradient_accumulation_steps: ${scratch.gradient_accumulation_steps}
 
   distributed:
@@ -281,6 +292,7 @@ trainer:
 
   loss:
     all: ${roboflow_train.loss}
+    # roboflow100: ${roboflow_train.loss}
     default:
       _target_: sam3.train.loss.sam3_loss.DummyLoss
 
@@ -295,7 +307,9 @@ trainer:
         max_ann_per_img: 500000
         multiplier: 1
         max_train_queries: 50000
+        # max_train_get_queries: 50000
         max_val_queries: 50000
+        # max_val_get_queries: 50000
         training: true
         use_caching: False
         img_folder: ${paths.roboflow_vl_100_root}/${roboflow_train.supercategory}/train/
@@ -332,6 +346,7 @@ trainer:
 
 
   # TODO (Kalyan): Expose more model parameters, droppath rate, dropout, etc
+  # TODO (Kalyan): Add support for presence token.
   model:
     _target_: sam3.model_builder.build_sam3_image_model
     bpe_path: /home/kalyanv/sam3/assets/bpe_simple_vocab_16e6.txt.gz
@@ -430,7 +445,7 @@ trainer:
 
 launcher:
   num_nodes: 1
-  gpus_per_node: 2
+  gpus_per_node: 1
   experiment_log_dir: ${paths.experiment_log_dir}
   multiprocessing_context: forkserver
 
@@ -444,9 +459,9 @@ submitit:
   port_range: [10000, 65000]
   constraint: null #"volta32gb"
   # Uncomment for job array configuration
-  job_array:
-    num_tasks: 100
-    task_index: 0
+  # job_array:
+  #   num_tasks: 100
+  #   task_index: 0
 
 # ============================================================================
 # Available Roboflow Supercategories (for reference)

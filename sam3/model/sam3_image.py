@@ -419,6 +419,7 @@ class Sam3Image(torch.nn.Module):
         self,
         backbone_out,
         find_input,
+        find_target,
         geometric_prompt: Prompt,
     ):
         with torch.profiler.record_function("SAM3Image._encode_prompt"):
@@ -565,6 +566,7 @@ class Sam3Image(torch.nn.Module):
             out = self.forward_grounding(
                 backbone_out=backbone_out,
                 find_input=find_input,
+                find_target=find_target,
                 geometric_prompt=geometric_prompt.clone(),
             )
             stage_outs.append(out)
