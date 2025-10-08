@@ -106,9 +106,6 @@ class Sam3VideoInference(Sam3VideoBase):
 
         inference_state["visual_prompt_embed"] = None
         inference_state["visual_prompt_mask"] = None
-        gc.collect()
-        torch.cuda.empty_cache()
-        # reset extra states
         inference_state["sam2_inference_states"].clear()
         inference_state["sam2_metadata"].clear()
         inference_state["feature_cache"].clear()

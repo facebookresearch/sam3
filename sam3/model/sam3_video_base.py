@@ -66,7 +66,7 @@ class Sam3VideoBase(nn.Module):
         suppress_det_close_to_boundary=False,
         fill_hole_area=16,
         # The maximum number of objects (masklets) to track across all GPUs (for no limit, set it to -1)
-        max_num_objects=128,  # 128 objects (total across all GPUs) should be able to cover nearly all cases
+        max_num_objects=-1,
         recondition_every_nth_frame=-1,
         # masket confirmation status (to suppress unconfirmed masklets)
         masklet_confirmation_enable=False,
@@ -120,9 +120,7 @@ class Sam3VideoBase(nn.Module):
         else:
             max_num_objects = 10000  # no limit
             num_obj_for_compile = 16
-        logger.info(
-            f"`setting max_num_objects` to {max_num_objects} -- creating {num_obj_for_compile=} objects for torch.compile cache"
-        )
+        logger.info(f"setting {max_num_objects=} and {num_obj_for_compile=}")
         self.max_num_objects = max_num_objects
         self.num_obj_for_compile = num_obj_for_compile
         self.recondition_every_nth_frame = recondition_every_nth_frame
