@@ -395,7 +395,7 @@ class CustomCocoDetectionAPI(VisionDataset):
             find_queries.append(
                 FindQueryLoaded(
                     # id=query["id"],
-                    query_type=qtype,
+                    # query_type=qtype,
                     query_text=(
                         query["query_text"]
                         if query["query_text"] is not None

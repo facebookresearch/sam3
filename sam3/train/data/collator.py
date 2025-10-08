@@ -108,7 +108,6 @@ def collate_fn_api_with_chunking(
     num_chunks,
     dict_key,
     with_seg_masks=False,
-    input_box_embedding_dim=258,  # Historical default
     input_points_embedding_dim=257,
     repeats: int = 0,
     load_image_in_fp16: bool = False,
@@ -124,7 +123,6 @@ def collate_fn_api_with_chunking(
             chunk,
             dict_key,
             with_seg_masks,
-            input_box_embedding_dim,
             input_points_embedding_dim,
             repeats,
             # ptr_behaviour,

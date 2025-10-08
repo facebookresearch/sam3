@@ -197,8 +197,8 @@ class BatchedDatapoint:
     find_metadatas: List[BatchedInferenceMetadata]
     raw_images: Optional[List[Any]] = None
 
-    def pin_memory(self, device=None):
-        return recursive_pin_memory(self, device)
+    # def pin_memory(self, device=None):
+    #     return recursive_pin_memory(self, device)
 
 
 def convert_my_tensors(obj):
