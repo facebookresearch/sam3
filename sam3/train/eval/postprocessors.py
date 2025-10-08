@@ -251,7 +251,7 @@ class PostProcessImage(nn.Module):
             return None, None, None, None
         assert len(out_probs) == len(target_sizes)
         if self.to_cpu:
-            out_probs = out_probs.cpu();
+            out_probs = out_probs.cpu()
         scores, labels = out_probs.max(-1)
         if forced_labels is None:
             labels = torch.ones_like(labels)
