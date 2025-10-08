@@ -1,8 +1,8 @@
 import argparse
 import json
 import os
-from pathlib import Path
 
+from saco_veval_metrics import DATASET_LEVEL_METRICS, VIDEO_NP_LEVEL_METRICS
 from sam3.train.eval.veval_evaluators import (
     VideoDemoF1Evaluator,
     VideoPhraseHotaEvaluator,
@@ -11,55 +11,28 @@ from sam3.train.eval.veval_evaluators import (
 
 
 def run_eval(gt_ann_file: str, pred_file: str):
-    results, _ = VideoTetaEvaluator(gt_ann_file, dataset_name="video").evaluate(
+    print(f"Evaluating Pred {pred_file} on GT {gt_ann_file}")
+    teta_dataset_level_results, teta_video_np_level_results = VideoTetaEvaluator(gt_ann_file, dataset_name="video").evaluate(
         pred_file
     )
-    print(f"\nVideo Phrase TETA eval results:\n{results}")
-    teta_results = results
 
-    results, _ = VideoPhraseHotaEvaluator(
+    hota_dataset_level_results, hota_video_np_level_results = VideoPhraseHotaEvaluator(
         gt_ann_file, dataset_name="video", prob_thresh=0.5
     ).evaluate(pred_file)
-    print(f"\nVideo Phrase HOTA eval results:\n{results}")
-    hota_results = results
 
-    results, _ = VideoDemoF1Evaluator(
+    demof1_dataset_level_results, demof1_video_np_level_results = VideoDemoF1Evaluator(
         gt_ann_file, dataset_name="video", prob_thresh=0.5
     ).evaluate(pred_file)
-    print(f"\nVideo Demo F1 eval results:\n{results}")
-    demof1_results = results
-
-    print("\nEvaluation completed successfully!")
-    print(f"gt_annot:{gt_ann_file}")
-    print("\nVideo Phrase TETA eval results:")
-    print(teta_results)
-    print("\nVideo Phrase HOTA eval results:")
-    print(hota_results)
-    print("\nVideo Demo F1 eval results:")
-    print(demof1_results)
-
-    print(f"gt_annot:{gt_ann_file}")
-
-    res_dict = {
-        "GT Annotations": Path(gt_ann_file).stem,
-        "Predictions": Path(pred_file).stem,
-        "TETA": teta_results["video_bbox_teta"],
-        "TETA LocA": teta_results["video_bbox_loc_a"],
-        "TETA AssA": teta_results["video_bbox_assoc_a"],
-        "TETA ClsA": teta_results["video_bbox_cls_a"],
-        "Demo F1": demof1_results["video_mask_demo_f1_50_95"],
-        "Demo Recall": demof1_results["video_mask_demo_recall_50_95"],
-        "Demo Precision": demof1_results["video_mask_demo_precision_50_95"],
-        "HOTA": hota_results["video_mask_all_phrase_HOTA"],
-        "HOTA DetA": hota_results["video_mask_all_phrase_DetA"],
-        "HOTA AssA": hota_results["video_mask_all_phrase_AssA"],
-        "TETA Results": teta_results,
-        "HOTA Results": hota_results,
-        "Demo F1 Results": demof1_results,
+    
+    return {
+        "teta_dataset_level_results": teta_dataset_level_results,
+        "teta_video_np_level_results": teta_video_np_level_results,
+        "hota_dataset_level_results": hota_dataset_level_results,
+        "hota_video_np_level_results": hota_video_np_level_results,
+        "demof1_dataset_level_results": demof1_dataset_level_results,
+        "demof1_video_np_level_results": demof1_video_np_level_results,
     }
-
-    return res_dict
-
+    
 
 def main():
     parser = argparse.ArgumentParser(description="Run video grounding evaluators")
