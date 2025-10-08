@@ -1,11 +1,8 @@
-# SA-Co/VEval and SA-FARI Dataset
-**SA-Co/VEval** is an evaluation dataset comprising of 3 domains and 6 splits, each domain has a val and test.
+# SA-Co/VEval Dataset
+**SA-Co/VEval** is an evaluation dataset comprising of 3 domains, each domain has a val and test split.
 * SA-Co/VEval - SA-V: videos are from the [SA-V dataset](https://ai.meta.com/datasets/segment-anything-video/)
 * SA-Co/VEval - YT-Temporal-1B: videos are from the [YT-Temporal-1B](https://cove.thecvf.com/datasets/704)
 * SA-Co/VEval - SmartGlasses: egocentric videos from smart glasses
-
-**SA-FARI** is an evaluation dataset comprising 1 domain and 2 splits, train and test
-* SA-FARI: videos are from wildlife cameras, partnership with [Conservation X Labs](https://www.conservationxlabs.com/)
 
 ## Environment
 Install the SA-Co/VEVal required environment
@@ -23,7 +20,6 @@ The following folder structure is expected after finishing all the downloads and
 ```
 data/
 ├── annotation/
-│   ├── sa_fari_test.json
 │   ├── saco_veval_sav_test.json
 │   ├── saco_veval_sav_val.json
 │   ├── saco_veval_smartglasses_test.json
@@ -31,8 +27,6 @@ data/
 │   ├── saco_veval_yt1b_test.json
 │   ├── saco_veval_yt1b_val.json
 └── media/
-    ├── sa_fari
-    │   └── JPEGImages_6fps
     ├── saco_sav
     │   └── JPEGImages_24fps
     ├── saco_sg
@@ -53,9 +47,6 @@ The GT annotations are available at Hugging Face:
     * SA-Co/VEval SmartGlasses
         * Test: `annotation/saco_veval_smartglasses_test.json`
         * Val: `annotation/saco_veval_smartglasses_val.json`
-* [SA-FARI](https://huggingface.co/datasets/facebook/SA-FARI/tree/main)
-    * Train: `annotation/sa_fari_train.json`
-    * Test: `annotation/sa_fari_test.json`
 
 ### Download videos or frames
 #### SA-Co/VEval - SAV
@@ -78,61 +69,73 @@ media/
     └── saco_sav
         └── JPEGImages_24fps [merged from the two JPEGImages_24fps above]
 ```
-Example command to merge
+Example commands to download and merge folders
 ```
-mkdir -p media/saco_sav/JPEGImages_24fps
-cp sav_test/JPEGImages_24fps/* media/saco_sav/JPEGImages_24fps/
-cp sav_val/JPEGImages_24fps/* media/saco_sav/JPEGImages_24fps/
+cd ../data/media/saco_sav
+wget -O sav_test.tar <sav_test.tar download link from the SA-V dataset page>
+wget -O sav_val.tar <sav_val.tar download link from the SA-V dataset page>
+tar -xf sav_test.tar
+tar -xf sav_val.tar
+mkdir JPEGImages_24fps
+chmod -R u+w sav_test/
+chmod -R u+w sav_val/
+mv sav_test/JPEGImages_24fps/* JPEGImages_24fps/
+mv sav_val/JPEGImages_24fps/* JPEGImages_24fps/
 ```
 
-#### SA-Co/VEval - YT1B
-[TODO: provide the latest yt1b_id_frame_map to download that fixes the yt1b frame matching]
-Run `saco_yt1b_downloader.py` to download youtube videos used in the SA-Co/VEVal - YT1B dataset.
+#### SA-Co/VEval - YT-Temporal-1B
+Two files needed to download the SA-Co/VEval - YT-Temporal-1B Youtube videos.
+* Go to [SACo-VEval](https://huggingface.co/datasets/facebook/SACo-VEval/tree/main) download `media/yt1b_id_frame_map.json`, which contains which Youtube videos and which frames are used for the SA-Co/VEval - YT-Temporal-1B.
+* Prepare the `cookies.txt` file. Follow instruction in yt-dlp [exporting-youtube-cookies](https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies) and [pass-cookies-to-yt-dlp](https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp) to prepare the cookies_file.
+    * Please see the full WARNINGS in yt-dlp regarding the risk of Youtube account ban!!
+
+Then run `saco_yt1b_downloader.py` e.g.
 ```
 python saco_yt1b_downloader.py \
---data_dir /fsx-onevision/tym/sam3_and_data/data/media/saco_yt1b \
---cookies_file /fsx-onevision/tym/sam3_and_data/data/media/saco_yt1b/cookies.txt \
---id_map_file /fsx-onevision/tym/sam3_and_data/data/media/saco_yt1b/yt1b_id_frame_map.json \
---yt1b_frame_prep_log_path /fsx-onevision/tym/sam3_and_data/data/media/saco_yt1b/yt1b_frame_prep_log.log
+--data_dir ../data/media/saco_yt1b \
+--cookies_file ../data/media/saco_yt1b/cookies.txt \
+--id_map_file ../data/media/saco_yt1b/yt1b_id_frame_map.json \
+--yt1b_frame_prep_log_path ../data/media/saco_yt1b/yt1b_frame_prep_log.log
 ```
-* data_dir: The directoy where to store the downloaded youtube videos
-* cookies_file: This is required to download youtube videos. See instructions from yt-dlp [exporting-youtube-cookies](https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies) and [pass-cookies-to-yt-dlp](https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp) to prepare the cookies_file
-* id_map_file: download from [location](https://drive.google.com/drive/folders/1BadVFUfENo5JsehDWKuYbTllS20JtmiX) `yt1b_id_frame_map.json`
-* download_result: a log file to track if the youtube videos are still downloadable or not
+* data_dir: The directoy to download the Youtube videos and store the extraced frames
+* cookies_file: the `cookies.txt` downloaded above
+* id_map_file: the `yt1b_id_frame_map.json` downloaded above
+* yt1b_frame_prep_log_path: a log file to track the downloader status, including the stages of video download, frame extracting, and frame matching, for each video.
 #### SA-Co/VEval - SmartGlasses
-[TODO: HF setup]
-
-#### SA-Co/VEval - SA-FARI
-[TODO: CXL setup]
-
+Go to [SACo-VEval](https://huggingface.co/datasets/facebook/SACo-VEval/tree/main) download `media/saco_sg.tar.gz`
+```
+cd ../data/media/saco_sg
+huggingface-cli download facebook/SACo-VEval media/saco_sg.tar.gz --repo-type dataset
+tar -
+```
 
 ## Annotation Format
 The format is similar to the [YTVIS](https://youtube-vos.org/dataset/vis/) format.
 
-If we load a json, e.g. `saco_veval_sav_test.json` it will have 5 fields:
+In the annotation json, e.g. `saco_veval_sav_test.json` there are 5 fields:
 * info:
     * A dict containing the dataset info
     * E.g. {'version': 'v1', 'date': '2025-09-24', 'description': 'SA-Co/VEval SA-V Test'}
 * videos
     * A list of videos that are used in the current annotation json
-    * It contains {id, file_names, height, width, length}
+    * It contains {id, video_name, file_names, height, width, length}
 * annotations
     * A list of **positive** masklets and their related info
     * It contains {id, segmentations, bboxes, areas, iscrowd, video_id, height, width, category_id, noun_phrase}
-        * video_id should match the `videos - id` above
-        * category_id should match the `categories - id` below
+        * video_id should match to the `videos - id` field above
+        * category_id should match to the `categories - id` field below
         * segmentations is a list of [RLE](https://github.com/cocodataset/cocoapi/blob/master/PythonAPI/pycocotools/mask.py)
 * categories
-    * A list of noun phrases that are **globally** used, e.g. not only containing the noun phrases are used in the current annotation json but also covering all the others.
-        * That being said, all 7 datasets in SA-Co/VEval and SA-FARI share the exact same categories.
+    * A **globally** used noun phrase id map, which is true across all 3 domains.
     * It contains {id, name}
         * name is the noun phrase
 * video_np_pairs
     * A list of video-np pairs, including both **positive** and **negative** used in the current annotation json
-    * It contains {id, video_id, category_id, noun_phrase}
+    * It contains {id, video_id, category_id, noun_phrase, num_masklets}
         * video_id should match the `videos - id` above
         * category_id should match the `categories - id` above
-
+        * when `num_masklets > 0` it is a positive video-np pair, and the presenting masklets can be found in the annotations field
+        * when `num_masklets = 0` it is a negative video-np pair, meaning no masklet presenting at all
 ```
 data {
     "info": info
@@ -142,7 +145,8 @@ data {
     "video_np_pairs": [video_np_pair]
 }
 video {
-    "id": str  # e.g. sav_000000
+    "id": int
+    "video_name": str  # e.g. sav_000000
     "file_names": List[str]
     "height": int
     "width": width
@@ -169,25 +173,7 @@ video_np_pair {
     "video_id": str
     "category_id": int
     "noun_phrase": str
+    "num_masklets" int
 }
 ```
-In `veval/saco_veval_example.ipynb` we can find more concrete examples.
-
-## Run Eval
-The example pred annotations can be downloaded from the following [location](https://drive.google.com/drive/folders/1BadVFUfENo5JsehDWKuYbTllS20JtmiX) folder `pred`
-```
-python saco_veval_eval.py \
---gt_ann_file /fsx-onevision/tym/sam3_and_data/data/annotation/saco_veval_sav_test.json \
---pred_file /fsx-onevision/tym/sam3_and_data/data/pred/example_09242025/saco_sav_test_preds.json
-```
-The `saco_veval_eval.py` will run
-* VideoTetaEvaluator
-* VideoPhraseHotaEvaluator
-* VideoDemoF1Evaluator
-The results will be available in the same folder of `--pred_file` with a suffix `_res` e.g. `--pred_file /fsx onevision/tym/sam3_and_data/data/pred/example_09242025/saco_sav_test_preds_res.json`
-
-For a toy run without the actual downloads needed, directly run
-```
-python saco_veval_eval.py
-```
-It will use the toy data in `veval/toy_gt_and_pred` and generate an eval result in `veval/toy_gt_and_pred/toy_saco_sav_test_preds_res.json`
+`veval/saco_veval_example.ipynb` has more examples to show the annotation structure.
