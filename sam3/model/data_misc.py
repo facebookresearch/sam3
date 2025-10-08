@@ -15,14 +15,6 @@ import torch
 MyTensor = Union[torch.Tensor, List[Any]]
 
 
-def clean_pointers(s: str):
-    """Removes pointers of the style <ptr_#N> where N is integer, while leaving the rest of the string intact"""
-
-    pattern = r"<ptr_#\d+>"
-    output_string = re.sub(pattern, "", s).replace("  ", " ").strip()
-    return output_string
-
-
 def interpolate(
     input, size=None, scale_factor=None, mode="nearest", align_corners=None
 ):
@@ -84,8 +76,6 @@ class FindStage:
     input_points_mask: MyTensor
     input_points_mask__type = torch.bool
 
-    # ptrs: Optional[BatchedPointer]
-    # ptrs_seg: Optional[BatchedPointer]
     # We track the object ids referred to by this query.
     # This is beneficial for tracking in videos without the need for pointers.
     object_ids: Optional[List[List]] = None  # List of objects per query
@@ -164,28 +154,6 @@ class BatchedInferenceMetadata:
 
     # Adding for TA conditional inference
     is_conditioning_only: List[Optional[bool]]
-
-
-@dataclass
-class PointerExtractBehaviour:
-    """This class contains configuration for the pointer extraction mechanism"""
-
-    # If this is true, we will extract embeddings for the objects that match the ground truth
-    # This is the behaviour used in training, and in some cases in evaluation
-    # Note that if this true, the rest of the options are ignored
-    match_to_gt: bool = True
-
-    # --------- All options below are ignored if match_to_gt is true ---------
-
-    # If this is true, the pointers will be sorted by confidence.
-    # This will change the semantics of the object_id in the pointer description:
-    #  - If this is false, then object_id = i will return the i-th object embedding (in the model's internal order)
-    #  - If this is true, then object_id = i will return the i-th most confident object embedding
-    sort_by_confidence: bool = True
-
-    # If this is > 0, then only objects that have a confidence above this threshold will be returned
-    # Note that this means some pointers may be missing.
-    score_threshold: float = 0.0
 
 
 @dataclass

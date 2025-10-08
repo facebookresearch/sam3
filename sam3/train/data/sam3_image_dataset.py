@@ -332,15 +332,10 @@ class CustomCocoDetectionAPI(VisionDataset):
                 and query["input_box"] is not None
                 and len(query["input_box"]) > 0
             ):
-                bbox = box_xywh_to_xyxy(torch.as_tensor(query["input_box"])).view(
-                    -1, 4
-                )
+                bbox = box_xywh_to_xyxy(torch.as_tensor(query["input_box"])).view(-1, 4)
                 bbox[:, 0::2].mul_(w).clamp_(min=0, max=w)
                 bbox[:, 1::2].mul_(h).clamp_(min=0, max=h)
-                if (
-                    "input_box_label" in query
-                    and query["input_box_label"] is not None
-                ):
+                if "input_box_label" in query and query["input_box_label"] is not None:
                     bbox_label = torch.as_tensor(
                         query["input_box_label"], dtype=torch.long
                     ).view(-1)
@@ -397,34 +392,27 @@ class CustomCocoDetectionAPI(VisionDataset):
                     # id=query["id"],
                     # query_type=qtype,
                     query_text=(
-                        query["query_text"]
-                        if query["query_text"] is not None
-                        else ""
+                        query["query_text"] if query["query_text"] is not None else ""
                     ),
                     image_id=id2index_img[query["image_id"]],
                     input_bbox=bbox,
                     input_bbox_label=bbox_label,
                     input_points=points,
                     object_ids_output=[
-                        id2index_obj[obj_id]
-                        for obj_id in query["object_ids_output"]
+                        id2index_obj[obj_id] for obj_id in query["object_ids_output"]
                     ],
                     is_exhaustive=query["is_exhaustive"],
                     is_pixel_exhaustive=(
                         query["is_pixel_exhaustive"]
                         if "is_pixel_exhaustive" in query
                         else (
-                            query["is_exhaustive"]
-                            if query["is_exhaustive"]
-                            else None
+                            query["is_exhaustive"] if query["is_exhaustive"] else None
                         )
                     ),
                     query_processing_order=query["query_processing_order"],
                     inference_metadata=InferenceMetadata(
                         coco_image_id=-1 if self.training else coco_image_id,
-                        original_image_id=(
-                            -1 if self.training else original_image_id
-                        ),
+                        original_image_id=(-1 if self.training else original_image_id),
                         frame_index=frame_index,
                         original_category_id=original_category_id,
                         original_size=(h, w),

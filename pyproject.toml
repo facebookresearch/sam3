@@ -49,6 +49,8 @@ examples = [
     "jupyter",
     "notebook",
     "ipywidgets",
+    "ipycanvas",
+    "ipympl",
 ]
 train = [
     "hydra-core",

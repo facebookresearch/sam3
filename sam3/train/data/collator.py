@@ -228,9 +228,7 @@ def collate_fn_api(
                 assert q.input_bbox_label is not None
                 nb_boxes = q.input_bbox.numel() // 4
                 assert len(q.input_bbox_label) == nb_boxes
-                stages[stage_id].input_boxes.append(
-                    q.input_bbox.view(nb_boxes, 4)
-                )
+                stages[stage_id].input_boxes.append(q.input_bbox.view(nb_boxes, 4))
                 stages[stage_id].input_boxes_label.append(
                     q.input_bbox_label.view(nb_boxes)
                 )
@@ -238,9 +236,7 @@ def collate_fn_api(
                     torch.zeros(nb_boxes, dtype=torch.bool)
                 )
             else:
-                stages[stage_id].input_boxes.append(
-                    torch.zeros(0, 4)
-                )
+                stages[stage_id].input_boxes.append(torch.zeros(0, 4))
                 stages[stage_id].input_boxes_label.append(
                     torch.zeros(0, dtype=torch.bool)
                 )
