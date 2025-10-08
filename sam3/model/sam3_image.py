@@ -392,6 +392,8 @@ class Sam3Image(torch.nn.Module):
                         )
                 else:
                     out[k] = v
+        else:
+            backbone_out.pop("backbone_fpn", None)
 
     def _get_best_mask(self, out):
         prev_mask_idx = out["pred_logits"].argmax(dim=1).squeeze(1)
@@ -516,7 +518,7 @@ class Sam3Image(torch.nn.Module):
         find_input = input.find_inputs[0]
         find_target = input.find_targets[0]
 
-        if find_input.input_points is not None:
+        if find_input.input_points is not None and find_input.input_points.numel() > 0:
             print("Warning: Point prompts are ignored in PCS.")
 
         num_interactive_steps = 0 if self.training else self.num_interactive_steps_val
