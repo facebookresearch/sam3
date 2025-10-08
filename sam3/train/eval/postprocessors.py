@@ -101,30 +101,24 @@ class PostProcessImage(nn.Module):
                 ret_tensordict = False
 
         out_bbox = outputs["pred_boxes"] if "pred_boxes" in outputs else None
-        out_logits = outputs["pred_logits"] if "pred_logits" in outputs else None
+        out_logits = outputs["pred_logits"]
         pred_masks = outputs["pred_masks"] if self.iou_type == "segm" else None
+        out_probs = out_logits.sigmoid()
+        if self.use_presence:
+            presence_score = outputs["presence_logit_dec"].sigmoid().unsqueeze(1)
+            out_probs = out_probs * presence_score
 
         assert target_sizes.shape[1] == 2
         batch_size = target_sizes.shape[0]
 
         boxes, scores, labels, keep = self._process_boxes_and_labels(
-            target_sizes, forced_labels, out_bbox, out_logits
+            target_sizes, forced_labels, out_bbox, out_probs
         )
         assert boxes is None or len(boxes) == batch_size
         out_masks, boundaries, dilated_boundaries = self._process_masks(
             target_sizes, pred_masks, consistent=consistent, keep=keep
         )
         del pred_masks
-
-        if self.use_presence:
-            presence_score = outputs["presence_logit_dec"].sigmoid()
-            if presence_score.ndim == 1:
-                presence_score = presence_score.unsqueeze(1)  # [B, 1]
-            if isinstance(scores, list):
-                assert len(presence_score) == len(scores)
-                scores = [s * p for s, p in zip(scores, presence_score)]
-            else:
-                scores = scores * presence_score  # [B, N]
 
         if boxes is None:
             assert out_masks is not None
@@ -251,15 +245,14 @@ class PostProcessImage(nn.Module):
         return out_masks, boundaries, dilated_boundaries
 
     def _process_boxes_and_labels(
-        self, target_sizes, forced_labels, out_bbox, out_logits
+        self, target_sizes, forced_labels, out_bbox, out_probs
     ):
         if out_bbox is None:
             return None, None, None, None
-        assert len(out_logits) == len(target_sizes)
-        prob = out_logits.sigmoid()
+        assert len(out_probs) == len(target_sizes)
         if self.to_cpu:
-            prob = prob.cpu();
-        scores, labels = prob.max(-1)
+            out_probs = out_probs.cpu();
+        scores, labels = out_probs.max(-1)
         if forced_labels is None:
             labels = torch.ones_like(labels)
         else:
