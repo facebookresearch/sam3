@@ -18,7 +18,7 @@ paths:
   # checkpoint_path: /fsx-onevision/shared/ckpts_fair_sc/checkpoint/sam3/chayryali/omnivision_onevision/config/experiments/chayryali/sam3v1_stage3/final/paper_launch_model_oct/launch_stage3_v2.yaml/0/checkpoints/checkpoint.pt
   # roboflow_vl_100_root: /fsx-onevision/kalyanv/all_rf100/rf100-vl
 
-  experiment_log_dir:  /home/${env:USER}/roboflow_dbg
+  experiment_log_dir:  /home/${oc.env:USER}/roboflow_dbg
 
 
 # Roboflow dataset configuration
