@@ -101,6 +101,9 @@ python saco_yt1b_downloader.py \
 * cookies_file: the `cookies.txt` downloaded above
 * id_map_file: the `yt1b_id_frame_map.json` downloaded above
 * yt1b_frame_prep_log_path: a log file to track the downloader status, including the stages of video download, frame extracting, and frame matching, for each video.
+
+Note: not all Youtube videos might be available since some videos might be deleted or moved from public to private.
+  
 #### SA-Co/VEval - SmartGlasses
 Go to [SACo-VEval](https://huggingface.co/datasets/facebook/SACo-VEval/tree/main) download `media/saco_sg.tar.gz`
 ```
