@@ -134,11 +134,9 @@ class Sam3VideoInference(Sam3VideoBase):
                 img_ids=[stage_id],
                 text_ids=[0],
                 input_boxes=[torch.zeros(input_box_embedding_dim)],
-                input_boxes_before_embed=[torch.empty(0, 4)],
                 input_boxes_mask=[torch.empty(0, dtype=torch.bool)],
                 input_boxes_label=[torch.empty(0, dtype=torch.long)],
                 input_points=[torch.empty(0, input_points_embedding_dim)],
-                input_points_before_embed=[torch.empty(0, 3)],
                 input_points_mask=[torch.empty(0)],
                 object_ids=[],
             )

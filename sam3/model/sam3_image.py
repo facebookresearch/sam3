@@ -490,33 +490,7 @@ class Sam3Image(torch.nn.Module):
 
         return out
 
-    # Methods / objects to import BatchedDatapoint, SAM3Output, FindStage
-    # Methods to add to the class: _get_geo_prompt_from_find_input, _get_dummy_prompt
-
-    def _get_geo_prompt_from_find_input(self, find_input: FindStage):
-        """Construct an initial geometric prompt from the find input."""
-        point_embeddings, point_mask, point_labels = None, None, None
-        if find_input.input_points_before_embed is not None:
-            # Point embeddings are batch first, switch to seq first
-            point_embeddings = find_input.input_points_before_embed.transpose(0, 1)
-
-            # they are stored as (x,y,label), so we unpack
-            point_labels = point_embeddings[..., -1]
-            point_embeddings = point_embeddings[..., :-1]
-            point_mask = find_input.input_points_mask
-
-        geometric_prompt = Prompt(
-            box_embeddings=find_input.input_boxes_before_embed,
-            box_mask=find_input.input_boxes_mask,
-            box_labels=find_input.input_boxes_label,
-            point_embeddings=point_embeddings,
-            point_mask=point_mask,
-            point_labels=point_labels,
-        )
-        return geometric_prompt
-
-    def _get_dummy_prompt(self, find_input: FindStage):
-        num_prompts = find_input.img_ids.size(0)
+    def _get_dummy_prompt(self, num_prompts=1):
         device = self.device
         geometric_prompt = Prompt(
             box_embeddings=torch.zeros(0, num_prompts, 4, device=device),
@@ -541,8 +515,15 @@ class Sam3Image(torch.nn.Module):
         find_input = input.find_inputs[0]
         find_target = input.find_targets[0]
 
+        if find_input.input_points is not None:
+            print("Warning: Point prompts are ignored in PCS.")
+
         num_interactive_steps = 0 if self.training else self.num_interactive_steps_val
-        geometric_prompt = self._get_geo_prompt_from_find_input(find_input)
+        geometric_prompt = Prompt(
+            box_embeddings=find_input.input_boxes,
+            box_mask=find_input.input_boxes_mask,
+            box_labels=find_input.input_boxes_label,
+        )
 
         # Init vars that are shared across the loop.
         stage_outs = []

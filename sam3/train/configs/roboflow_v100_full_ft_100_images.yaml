@@ -72,8 +72,6 @@ roboflow_train:
         - _target_: sam3.train.transforms.basic_for_api.NormalizeAPI
           mean: ${scratch.train_norm_mean}
           std: ${scratch.train_norm_std}
-    - _target_: sam3.train.transforms.mdetr.ApplyPosEmbedToBoxesAPI # TODO nico remove?
-      pos_embed: ${scratch.pos_embed}
 
   # loss config (no mask loss)
   loss:

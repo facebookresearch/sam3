@@ -90,12 +90,6 @@ class FindStage:
     # This is beneficial for tracking in videos without the need for pointers.
     object_ids: Optional[List[List]] = None  # List of objects per query
 
-    input_boxes_before_embed: Optional[MyTensor] = None
-    input_boxes_before_embed__type = torch.float
-
-    input_points_before_embed: Optional[MyTensor] = None
-    input_points_before_embed__type = torch.float
-
 
 @dataclass
 class BatchedFindTarget:
@@ -228,7 +222,6 @@ def convert_my_tensors(obj):
         ):
             stack_dim = 0
             if field.name in [
-                "input_boxes_before_embed",
                 "input_boxes",
                 "input_boxes_label",
             ]:
