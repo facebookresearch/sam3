@@ -70,12 +70,8 @@ roboflow_train:
           consistent_transform: False
         - _target_: sam3.train.transforms.basic_for_api.ToTensorAPI
         - _target_: sam3.train.transforms.basic_for_api.NormalizeAPI
-          # mean: [0.485, 0.456, 0.406]
-          # std: [0.229, 0.224, 0.225]
           mean: ${scratch.train_norm_mean}
           std: ${scratch.train_norm_std}
-    - _target_: sam3.train.transforms.mdetr.ApplyPosEmbedToBoxesAPI
-      pos_embed: ${scratch.pos_embed}
 
   # loss config (no mask loss)
   loss:

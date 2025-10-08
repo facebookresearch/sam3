@@ -1,8 +1,7 @@
 # Copyright (c) Meta, Inc. and its affiliates. All Rights Reserved
 
 from dataclasses import dataclass, field as field_ptr_behaviour, fields, is_dataclass
-from enum import Enum
-from typing import Any, get_args, get_origin, List, Mapping, Optional, Sequence, Union
+from typing import Any, get_args, get_origin, List, Union
 
 import torch
 
@@ -13,9 +12,7 @@ from sam3.model.data_misc import (
     FindStage,
 )
 
-from sam3.model.model_misc import NestedTensor
-
-from .sam3_image_dataset import Datapoint, QueryType
+from .sam3_image_dataset import Datapoint
 
 
 MyTensor = Union[torch.Tensor, List[Any]]
@@ -42,7 +39,6 @@ def convert_my_tensors(obj):
         ):
             stack_dim = 0
             if field.name in [
-                "input_boxes_before_embed",
                 "input_boxes",
                 "input_boxes_label",
             ]:
@@ -143,7 +139,6 @@ def collate_fn_api(
     batch: List[Datapoint],
     dict_key,
     with_seg_masks=False,
-    input_box_embedding_dim=258,  # Historical default
     input_points_embedding_dim=257,
     repeats: int = 0,
     load_image_in_fp16: bool = False,
@@ -163,10 +158,8 @@ def collate_fn_api(
             text_ids=[],
             input_boxes=[],
             input_boxes_label=[],
-            input_boxes_before_embed=[],
             input_boxes_mask=[],
             input_points=[],
-            input_points_before_embed=[],
             input_points_mask=[],
             object_ids=[],
         )
@@ -203,7 +196,6 @@ def collate_fn_api(
     offset_img_id = 0
     offset_query_id = [0 for _ in range(num_stages)]
     for i, data in enumerate(batch):
-        stage2within_stage_order = [[] for _ in range(num_stages)]
         img_batch.extend([img.data for img in data.images])
 
         if data.raw_images is not None:
@@ -221,7 +213,6 @@ def collate_fn_api(
         for j, q in enumerate(data.find_queries):
             stage_id = q.query_processing_order
             stages[stage_id].img_ids.append(q.image_id + offset_img_id)
-            stage2within_stage_order[stage_id].append(q.within_stage_order)
             if q.query_text not in text_batch:
                 text_batch.append(q.query_text)
             stages[stage_id].text_ids.append(text_batch.index(q.query_text))
@@ -235,22 +226,12 @@ def collate_fn_api(
                 )
 
             if q.input_bbox is not None:
-                assert q.input_bbox.shape[-1] == input_box_embedding_dim, (
-                    "Mismatch between input bbox's embedding dimension from "
-                    "dataset and expected dimension from collator. "
-                    f"Dataset: {q.input_bbox.shape[-1]}, "
-                    f"Collator: {input_box_embedding_dim}."
-                )
-                assert q.input_bbox_before_embed is not None
-                assert q.input_bbox_before_embed.numel() % 4 == 0
+                assert q.input_bbox.numel() % 4 == 0
                 assert q.input_bbox_label is not None
-                nb_boxes = q.input_bbox_before_embed.numel() // 4
+                nb_boxes = q.input_bbox.numel() // 4
                 assert len(q.input_bbox_label) == nb_boxes
                 stages[stage_id].input_boxes.append(
-                    q.input_bbox.view(nb_boxes, input_box_embedding_dim)
-                )
-                stages[stage_id].input_boxes_before_embed.append(
-                    q.input_bbox_before_embed.view(nb_boxes, 4)
+                    q.input_bbox.view(nb_boxes, 4)
                 )
                 stages[stage_id].input_boxes_label.append(
                     q.input_bbox_label.view(nb_boxes)
@@ -260,9 +241,8 @@ def collate_fn_api(
                 )
             else:
                 stages[stage_id].input_boxes.append(
-                    torch.zeros(0, input_box_embedding_dim)
+                    torch.zeros(0, 4)
                 )
-                stages[stage_id].input_boxes_before_embed.append(torch.zeros(0, 4))
                 stages[stage_id].input_boxes_label.append(
                     torch.zeros(0, dtype=torch.bool)
                 )
@@ -271,17 +251,8 @@ def collate_fn_api(
                 )
 
             if q.input_points is not None:
-                assert q.input_points.shape[-1] == input_points_embedding_dim, (
-                    "Mismatch between input points's embedding dimension from "
-                    "dataset and expected dimension from collator. "
-                    f"Dataset: {q.input_points.shape[-1]}, "
-                    f"Collator: {input_box_embedding_dim}."
-                )
                 stages[stage_id].input_points.append(
                     q.input_points.squeeze(0)  # Strip a trivial batch index
-                )
-                stages[stage_id].input_points_before_embed.append(
-                    q.input_points_before_embed.squeeze(0)
                 )
                 # All masks will be padded up to the longest length
                 # with 1s before final conversion to batchd tensors
@@ -292,7 +263,6 @@ def collate_fn_api(
                 stages[stage_id].input_points.append(
                     torch.empty(0, input_points_embedding_dim)
                 )
-                stages[stage_id].input_points_before_embed.append(torch.empty(0, 3))
                 stages[stage_id].input_points_mask.append(torch.empty(0))
 
             current_out_boxes = []
@@ -338,20 +308,10 @@ def collate_fn_api(
 
         offset_img_id += len(data.images)
 
-        # Sanity check: we should have the same within stage order in all stages
-        for stage_id in range(num_stages):
-            assert stage2within_stage_order[stage_id] == stage2within_stage_order[0], (
-                f"Within stage order mismatch in stage {stage_id} for datapoint {i}: "
-                f"{stage2within_stage_order[stage_id]} vs {stage2within_stage_order[0]}"
-            )
-
     # Pad input points to equal sequence lengths
     for i in range(len(stages)):
         stages[i].input_points = pad_tensor_list_to_longest(
             stages[i].input_points, dim=0, pad_val=0
-        )
-        stages[i].input_points_before_embed = pad_tensor_list_to_longest(
-            stages[i].input_points_before_embed, dim=0, pad_val=0
         )
         # Masked-out regions indicated by 1s.
         stages[i].input_points_mask = pad_tensor_list_to_longest(
@@ -362,9 +322,6 @@ def collate_fn_api(
     for i in range(len(stages)):
         stages[i].input_boxes = pad_tensor_list_to_longest(
             stages[i].input_boxes, dim=0, pad_val=0
-        )
-        stages[i].input_boxes_before_embed = pad_tensor_list_to_longest(
-            stages[i].input_boxes_before_embed, dim=0, pad_val=0
         )
         stages[i].input_boxes_label = pad_tensor_list_to_longest(
             stages[i].input_boxes_label, dim=0, pad_val=0
@@ -388,11 +345,14 @@ def collate_fn_api(
         )
 
     # Finalize the image batch
-    image_batch = NestedTensor.from_tensor_list(img_batch, rounding=None)
+    # check sizes
+    for img in img_batch[1:]:
+        assert img.shape == img_batch[0].shape, "All images must have the same size"
+    image_batch = torch.stack(img_batch)
     if load_image_in_fp16:
         # Optionally, cast the image tensors to fp16, which helps save GPU memory on
         # long videos with thousands of frames (where image tensors could be several GBs)
-        image_batch.tensors = image_batch.tensors.half()
+        image_batch = image_batch.half()
 
     return {
         dict_key: BatchedDatapoint(

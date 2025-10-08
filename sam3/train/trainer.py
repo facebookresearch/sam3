@@ -506,7 +506,7 @@ class Trainer:
         find_targets = [
             unwrap_ddp_if_wrapped(model).back_convert(x) for x in batch.find_targets
         ]
-        batch_size = len(batch.img_batch.tensors)
+        batch_size = len(batch.img_batch)
         loss = self._find_loss(key)(find_stages, find_targets)
 
         loss_str = f"Losses/{phase}_{key}_loss"

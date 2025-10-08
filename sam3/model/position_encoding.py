@@ -6,8 +6,6 @@ from typing import Optional
 import torch
 from torch import nn
 
-from .model_misc import NestedTensor
-
 
 class PositionEmbeddingSine(nn.Module):
     """
@@ -47,7 +45,7 @@ class PositionEmbeddingSine(nn.Module):
             ]
             for size in precompute_sizes:
                 tensors = torch.zeros((1, 1) + size, device="cuda")
-                self.forward(NestedTensor(tensors, None))
+                self.forward(tensors)
                 # further clone and detach it in the cache (just to be safe)
                 self.cache[size] = self.cache[size].clone().detach()
 
@@ -88,30 +86,22 @@ class PositionEmbeddingSine(nn.Module):
         return pos
 
     @torch.no_grad()
-    def forward(self, tensor_list):
-        x = tensor_list.tensors
-        mask = tensor_list.mask
+    def forward(self, x):
 
         cache_key = None
-        if mask is None:
-            cache_key = (x.shape[-2], x.shape[-1])
-            if cache_key in self.cache:
-                return self.cache[cache_key][None].repeat(x.shape[0], 1, 1, 1)
-            y_embed = (
-                torch.arange(1, x.shape[-2] + 1, dtype=torch.float32, device=x.device)
-                .view(1, -1, 1)
-                .repeat(x.shape[0], 1, x.shape[-1])
-            )
-            x_embed = (
-                torch.arange(1, x.shape[-1] + 1, dtype=torch.float32, device=x.device)
-                .view(1, 1, -1)
-                .repeat(x.shape[0], x.shape[-2], 1)
-            )
-        else:
-            not_mask = ~mask
-            # assert not_mask.all().item()
-            y_embed = not_mask.cumsum(1, dtype=torch.float32)
-            x_embed = not_mask.cumsum(2, dtype=torch.float32)
+        cache_key = (x.shape[-2], x.shape[-1])
+        if cache_key in self.cache:
+            return self.cache[cache_key][None].repeat(x.shape[0], 1, 1, 1)
+        y_embed = (
+            torch.arange(1, x.shape[-2] + 1, dtype=torch.float32, device=x.device)
+            .view(1, -1, 1)
+            .repeat(x.shape[0], 1, x.shape[-1])
+        )
+        x_embed = (
+            torch.arange(1, x.shape[-1] + 1, dtype=torch.float32, device=x.device)
+            .view(1, 1, -1)
+            .repeat(x.shape[0], x.shape[-2], 1)
+        )
 
         if self.normalize:
             eps = 1e-6

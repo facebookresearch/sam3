@@ -624,6 +624,8 @@ class TransformerEncoderFusion(TransformerEncoder):
         bs = src[0].shape[1]  # seq first
         if feat_sizes is not None:
             assert len(feat_sizes) == len(src)
+            if src_key_padding_mask is None:
+                src_key_padding_mask = [None] * len(src)
             for i, (h, w) in enumerate(feat_sizes):
                 src[i] = src[i].reshape(h, w, bs, -1).permute(2, 3, 0, 1)
                 src_pos[i] = src_pos[i].reshape(h, w, bs, -1).permute(2, 3, 0, 1)

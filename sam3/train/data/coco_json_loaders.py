@@ -155,13 +155,11 @@ class COCO_TRAIN_API_FROM_JSON_BOX_ONLY:
             "query_processing_order": 0,
             "ptr_x_query_id": None,
             "ptr_y_query_id": None,
-            "query_type": 0,  # QueryType.FindQuery
             "image_id": 0,  # Single image per datapoint
             "input_box": None,
             "input_box_label": None,
             "input_points": None,
             "is_exhaustive": True,
-            "within_stage_order": -1,
         }
 
         annot_template = {
@@ -319,13 +317,11 @@ class COCO_EVAL_API_FROM_JSON_BOX_ONLY:
             "query_processing_order": 0,
             "ptr_x_query_id": None,
             "ptr_y_query_id": None,
-            "query_type": 0,  # QueryType.FindQuery
             "image_id": 0,
             "input_box": None,
             "input_box_label": None,
             "input_points": None,
             "is_exhaustive": True,
-            "within_stage_order": -1,
         }
 
         annot_template = {
@@ -460,13 +456,11 @@ class SAM3_EVAL_API_FROM_JSON_NP:
             "query_processing_order": 0,
             "ptr_x_query_id": None,
             "ptr_y_query_id": None,
-            "query_type": 0,  # QueryType.FindQuery
             "image_id": 0,
             "input_box": None,
             "input_box_label": None,
             "input_points": None,
             "is_exhaustive": True,
-            "within_stage_order": -1,
         }
 
         # Create query
@@ -560,13 +554,11 @@ class SAM3_VEVAL_API_FROM_JSON_NP:
             "query_processing_order": 0,
             "ptr_x_query_id": None,
             "ptr_y_query_id": None,
-            "query_type": 0,  # QueryType.FindQuery
             "image_id": 0,
             "input_box": None,
             "input_box_label": None,
             "input_points": None,
             "is_exhaustive": True,
-            "within_stage_order": -1,
         }
 
         all_np_ids = self._video_id_to_np_ids[cur_vid_data["id"]]

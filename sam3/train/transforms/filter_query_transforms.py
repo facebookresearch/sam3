@@ -1,16 +1,14 @@
 # Copyright (c) Meta, Inc. and its affiliates. All Rights Reserved
 
 import logging
-import math
-import os
 import random
 
 from collections import defaultdict
-from typing import List, MutableSequence, Optional, Union
+from typing import List, Optional, Union
 
 import torch
 
-from sam3.train.data.sam3_image_dataset import Datapoint, FindQuery, Object, QueryType
+from sam3.train.data.sam3_image_dataset import Datapoint, FindQuery, Object
 
 
 class FilterDataPointQueries:

@@ -3,10 +3,11 @@
 """Necks are the interface between a vision backbone and the rest of the detection model"""
 
 from copy import deepcopy
+from typing import List
+
+import torch
 
 import torch.nn as nn
-
-from .model_misc import NestedTensor
 
 
 class OriginalViTDetNeck(nn.Module):
@@ -100,15 +101,15 @@ class OriginalViTDetNeck(nn.Module):
                 current.add_module("norm_1", norm_type_to_cls(neck_norm)(d_model))
             self.convs.append(current)
 
-    def forward(self, tensor_list: NestedTensor):
+    def forward(self, tensor_list: List[torch.Tensor]):
         xs = self.trunk(tensor_list)
         out = []
         pos = []
         x = xs[-1]  # simpleFPN
         for _, conv in enumerate(self.convs):
-            x_out = NestedTensor(conv(x.tensors), x.mask)
+            x_out = conv(x)
             out.append(x_out)
-            pos.append(self.position_encoding(x_out).to(x_out.tensors.dtype))
+            pos.append(self.position_encoding(x_out).to(x_out.dtype))
         return out, pos
 
 
@@ -140,7 +141,7 @@ class Sam3DualViTDetNeck(OriginalViTDetNeck):
         # Assumes sam2 neck is just a clone of the original neck
         self.sam2_convs = deepcopy(self.convs)
 
-    def forward(self, tensor_list: NestedTensor):
+    def forward(self, tensor_list: List[torch.Tensor]):
         xs = self.trunk(tensor_list)
         sam3_out = []
         sam2_out = []
@@ -148,15 +149,11 @@ class Sam3DualViTDetNeck(OriginalViTDetNeck):
         sam2_pos = []
         x = xs[-1]  # simpleFPN
         for _, (conv, sam2_conv) in enumerate(zip(self.convs, self.sam2_convs)):
-            sam3_x_out = NestedTensor(conv(x.tensors), x.mask)
-            sam2_x_out = NestedTensor(sam2_conv(x.tensors), x.mask)
+            sam3_x_out = conv(x)
+            sam2_x_out = sam2_conv(x)
             sam3_out.append(sam3_x_out)
             sam2_out.append(sam2_x_out)
 
-            sam3_pos.append(
-                self.position_encoding(sam3_x_out).to(sam3_x_out.tensors.dtype)
-            )
-            sam2_pos.append(
-                self.position_encoding(sam2_x_out).to(sam2_x_out.tensors.dtype)
-            )
+            sam3_pos.append(self.position_encoding(sam3_x_out).to(sam3_x_out.dtype))
+            sam2_pos.append(self.position_encoding(sam2_x_out).to(sam2_x_out.dtype))
         return sam3_out, sam3_pos, sam2_out, sam2_pos
