@@ -18,7 +18,7 @@ There are two image sources for the evaluation dataset: MetaCLIP and SA-1B.
 python download_metaclip_urls.py
 ```
 
-2) The SA-1B images can be referred from the publicly released version.
+2) The SA-1B images referred in `sa1b_filenames.txt` (997 images) can be downloaded from the publicly released [version](https://ai.meta.com/datasets/segment-anything-downloads/).
 
 ### Update annotations (Optional)
 
