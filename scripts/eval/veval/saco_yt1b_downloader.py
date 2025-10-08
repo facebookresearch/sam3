@@ -1,5 +1,6 @@
 import argparse
 import logging
+import os
 
 import multiprocessing as mp
 from functools import partial
@@ -59,6 +60,10 @@ def main():
         default=7200,  # Use longer timeout in case of large videos processing timeout
     )
     args = parser.parse_args()
+
+    log_dir = os.path.dirname(args.yt1b_frame_prep_log_path)
+    if log_dir:
+        os.makedirs(log_dir, exist_ok=True)
 
     logging.basicConfig(
         filename=args.yt1b_frame_prep_log_path,
