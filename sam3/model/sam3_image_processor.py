@@ -17,27 +17,19 @@ Processor class for SAM3.
 """
 
 import gc
-import logging
-import sys
 from enum import Enum
 from typing import Any, Dict, List, Optional, Union
 
 import numpy as np
 
 import torch
-from PIL import Image, ImageOps
+from PIL import Image
 
-from sam3.model.act_ckpt_utils import clone_output_wrapper
 from sam3.model.box_ops import box_xywh_to_cxcywh, box_xyxy_to_xywh
-from sam3.model.data_misc import (
-    BatchedDatapoint,
-    BatchedPointer,
-    convert_my_tensors,
-    FindStage,
-    recursive_to,
-)
+from sam3.model.data_misc import BatchedDatapoint, convert_my_tensors, FindStage
 from sam3.model.geometry_encoders import Prompt
 from sam3.model.model_misc import NestedTensor
+from sam3.train.utils.train_utils import copy_data_to_device
 
 
 # Constants typically from transformers
@@ -460,7 +452,7 @@ class Sam3Processor:
             find_targets=[None] * num_frames,
             find_metadatas=[None] * num_frames,
         )
-        input_batch = recursive_to(input_batch, device, non_blocking=True)
+        input_batch = copy_data_to_device(input_batch, device, non_blocking=True)
         inference_state["input_batch"] = input_batch
 
         # construct the placeholder interactive prompts and tracking queries

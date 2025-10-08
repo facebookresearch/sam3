@@ -11,7 +11,6 @@ import torch.nn as nn
 from torch.nn.attention import sdpa_kernel, SDPBackend
 
 from .act_ckpt_utils import activation_ckpt_wrapper
-from .model_misc import NestedTensor
 
 
 class NonFusionVLBackbone(nn.Module):
@@ -41,7 +40,7 @@ class NonFusionVLBackbone(nn.Module):
 
     def forward(
         self,
-        samples: NestedTensor,
+        samples: torch.Tensor,
         captions: List[str],
         input_boxes: Optional[torch.Tensor] = None,
         additional_text: Optional[List[str]] = None,
@@ -57,7 +56,6 @@ class NonFusionVLBackbone(nn.Module):
         :return: Output dictionary with the following keys:
             - vision_features: The output of the vision backbone
             - language_features: The output of the language backbone
-            - vision_mask: The attention mask of the vision backbone
             - language_mask: The attention mask of the language backbone
             - vision_pos_enc: The positional encoding of the vision backbone
             - (optional) additional_text_features: The output of the language
@@ -70,7 +68,7 @@ class NonFusionVLBackbone(nn.Module):
         output.update(self.forward_text(captions, input_boxes, additional_text, device))
         return output
 
-    def forward_image(self, samples: NestedTensor):
+    def forward_image(self, samples: torch.Tensor):
         return activation_ckpt_wrapper(self._forward_image_no_act_ckpt)(
             samples=samples,
             act_ckpt_enable=self.act_ckpt_whole_vision_backbone and self.training,
@@ -82,11 +80,10 @@ class NonFusionVLBackbone(nn.Module):
         if self.scalp > 0:
             # Discard the lowest resolution features
             features, pos = features[: -self.scalp], pos[: -self.scalp]
-        src, mask = features[-1].decompose()
+        src = features[-1]
 
         output = {
             "vision_features": src,
-            "vision_mask": mask,
             "vision_pos_enc": pos,
             "backbone_fpn": features,  # Temporary, to not break anything else
         }
@@ -186,19 +183,17 @@ class SAM3VLBackbone(NonFusionVLBackbone):
                 sam2_pos[: -self.scalp],
             )
 
-        sam3_src, sam3_mask = sam3_features[-1].decompose()
-        sam2_src, sam2_mask = sam2_features[-1].decompose()
+        sam3_src = sam3_features[-1]
+        sam2_src = sam2_features[-1]
 
         sam2_output = {
             "vision_features": sam2_src,
-            "vision_mask": sam2_mask,
             "vision_pos_enc": sam2_pos,
             "backbone_fpn": sam2_features,
         }
 
         output = {
             "vision_features": sam3_src,
-            "vision_mask": sam3_mask,
             "vision_pos_enc": sam3_pos,
             "backbone_fpn": sam3_features,
             "sam2_backbone_out": sam2_output,

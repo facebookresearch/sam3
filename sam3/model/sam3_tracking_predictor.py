@@ -6,7 +6,6 @@ from collections import OrderedDict
 import torch
 from tqdm.auto import tqdm
 
-from sam3.model.model_misc import NestedTensor
 from sam3.model.sam3_tracker_base import concat_points, NO_OBJ_SCORE, Sam3TrackerBase
 from sam3.model.sam3_tracker_utils import fill_holes_in_mask_scores
 
@@ -586,7 +585,6 @@ class Sam3TrackerPredictor(Sam3TrackerBase):
             _,
             current_vision_feats,
             current_vision_pos_embeds,
-            current_vision_masks,
             feat_sizes,
         ) = self._get_image_feature(inference_state, frame_idx, batch_size)
 
@@ -595,7 +593,6 @@ class Sam3TrackerPredictor(Sam3TrackerBase):
             frame_idx=frame_idx,
             is_init_cond_frame=True,
             current_vision_feats=current_vision_feats,
-            current_vision_masks=current_vision_masks,
             current_vision_pos_embeds=current_vision_pos_embeds,
             feat_sizes=feat_sizes,
             image=image,
@@ -969,14 +966,7 @@ class Sam3TrackerPredictor(Sam3TrackerBase):
             "vision_pos_enc": backbone_out["vision_pos_enc"].copy(),
         }
         for i, feat in enumerate(expanded_backbone_out["backbone_fpn"]):
-            feat = NestedTensor(
-                tensors=feat.tensors.expand(batch_size, -1, -1, -1),
-                mask=(
-                    feat.mask.expand(batch_size, -1, -1, -1)
-                    if feat.mask is not None
-                    else None
-                ),
-            )
+            feat = feat.expand(batch_size, -1, -1, -1)
             expanded_backbone_out["backbone_fpn"][i] = feat
         for i, pos in enumerate(expanded_backbone_out["vision_pos_enc"]):
             pos = pos.expand(batch_size, -1, -1, -1)
@@ -1007,7 +997,6 @@ class Sam3TrackerPredictor(Sam3TrackerBase):
             _,
             current_vision_feats,
             current_vision_pos_embeds,
-            current_vision_masks,
             feat_sizes,
         ) = self._get_image_feature(inference_state, frame_idx, batch_size)
 

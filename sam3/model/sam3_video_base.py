@@ -19,7 +19,6 @@ from torch import nn, Tensor
 from sam3 import perflib
 from sam3.logger import get_logger
 from sam3.model.data_misc import BatchedDatapoint
-from sam3.model.model_misc import NestedTensor
 from sam3.model.nms_utils import mask_iou
 from sam3.model.sam3_tracker_utils import fill_holes_in_mask_scores, mask_to_box
 from sam3.train.masks_ops import rle_encode
@@ -428,13 +427,12 @@ class Sam3VideoBase(nn.Module):
         ]
         sam2_backbone_out = {
             "vision_features": sam2_backbone_fpn[-1],  # top-level feature
-            "vision_mask": None,
             "vision_pos_enc": sam3_image_out["sam2_backbone_pos_enc"],
-            "backbone_fpn": [NestedTensor(x, None) for x in sam2_backbone_fpn],
+            "backbone_fpn": sam2_backbone_fpn,
         }
         backbone_cache["sam2_backbone_out"] = sam2_backbone_out
         feature_cache[frame_idx] = (
-            input_batch.img_batch.tensors[frame_idx],
+            input_batch.img_batch[frame_idx],
             backbone_cache,
         )
         # remove from `feature_cache` old features to save GPU memory

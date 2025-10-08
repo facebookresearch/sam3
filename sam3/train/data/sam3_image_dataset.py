@@ -2,27 +2,21 @@
 
 """Dataset class for modulated detection"""
 
-import io
 import json
-import logging
 import os
-import pickle
 import random
 import sys
-import tarfile
 import traceback
 from collections import Counter
 from dataclasses import dataclass
 from enum import Enum
-from random import Random
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
 
-import pycocotools.mask as mask_utils
 import torch
 import torch.utils.data
 import torchvision
 from decord import cpu, VideoReader
-from iopath.common.file_io import g_pathmgr, PathManager
+from iopath.common.file_io import g_pathmgr
 
 from PIL import Image as PILImage
 from PIL.Image import DecompressionBombError
@@ -33,6 +27,7 @@ from sam3.model.box_ops import box_xywh_to_xyxy
 from .coco_json_loaders import COCO_TRAIN_API_FROM_JSON_BOX_ONLY
 
 
+# TODO nico: cleanup
 class QueryType(Enum):
     """Enum representing the various possible query type"""
 
@@ -43,6 +38,8 @@ class QueryType(Enum):
 @dataclass
 class InferenceMetadata:
     """Metadata required for postprocessing"""
+
+    # TODO nico see what fields we can cut
 
     # Coco id that corresponds to the "image" for evaluation by the coco evaluator
     # This is used for our own "class agnostic" evaluation
@@ -72,10 +69,10 @@ class InferenceMetadata:
 class FindQuery:
     # id: int
 
-    query_type: QueryType
+    query_type: QueryType  # TODO nico cleanup
     query_text: str
 
-    image_id: int
+    image_id: int  # TODO nico cleanup
 
     # In case of a find query, the list of object ids that have to be predicted
     object_ids_output: List[int]
@@ -83,11 +80,11 @@ class FindQuery:
     # This is "instance exhaustivity".
     # true iff all instances are separable and annotated
     # See below the slightly different "pixel exhaustivity"
-    is_exhaustive: bool
+    is_exhaustive: bool  # TODO nico cleanup
 
     # Find queries can be inter-dependent, requiring several rounds.
     # This index tells us at which round this query should be done
-    query_processing_order: int
+    query_processing_order: int  # TODO nico cleanup
 
     # Input geometry, initially in denormalized XYXY format. Expected to be transformed as follows:
     # 1. converted to normalized CxCyWH by the Normalize transform
@@ -113,6 +110,7 @@ class FindQueryLoaded(FindQuery):
     inference_metadata: Optional[InferenceMetadata] = None
 
     # The boxes converted to normalized CxCyWH but BEFORE position-encoding (for visualization)
+    # TODO: Nico clean?
     input_bbox_before_embed: Optional[torch.Tensor] = None
     input_points_before_embed: Optional[torch.Tensor] = None
 

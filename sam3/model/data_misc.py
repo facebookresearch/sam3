@@ -11,7 +11,6 @@ from typing import Any, get_args, get_origin, List, Mapping, Optional, Sequence,
 
 import torch
 
-from .model_misc import NestedTensor
 
 MyTensor = Union[torch.Tensor, List[Any]]
 
@@ -197,7 +196,7 @@ class PointerExtractBehaviour:
 
 @dataclass
 class BatchedDatapoint:
-    img_batch: NestedTensor
+    img_batch: torch.Tensor
     find_text_batch: List[str]
     find_inputs: List[FindStage]
     find_targets: List[BatchedFindTarget]
@@ -250,65 +249,3 @@ def convert_my_tensors(obj):
                 ),
             )
     return obj
-
-
-def recursive_to(data, *args, **kwargs):
-    if isinstance(data, torch.Tensor):
-        ret = data.to(*args, **kwargs)
-    elif isinstance(data, Mapping):
-        ret = type(data)()
-        for key in data:
-            ret[key] = recursive_to(data[key], *args, **kwargs)
-    elif isinstance(data, tuple):
-        ret = ()
-        for value in data:
-            ret += (recursive_to(value, *args, **kwargs),)
-    elif isinstance(data, Sequence) and not isinstance(data, str):
-        ret = type(data)()
-        for value in data:
-            ret.append(recursive_to(value, *args, **kwargs))
-    elif is_dataclass(data):
-        ret_cls = type(data)
-        ret_fields = {
-            field.name: recursive_to(getattr(data, field.name), *args, **kwargs)
-            for field in fields(data)
-        }
-        ret = ret_cls(**ret_fields)
-    else:
-        ret = data
-    return ret
-
-
-def recursive_pin_memory(data, device=None):
-    """Pinning function that also supports dataclasses."""
-
-    if isinstance(data, torch.Tensor):
-        return data.pin_memory(device)
-    elif isinstance(data, (str, bytes)):
-        return data
-    elif isinstance(data, collections.abc.Mapping):
-        pinned_data = {
-            k: recursive_pin_memory(sample, device) for k, sample in data.items()
-        }
-        try:
-            return type(data)(pinned_data)  # type: ignore[call-arg]
-        except TypeError:
-            # The mapping type may not support `__init__(iterable)`.
-            return pinned_data
-    elif isinstance(data, collections.abc.Sequence):
-        pinned_data = [recursive_pin_memory(sample, device) for sample in data]  # type: ignore[assignment]
-        try:
-            return type(data)(pinned_data)  # type: ignore[call-arg]
-        except TypeError:
-            # The sequence type may not support `__init__(iterable)` (e.g., `range`).
-            return pinned_data
-    elif is_dataclass(data):
-        pinned_data = {
-            field.name: recursive_pin_memory(getattr(data, field.name), device)
-            for field in fields(data)
-        }
-        return type(data)(**pinned_data)
-    elif hasattr(data, "pin_memory"):
-        return data.pin_memory(device)
-
-    return data

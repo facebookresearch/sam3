@@ -1,8 +1,7 @@
 # Copyright (c) Meta, Inc. and its affiliates. All Rights Reserved
 
 from dataclasses import dataclass, field as field_ptr_behaviour, fields, is_dataclass
-from enum import Enum
-from typing import Any, get_args, get_origin, List, Mapping, Optional, Sequence, Union
+from typing import Any, get_args, get_origin, List, Union
 
 import torch
 
@@ -13,9 +12,7 @@ from sam3.model.data_misc import (
     FindStage,
 )
 
-from sam3.model.model_misc import NestedTensor
-
-from .sam3_image_dataset import Datapoint, QueryType
+from .sam3_image_dataset import Datapoint
 
 
 MyTensor = Union[torch.Tensor, List[Any]]
@@ -388,11 +385,14 @@ def collate_fn_api(
         )
 
     # Finalize the image batch
-    image_batch = NestedTensor.from_tensor_list(img_batch, rounding=None)
+    # check sizes
+    for img in img_batch[1:]:
+        assert img.shape == img_batch[0].shape, "All images must have the same size"
+    image_batch = torch.stack(img_batch)
     if load_image_in_fp16:
         # Optionally, cast the image tensors to fp16, which helps save GPU memory on
         # long videos with thousands of frames (where image tensors could be several GBs)
-        image_batch.tensors = image_batch.tensors.half()
+        image_batch = image_batch.half()
 
     return {
         dict_key: BatchedDatapoint(

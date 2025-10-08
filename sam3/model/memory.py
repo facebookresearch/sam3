@@ -9,7 +9,7 @@ import torch.nn.functional as F
 
 from timm.models.layers import DropPath
 
-from .model_misc import get_clones, LayerNorm2d, NestedTensor
+from .model_misc import get_clones, LayerNorm2d
 
 
 class SimpleMaskDownSampler(nn.Module):
@@ -192,10 +192,6 @@ class SimpleMaskEncoder(nn.Module):
         x = self.fuser(x)
         x = self.out_proj(x)
 
-        x_pos = NestedTensor(
-            tensors=x,
-            mask=None,
-        )
-        pos = self.position_encoding(x_pos).to(x_pos.tensors.dtype)
+        pos = self.position_encoding(x).to(x.dtype)
 
         return {"vision_features": x, "vision_pos_enc": [pos]}

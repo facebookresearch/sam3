@@ -18,7 +18,7 @@ from .act_ckpt_utils import activation_ckpt_wrapper, clone_output_wrapper
 from .box_ops import box_cxcywh_to_xyxy
 
 from .geometry_encoders import Prompt
-from .model_misc import inverse_sigmoid, NestedTensor
+from .model_misc import inverse_sigmoid
 
 
 def _update_out(out, out_name, out_value, auxiliary=True):
@@ -123,17 +123,11 @@ class Sam3Image(torch.nn.Module):
             vis_pos_enc = backbone_out["vision_pos_enc"][-self.num_feature_levels :]
             vis_feat_sizes = [x.shape[-2:] for x in vis_pos_enc]  # (H, W) shapes
             # index and flatten visual features NxCxHxW => HWxNxC (batch-first => seq-first)
-            img_feats = [
-                x.tensors[img_ids].flatten(2).permute(2, 0, 1) for x in vis_feats
-            ]
-            img_masks = [
-                None if x.mask is None else x.mask[img_ids].flatten(1)
-                for x in vis_feats
-            ]
+            img_feats = [x[img_ids].flatten(2).permute(2, 0, 1) for x in vis_feats]
             img_pos_embeds = [
                 x[img_ids].flatten(2).permute(2, 0, 1) for x in vis_pos_enc
             ]
-            return backbone_out, img_feats, img_masks, img_pos_embeds, vis_feat_sizes
+            return backbone_out, img_feats, img_pos_embeds, vis_feat_sizes
 
         # Image features not available in backbone output, so we compute them on the fly
         # This case likely occurs for video. In that case, we want to forward only the current frame
@@ -144,26 +138,24 @@ class Sam3Image(torch.nn.Module):
         else:
             unique_ids, _ = img_ids, slice(None)
         # Compute the image features on those unique image ids
-        # note: we allow using a list (or other indexable types) of tensors as img_batch.tensors
+        # note: we allow using a list (or other indexable types) of tensors as img_batch
         # (e.g. for async frame loading in demo). In this case we index img_batch.tensors directly
-        if isinstance(img_batch.tensors, torch.Tensor):
-            image = img_batch.tensors[unique_ids]
+        if isinstance(img_batch, torch.Tensor):
+            image = img_batch[unique_ids]
         elif unique_ids.numel() == 1:
-            image = img_batch.tensors[unique_ids.item()].unsqueeze(0)
+            image = img_batch[unique_ids.item()].unsqueeze(0)
         else:
-            image = torch.stack([img_batch.tensors[i] for i in unique_ids.tolist()])
+            image = torch.stack([img_batch[i] for i in unique_ids.tolist()])
         # `img_batch` might be fp16 and offloaded to CPU
         image = image.to(dtype=torch.float32, device=self.device)
-        image_mask = img_batch.mask[unique_ids] if img_batch.mask is not None else None
-        image_tensors = NestedTensor(tensors=image, mask=image_mask)
         # Next time we call this function, we want to remember which indices we computed
         id_mapping = torch.full(
-            (len(img_batch.tensors),), -1, dtype=torch.long, device=self.device
+            (len(img_batch),), -1, dtype=torch.long, device=self.device
         )
         id_mapping[unique_ids] = torch.arange(len(unique_ids), device=self.device)
         backbone_out = {
             **backbone_out,
-            **self.backbone.forward_image(image_tensors),
+            **self.backbone.forward_image(image),
             "id_mapping": id_mapping,
         }
         assert "backbone_fpn" in backbone_out
@@ -186,7 +178,7 @@ class Sam3Image(torch.nn.Module):
         txt_masks = backbone_out["language_mask"][txt_ids]
 
         feat_tuple = self._get_img_feats(backbone_out, find_input.img_ids)
-        backbone_out, img_feats, img_masks, img_pos_embeds, vis_feat_sizes = feat_tuple
+        backbone_out, img_feats, img_pos_embeds, vis_feat_sizes = feat_tuple
 
         if prev_mask_pred is not None:
             # TODO: Support Multi-scale? for now, mutli-scale will break other things (like decoder boxRPB), so it won't go silently.
@@ -224,14 +216,14 @@ class Sam3Image(torch.nn.Module):
         encoder_extra_kwargs: Optional[Dict] = None,
     ):
         feat_tuple = self._get_img_feats(backbone_out, find_input.img_ids)
-        backbone_out, img_feats, img_masks, img_pos_embeds, vis_feat_sizes = feat_tuple
+        backbone_out, img_feats, img_pos_embeds, vis_feat_sizes = feat_tuple
 
         # Run the encoder
         prompt_pos_embed = torch.zeros_like(prompt)
         # make a copy of the image feature lists since the encoder may modify these lists in-place
         memory = self.transformer.encoder(
             src=img_feats.copy(),
-            src_key_padding_mask=img_masks.copy(),
+            src_key_padding_mask=None,
             src_pos=img_pos_embeds.copy(),
             prompt=prompt,
             prompt_pos=prompt_pos_embed,
@@ -941,15 +933,14 @@ class Sam3ImageOnVideoMultiGPU(Sam3Image):
         if self.gather_backbone_out:
             # gather the SAM 2 backbone features across GPUs
             feats = out_local["prev_encoder_out"]["backbone_out"]["sam2_backbone_out"]
-            assert feats["vision_mask"] is None
             assert len(feats["backbone_fpn"]) == 3  # SAM2 backbone always have 3 levels
             assert all(x.mask is None for x in feats["backbone_fpn"])
             # cast the SAM2 backbone features to bfloat16 for all-gather (this is usually
             # a no-op, SAM2 backbone features are likely already in bfloat16 due to AMP)
             backbone_fpn_bf16 = [x.to(torch.bfloat16) for x in feats["backbone_fpn"]]
-            fpn0, fpn_handle0 = self._gather_tensor(backbone_fpn_bf16[0].tensors)
-            fpn1, fpn_handle1 = self._gather_tensor(backbone_fpn_bf16[1].tensors)
-            fpn2, fpn_handle2 = self._gather_tensor(backbone_fpn_bf16[2].tensors)
+            fpn0, fpn_handle0 = self._gather_tensor(backbone_fpn_bf16[0])
+            fpn1, fpn_handle1 = self._gather_tensor(backbone_fpn_bf16[1])
+            fpn2, fpn_handle2 = self._gather_tensor(backbone_fpn_bf16[2])
             # vision_pos_enc is the same on all frames, so no need to all-gather them
             vision_pos_enc = feats["vision_pos_enc"]
 
