@@ -5,24 +5,20 @@ This evaluator is based upon COCO evaluation, but evaluates the model in a "demo
 This means that the model's predictions are thresholded and evaluated as "hard" predictions.
 """
 
-import json
 import logging
-import os
-from pathlib import Path
 from typing import Optional
 
 import numpy as np
 
 import pycocotools.mask as maskUtils
-from iopath.common.file_io import g_pathmgr
 
 from pycocotools.cocoeval import COCOeval
-
-from scipy.optimize import linear_sum_assignment
 
 from sam3.train.eval.coco_eval import CocoEvaluator, RARITY_BUCKETS
 from sam3.train.masks_ops import compute_F_measure
 from sam3.train.utils.distributed import is_main_process
+
+from scipy.optimize import linear_sum_assignment
 
 
 class DemoEval(COCOeval):
@@ -105,6 +101,7 @@ class DemoEval(COCOeval):
                 "IL_FP": 0,
                 "IL_FN": 0,
                 "IL_perfect_neg": np.ones((len(p.iouThrs),), dtype=np.int64),
+                "num_dt": len(dt),
             }
 
         if len(gt) > 0 and len(dt) == 0:
@@ -119,7 +116,9 @@ class DemoEval(COCOeval):
                 "FPs": np.zeros((len(p.iouThrs),), dtype=np.int64),
                 "FNs": np.ones((len(p.iouThrs),), dtype=np.int64) * len(gt),
                 "local_F1s": np.zeros((len(p.iouThrs),), dtype=np.int64),
+                "local_positive_F1s": np.zeros((len(p.iouThrs),), dtype=np.int64),
                 "IL_perfect_pos": np.zeros((len(p.iouThrs),), dtype=np.int64),
+                "num_dt": len(dt),
             }
 
         # Load pre-computed ious
@@ -195,6 +194,7 @@ class DemoEval(COCOeval):
             "F": f_measure,
             "J": j_score,
             "J&F": JnF,
+            "num_dt": len(dt),
         }
         if len(gt) > 0 and len(dt) > 0:
             result["local_positive_F1s"] = F1
@@ -217,6 +217,7 @@ class DemoEval(COCOeval):
         # TPs, FPs, FNs
         TPs = np.zeros((len(p.iouThrs),), dtype=np.int64)
         FPs = np.zeros((len(p.iouThrs),), dtype=np.int64)
+        pmFPs = np.zeros((len(p.iouThrs),), dtype=np.int64)
         FNs = np.zeros((len(p.iouThrs),), dtype=np.int64)
         local_F1s = np.zeros((len(p.iouThrs),), dtype=np.float64)
 
@@ -238,6 +239,7 @@ class DemoEval(COCOeval):
         total_neg_count = 0
         valid_J_count = 0
         valid_F1_count = 0
+        valid_F1_count_w0dt = 0
         for res in self.evalImgs:
             if res["image_id"] not in setImgIds:
                 continue
@@ -263,7 +265,10 @@ class DemoEval(COCOeval):
 
             if "local_positive_F1s" in res:
                 local_F1s += res["local_positive_F1s"]
-                valid_F1_count += 1
+                pmFPs += res["FPs"]
+                valid_F1_count_w0dt += 1
+                if res["num_dt"] > 0:
+                    valid_F1_count += 1
 
             if "J" in res and res["J"] > -1e-9:
                 total_J += res["J"]
@@ -273,10 +278,17 @@ class DemoEval(COCOeval):
 
         # compute precision recall and F1
         precision = TPs / (TPs + FPs + 1e-4)
+        positive_micro_precision = TPs / (TPs + pmFPs + 1e-4)
         assert np.all(precision <= 1)
         recall = TPs / (TPs + FNs + 1e-4)
         assert np.all(recall <= 1)
         F1 = 2 * precision * recall / (precision + recall + 1e-4)
+        positive_micro_F1 = (
+            2
+            * positive_micro_precision
+            * recall
+            / (positive_micro_precision + recall + 1e-4)
+        )
 
         IL_rec = IL_TPs / (IL_TPs + IL_FNs + 1e-6)
         IL_prec = IL_TPs / (IL_TPs + IL_FPs + 1e-6)
@@ -303,11 +315,15 @@ class DemoEval(COCOeval):
             "params": p,
             "TPs": TPs,
             "FPs": FPs,
+            "positive_micro_FPs": pmFPs,
             "FNs": FNs,
             "precision": precision,
+            "positive_micro_precision": positive_micro_precision,
             "recall": recall,
             "F1": F1,
+            "positive_micro_F1": positive_micro_F1,
             "positive_macro_F1": local_F1s / valid_F1_count,
+            "positive_w0dt_macro_F1": local_F1s / valid_F1_count_w0dt,
             "IL_recall": IL_rec,
             "IL_precision": IL_prec,
             "IL_F1": IL_F1,
@@ -320,6 +336,10 @@ class DemoEval(COCOeval):
             "J&F": total_JnF,
         }
         self.eval["CGF1"] = self.eval["positive_macro_F1"] * self.eval["IL_MCC"]
+        self.eval["CGF1_w0dt"] = (
+            self.eval["positive_w0dt_macro_F1"] * self.eval["IL_MCC"]
+        )
+        self.eval["CGF1_micro"] = self.eval["positive_micro_F1"] * self.eval["IL_MCC"]
 
     def summarize(self):
         """
@@ -364,7 +384,7 @@ class DemoEval(COCOeval):
             # when adding new metrics, please update the index in video Demo F1 evaluation
             # in "evaluate" method of the "VideoDemoF1Evaluator" class in
             # projects/onevision/data/sam3_video_evaluators/external_evaluators.py
-            stats = np.zeros((29,))
+            stats = np.zeros((len(DEMO_METRICS),))
             stats[0] = _summarize(metric="CGF1")
             stats[1] = _summarize(metric="precision")
             stats[2] = _summarize(metric="recall")
@@ -394,6 +414,21 @@ class DemoEval(COCOeval):
             stats[26] = _summarize_single(metric="J")
             stats[27] = _summarize_single(metric="F")
             stats[28] = _summarize_single(metric="J&F")
+            stats[29] = _summarize(metric="CGF1_micro")
+            stats[30] = _summarize(metric="positive_micro_precision")
+            stats[31] = _summarize(metric="positive_micro_F1")
+            stats[32] = _summarize(iouThr=0.5, metric="CGF1_micro")
+            stats[33] = _summarize(iouThr=0.5, metric="positive_micro_precision")
+            stats[34] = _summarize(iouThr=0.5, metric="positive_micro_F1")
+            stats[35] = _summarize(iouThr=0.75, metric="CGF1_micro")
+            stats[36] = _summarize(iouThr=0.75, metric="positive_micro_precision")
+            stats[37] = _summarize(iouThr=0.75, metric="positive_micro_F1")
+            stats[38] = _summarize(metric="CGF1_w0dt")
+            stats[39] = _summarize(metric="positive_w0dt_macro_F1")
+            stats[40] = _summarize(iouThr=0.5, metric="CGF1_w0dt")
+            stats[41] = _summarize(iouThr=0.5, metric="positive_w0dt_macro_F1")
+            stats[42] = _summarize(iouThr=0.75, metric="CGF1_w0dt")
+            stats[43] = _summarize(iouThr=0.75, metric="positive_w0dt_macro_F1")
             return stats
 
         summarize = _summarizeDets
@@ -430,6 +465,21 @@ DEMO_METRICS = [
     "J",
     "F",
     "J&F",
+    "CGF1_micro",
+    "positive_micro_Precision",
+    "positive_micro_F1",
+    "CGF1_micro@0.5",
+    "positive_micro_Precision@0.5",
+    "positive_micro_F1@0.5",
+    "CGF1_micro@0.75",
+    "positive_micro_Precision@0.75",
+    "positive_micro_F1@0.75",
+    "CGF1_w0dt",
+    "positive_w0dt_macro_F1",
+    "CGF1_w0dt@0.5",
+    "positive_w0dt_macro_F1@0.5",
+    "CGF1_w0dt@0.75",
+    "positive_w0dt_macro_F1@0.75",
 ]
 
 
