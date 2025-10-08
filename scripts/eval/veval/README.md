@@ -9,14 +9,14 @@ Install the SA-Co/VEVal required environment
 ```
 pip install -e ".[veval]"
 ```
-This will allow us to run the
+This will allow us to run:
 * `scripts/eval/veval/saco_yt1b_downloader.py` preparing frames for SA-Co/VEval - YT1B
 * `scripts/eval/veval/saco_veval_eval.py` example of running an offline evaluator
 * `examples/saco_veavl_example.ipynb` example of loading and visualizing the data
 
 ## Download
 ### The expected folder structure
-The following folder structure is expected after finishing all the downloads and pre-processing steps in this section:
+The following folder structure is expected after finishing all the download and pre-processing steps in this section
 ```
 data/
 ├── annotation/
@@ -104,9 +104,10 @@ python saco_yt1b_downloader.py \
 #### SA-Co/VEval - SmartGlasses
 Go to [SACo-VEval](https://huggingface.co/datasets/facebook/SACo-VEval/tree/main) download `media/saco_sg.tar.gz`
 ```
-cd ../data/media/saco_sg
-huggingface-cli download facebook/SACo-VEval media/saco_sg.tar.gz --repo-type dataset
-tar -
+cd ../data
+hf download facebook/SACo-VEval media/saco_sg.tar.gz --repo-type dataset --local-dir .
+cd ../data/media
+tar -xzf saco_sg.tar.gz
 ```
 
 ## Annotation Format
