@@ -89,7 +89,7 @@ Two files needed to download the SA-Co/VEval - YT-Temporal-1B Youtube videos.
 * Prepare the `cookies.txt` file. Follow instruction in yt-dlp [exporting-youtube-cookies](https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies) and [pass-cookies-to-yt-dlp](https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp) to prepare the cookies_file.
     * Please see the full WARNINGS in yt-dlp regarding the risk of Youtube account ban!!
 
-Then run `saco_yt1b_downloader.py` e.g.
+Then run `scripts/eval/veval/saco_yt1b_downloader.py` e.g.
 ```
 python saco_yt1b_downloader.py \
 --data_dir ../data/media/saco_yt1b \
