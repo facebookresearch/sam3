@@ -135,6 +135,7 @@ class Sam3Processor:
             backbone_out=state["backbone_out"],
             find_input=self.find_stage,
             geometric_prompt=state["geometric_prompt"],
+            find_target=None,
         )
 
         out_bbox = outputs["pred_boxes"]
