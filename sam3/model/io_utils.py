@@ -36,6 +36,33 @@ def load_resource_as_video_frames(
     Load video frames from either a video or an image (as a single-frame video).
     Alternatively, if input is a list of PIL images, convert its format
     """
+    if isinstance(resource_path, list):
+        img_mean = torch.tensor(img_mean, dtype=torch.float16)[:, None, None]
+        img_std = torch.tensor(img_std, dtype=torch.float16)[:, None, None]
+        assert all(isinstance(img_pil, Image.Image) for img_pil in resource_path)
+        assert len(resource_path) is not None
+        orig_height, orig_width = resource_path[0].size
+        orig_height, orig_width = (
+            orig_width,
+            orig_height,
+        )  # For some reason, this method returns these swapped
+        images = []
+        for img_pil in resource_path:
+            img_np = np.array(img_pil.convert("RGB").resize((image_size, image_size)))
+            assert img_np.dtype == np.uint8, "np.uint8 is expected for JPEG images"
+            img_np = img_np / 255.0
+            img = torch.from_numpy(img_np).permute(2, 0, 1)
+            # float16 precision should be sufficient for image tensor storage
+            img = img.to(dtype=torch.float16)
+            # normalize by mean and std
+            img -= img_mean
+            img /= img_std
+            images.append(img)
+        images = torch.stack(images)
+        if not offload_video_to_cpu:
+            images = images.cuda()
+        return images, orig_height, orig_width
+
     image_exts = [".jpg", ".JPG", ".jpeg", ".JPEG", ".png", ".PNG"]
     is_image = (
         isinstance(resource_path, str)
