@@ -102,6 +102,23 @@ class Sam3Processor:
         return self._forward_grounding(state)
 
     @torch.inference_mode()
+    def reset_all_prompts(self, state: Dict):
+        """Removes all the prompts and results"""
+        if "language_features" in state:
+            del state["language_features"]
+        if "geometric_prompt" in state:
+            del state["geometric_prompt"]
+        if "boxes" in state:
+            del state["boxes"]
+        if "masks" in state:
+            del state["masks"]
+        if "masks_logits" in state:
+            del state["masks_logits"]
+        if "scores" in state:
+            del state["scores"]
+        return state
+
+    @torch.inference_mode()
     def set_confidence_threshold(self, threshold: float, state=None):
         """Sets the confidence threshold for the masks"""
         self.confidence_threshold = threshold
