@@ -33,7 +33,7 @@ class Sam3VideoPredictor:
         geo_encoder_use_img_cross_attn=False,
         strict_state_dict_loading=True,
         async_loading_frames=False,
-        video_loader_type="torchcodec",
+        video_loader_type="cv2",
     ):
         self.async_loading_frames = async_loading_frames
         self.video_loader_type = video_loader_type

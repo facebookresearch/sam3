@@ -13,7 +13,7 @@ import torch.nn.functional as F
 import torchvision.transforms.functional as TF
 
 from PIL import Image
-from tqdm.auto import tqdm
+from tqdm import tqdm
 
 from sam3.logger import get_logger
 
@@ -21,6 +21,9 @@ logger = get_logger(__name__)
 
 IS_MAIN_PROCESS = os.getenv("IS_MAIN_PROCESS", "1") == "1"
 RANK = int(os.getenv("RANK", "0"))
+
+IMAGE_EXTS = [".jpg", ".jpeg", ".png", ".webp"]
+VIDEO_EXTS = [".mp4", ".mov", ".avi", ".mkv", ".webm"]
 
 
 def load_resource_as_video_frames(
@@ -30,7 +33,7 @@ def load_resource_as_video_frames(
     img_mean=(0.485, 0.456, 0.406),
     img_std=(0.229, 0.224, 0.225),
     async_loading_frames=False,
-    video_loader_type="torchcodec",
+    video_loader_type="cv2",
 ):
     """
     Load video frames from either a video or an image (as a single-frame video).
@@ -63,10 +66,9 @@ def load_resource_as_video_frames(
             images = images.cuda()
         return images, orig_height, orig_width
 
-    image_exts = [".jpg", ".JPG", ".jpeg", ".JPEG", ".png", ".PNG"]
     is_image = (
         isinstance(resource_path, str)
-        and os.path.splitext(resource_path)[1] in image_exts
+        and os.path.splitext(resource_path)[-1].lower() in IMAGE_EXTS
     )
     if is_image:
         return load_image_as_single_frame_video(
@@ -118,33 +120,28 @@ def load_video_frames(
     img_mean=(0.485, 0.456, 0.406),
     img_std=(0.229, 0.224, 0.225),
     async_loading_frames=False,
-    video_loader_type="torchcodec",
+    video_loader_type="cv2",
 ):
     """
     Load the video frames from video_path. The frames are resized to image_size as in
     the model and are loaded to GPU if offload_video_to_cpu=False. This is used by the demo.
     """
     assert isinstance(video_path, str)
-    is_mp4_path = os.path.splitext(video_path)[-1] in [".mp4", ".MP4"]
     if video_path.startswith("<load-dummy-video"):
         # Check for pattern <load-dummy-video-N> where N is an integer
         match = re.match(r"<load-dummy-video-(\d+)>", video_path)
-        if match:
-            num_frames = int(match.group(1))
-        else:
-            # Default for original <load-dummy-video> path
-            num_frames = 60
+        num_frames = int(match.group(1)) if match else 60
         return load_dummy_video(image_size, offload_video_to_cpu, num_frames=num_frames)
     elif os.path.isdir(video_path):
-        return load_video_frames_from_jpg_images(
-            jpg_folder=video_path,
+        return load_video_frames_from_image_folder(
+            image_folder=video_path,
             image_size=image_size,
             offload_video_to_cpu=offload_video_to_cpu,
             img_mean=img_mean,
             img_std=img_std,
             async_loading_frames=async_loading_frames,
         )
-    elif is_mp4_path:
+    elif os.path.splitext(video_path)[-1].lower() in VIDEO_EXTS:
         return load_video_frames_from_video_file(
             video_path=video_path,
             image_size=image_size,
@@ -155,11 +152,11 @@ def load_video_frames(
             video_loader_type=video_loader_type,
         )
     else:
-        raise NotImplementedError("Only MP4 video and JPEG folder are supported")
+        raise NotImplementedError("Only video files and image folders are supported")
 
 
-def load_video_frames_from_jpg_images(
-    jpg_folder,
+def load_video_frames_from_image_folder(
+    image_folder,
     image_size,
     offload_video_to_cpu,
     img_mean,
@@ -167,35 +164,40 @@ def load_video_frames_from_jpg_images(
     async_loading_frames,
 ):
     """
-    Load the video frames from a directory of JPEG files ("<frame_index>.jpg" format)
+    Load the video frames from a directory of image files ("<frame_index>.<img_ext>" format)
     """
-    frame_names = [p for p in os.listdir(jpg_folder) if p.endswith(".jpg")]
+    frame_names = [
+        p
+        for p in os.listdir(image_folder)
+        if os.path.splitext(p)[-1].lower() in IMAGE_EXTS
+    ]
     try:
         frame_names.sort(key=lambda p: int(os.path.splitext(p)[0]))
     except ValueError:
-        # fallback to lexicographic sort if the format is not "<frame_index>.jpg"
+        # fallback to lexicographic sort if the format is not "<frame_index>.<img_ext>"
         logger.warning(
-            f'frame names are not in "<frame_index>.jpg" format: {frame_names[:5]=}, '
+            f'frame names are not in "<frame_index>.<img_ext>" format: {frame_names[:5]=}, '
             f"falling back to lexicographic sort."
         )
         frame_names.sort()
     num_frames = len(frame_names)
     if num_frames == 0:
-        raise RuntimeError(f"no images found in {jpg_folder}")
-    img_paths = [os.path.join(jpg_folder, frame_name) for frame_name in frame_names]
+        raise RuntimeError(f"no images found in {image_folder}")
+    img_paths = [os.path.join(image_folder, frame_name) for frame_name in frame_names]
     img_mean = torch.tensor(img_mean, dtype=torch.float16)[:, None, None]
     img_std = torch.tensor(img_std, dtype=torch.float16)[:, None, None]
 
     if async_loading_frames:
-        lazy_images = AsyncJpegFrameLoader(
+        lazy_images = AsyncImageFrameLoader(
             img_paths, image_size, offload_video_to_cpu, img_mean, img_std
         )
         return lazy_images, lazy_images.video_height, lazy_images.video_width
 
     # float16 precision should be sufficient for image tensor storage
     images = torch.zeros(num_frames, 3, image_size, image_size, dtype=torch.float16)
+    video_height, video_width = None, None
     for n, img_path in enumerate(
-        tqdm(img_paths, desc=f"frame loading (JPEG) [rank={RANK}]")
+        tqdm(img_paths, desc=f"frame loading (image folder) [rank={RANK}]")
     ):
         images[n], video_height, video_width = _load_img_as_tensor(img_path, image_size)
     if not offload_video_to_cpu:
@@ -217,7 +219,7 @@ def load_video_frames_from_video_file(
     async_loading_frames,
     gpu_acceleration=False,
     gpu_device=None,
-    video_loader_type="torchcodec",
+    video_loader_type="cv2",
 ):
     """Load the video frames from a video file."""
     if video_loader_type == "cv2":
@@ -278,8 +280,11 @@ def load_video_frames_from_video_file_using_cv2(
 
     original_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     original_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    num_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    num_frames = num_frames if num_frames > 0 else None
 
     frames = []
+    pbar = tqdm(desc=f"frame loading (OpenCV) [rank={RANK}]", total=num_frames)
     while True:
         ret, frame = cap.read()
         if not ret:
@@ -291,7 +296,9 @@ def load_video_frames_from_video_file_using_cv2(
             frame_rgb, (image_size, image_size), interpolation=cv2.INTER_CUBIC
         )
         frames.append(frame_resized)
+        pbar.update(1)
     cap.release()
+    pbar.close()
 
     # Convert to tensor
     frames_np = np.stack(frames, axis=0).astype(np.float32)  # (T, H, W, C)
@@ -329,7 +336,7 @@ def _load_img_as_tensor(img_path, image_size):
     return img, orig_height, orig_width
 
 
-class AsyncJpegFrameLoader:
+class AsyncImageFrameLoader:
     """
     A list of video frames to be load asynchronously without blocking session start.
     """
@@ -357,7 +364,7 @@ class AsyncJpegFrameLoader:
             try:
                 for n in tqdm(
                     range(len(self.images)),
-                    desc=f"frame loading (JPEG) [rank={RANK}]",
+                    desc=f"frame loading (image folder) [rank={RANK}]",
                 ):
                     self.__getitem__(n)
             except Exception as e:
@@ -492,12 +499,16 @@ class AsyncVideoFileLoaderWithTorchCodec:
         img_mean,
         img_std,
         gpu_acceleration=True,
-        gpu_device=torch.device("cuda:0"),
+        gpu_device=None,
         use_rand_seek_in_loading=False,
     ):
         # Check and possibly infer the output device (and also get its GPU id when applicable)
         assert gpu_device is None or gpu_device.type == "cuda"
-        gpu_id = (gpu_device.index or 0) if gpu_device is not None else 0
+        gpu_id = (
+            gpu_device.index
+            if gpu_device is not None and gpu_device.index is not None
+            else torch.cuda.current_device()
+        )
         if offload_video_to_cpu:
             out_device = torch.device("cpu")
         else:
@@ -559,7 +570,7 @@ class AsyncVideoFileLoaderWithTorchCodec:
 
     @torch.inference_mode()
     def _start_video_loading(self):
-        desc = f"frame loading (MP4 w/ {'GPU' if self.gpu_acceleration else 'CPU'}) [rank={RANK}]"
+        desc = f"frame loading (TorchCodec w/ {'GPU' if self.gpu_acceleration else 'CPU'}) [rank={RANK}]"
         pbar = tqdm(desc=desc, total=self.num_frames)
         self.num_loaded_frames = 0
         # load the first frame synchronously to cache it before the session is opened
