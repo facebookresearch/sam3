@@ -21,9 +21,9 @@ from .geometry_encoders import Prompt
 from .model_misc import inverse_sigmoid
 
 
-def _update_out(out, out_name, out_value, auxiliary=True):
+def _update_out(out, out_name, out_value, auxiliary=True, update_aux=True):
     out[out_name] = out_value[-1] if auxiliary else out_value
-    if auxiliary:
+    if auxiliary and update_aux:
         if "aux_outputs" not in out:
             out["aux_outputs"] = [{} for _ in range(len(out_value) - 1)]
         assert len(out["aux_outputs"]) == len(out_value) - 1
@@ -261,6 +261,7 @@ class Sam3Image(torch.nn.Module):
         query_embed = self.transformer.decoder.query_embed.weight
         tgt = query_embed.unsqueeze(1).repeat(1, bs, 1)
 
+        apply_dac = self.transformer.decoder.dac and self.training
         hs, reference_boxes, dec_presence_out, dec_presence_feats = (
             self.transformer.decoder(
                 tgt=tgt,
@@ -274,6 +275,7 @@ class Sam3Image(torch.nn.Module):
                 tgt_mask=None,
                 memory_text=prompt,
                 text_attention_mask=prompt_mask,
+                apply_dac=apply_dac,
             )
         )
         hs = hs.transpose(1, 2)  # seq-first to batch-first
@@ -334,7 +336,7 @@ class Sam3Image(torch.nn.Module):
 
         if dec_presence_out is not None:
             _update_out(
-                out, "presence_logit_dec", dec_presence_out, auxiliary=self.training
+                out, "presence_logit_dec", dec_presence_out, update_aux=self.training
             )
 
         if self.supervise_joint_box_scores:
@@ -348,35 +350,35 @@ class Sam3Image(torch.nn.Module):
             ).clamp(min=-10.0, max=10.0)
 
         _update_out(
-            out, "pred_logits", outputs_class[:, :, :num_o2o], auxiliary=self.training
+            out, "pred_logits", outputs_class[:, :, :num_o2o], update_aux=self.training
         )
         _update_out(
-            out, "pred_boxes", outputs_coord[:, :, :num_o2o], auxiliary=self.training
+            out, "pred_boxes", outputs_coord[:, :, :num_o2o], update_aux=self.training
         )
         _update_out(
             out,
             "pred_boxes_xyxy",
             outputs_boxes_xyxy[:, :, :num_o2o],
-            auxiliary=self.training,
+            update_aux=self.training,
         )
         if num_o2m > 0 and self.training:
             _update_out(
                 out,
                 "pred_logits_o2m",
                 outputs_class[:, :, num_o2o:],
-                auxiliary=self.training,
+                update_aux=self.training,
             )
             _update_out(
                 out,
                 "pred_boxes_o2m",
                 outputs_coord[:, :, num_o2o:],
-                auxiliary=self.training,
+                update_aux=self.training,
             )
             _update_out(
                 out,
                 "pred_boxes_xyxy_o2m",
                 outputs_boxes_xyxy[:, :, num_o2o:],
-                auxiliary=self.training,
+                update_aux=self.training,
             )
 
     def _run_segmentation_heads(
