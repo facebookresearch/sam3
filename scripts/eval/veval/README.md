@@ -37,7 +37,7 @@ data/
 
 ### Download annotations
 The GT annotations are available at Hugging Face:
-* [SACo-VEval](https://huggingface.co/datasets/facebook/SACo-VEval/tree/main)
+* [SACo-VEval](https://huggingface.co/datasets/facebook/SACo-VEval/tree/main) (HF repo is private now. Another temp [GDrive](https://drive.google.com/drive/folders/1p26lWYxW1p0ElNBLe6KiVQiv4_fyp6hO) location for sharing.)
     * SA-Co/VEval SA-V
         * Test: `annotation/saco_veval_sav_test.json`
         * Val: `annotation/saco_veval_sav_val.json`
@@ -105,7 +105,7 @@ python saco_yt1b_downloader.py \
 Note: not all Youtube videos might be available since some videos might be deleted or moved from public to private.
   
 #### SA-Co/VEval - SmartGlasses
-Go to [SACo-VEval](https://huggingface.co/datasets/facebook/SACo-VEval/tree/main) download `media/saco_sg.tar.gz`
+Go to [SACo-VEval](https://huggingface.co/datasets/facebook/SACo-VEval/tree/main) download `media/saco_sg.tar.gz` (HF repo is private now. Another temp [GDrive]([https://drive.google.com/drive/folders/1p26lWYxW1p0ElNBLe6KiVQiv4_fyp6hO](https://drive.google.com/drive/folders/1aitfOfBfelJZNQGbRHgw00bxNiZlyVSM)) location `saco_sg.tag` for sharing.)
 ```
 cd ../data
 hf download facebook/SACo-VEval media/saco_sg.tar.gz --repo-type dataset --local-dir .
