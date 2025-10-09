@@ -29,7 +29,11 @@ from .model.vl_combiner import NonFusionVLBackbone
 def _create_position_encoding(precompute_resolution=None):
     """Create position encoding for visual backbone."""
     return PositionEmbeddingSine(
-        num_pos_feats=256, normalize=True, scale=None, temperature=10000, precompute_resolution=precompute_resolution
+        num_pos_feats=256,
+        normalize=True,
+        scale=None,
+        temperature=10000,
+        precompute_resolution=precompute_resolution,
     )
 
 
@@ -284,7 +288,12 @@ def _create_geometry_encoder():
 
 
 def _create_sam3_model(
-    backbone, transformer, input_geometry_encoder, segmentation_head, dot_prod_scoring, eval_mode
+    backbone,
+    transformer,
+    input_geometry_encoder,
+    segmentation_head,
+    dot_prod_scoring,
+    eval_mode,
 ):
     """Create the SAM3 image model."""
     common_params = {
@@ -300,8 +309,9 @@ def _create_sam3_model(
     }
 
     matcher = None
-    if eval_mode:
+    if not eval_mode:
         from sam3.train.matcher import BinaryHungarianMatcherV2
+
         matcher = BinaryHungarianMatcherV2(
             focal=True,
             cost_class=2.0,
@@ -389,7 +399,12 @@ def build_sam3_image_model(
 
     # Create the SAM3 model
     model = _create_sam3_model(
-        backbone, transformer, input_geometry_encoder, segmentation_head, dot_prod_scoring, eval_mode
+        backbone,
+        transformer,
+        input_geometry_encoder,
+        segmentation_head,
+        dot_prod_scoring,
+        eval_mode,
     )
 
     # Load checkpoint if provided

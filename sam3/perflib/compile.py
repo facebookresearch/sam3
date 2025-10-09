@@ -2,9 +2,6 @@
 
 import torch
 
-from sam3.model.data_misc import BatchedDatapoint
-from sam3.model.model_misc import NestedTensor
-
 
 def recursive_fn_factory(fn):
     def recursive_fn(b):
@@ -14,13 +11,6 @@ def recursive_fn_factory(fn):
             return [recursive_fn(t) for t in b]
         if isinstance(b, tuple):
             return tuple(recursive_fn(t) for t in b)
-        if isinstance(b, NestedTensor):
-            tensors = fn(b.tensors)
-            if b.mask is None:
-                mask = None
-            else:
-                mask = fn(b.mask)
-            return NestedTensor(tensors=tensors, mask=mask)
         if isinstance(b, torch.Tensor):
             return fn(b)
         # Yes, writing out an explicit white list of

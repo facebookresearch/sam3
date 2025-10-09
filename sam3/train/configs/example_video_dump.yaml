@@ -35,8 +35,6 @@ scratch:
         - _target_: sam3.train.transforms.basic_for_api.NormalizeAPI
           mean: ${scratch.val_norm_mean}
           std: ${scratch.val_norm_std}
-        # - _target_: sam3.train.transforms.mdetr.ApplyPosEmbedToBoxesAPI
-        #   pos_embed: ${scratch.pos_embed}
 
   # Model parameters
   d_model: 256
