@@ -748,7 +748,6 @@ class Sam3ImageOnVideoMultiGPU(Sam3Image):
             # gather the SAM 2 backbone features across GPUs
             feats = out_local["prev_encoder_out"]["backbone_out"]["sam2_backbone_out"]
             assert len(feats["backbone_fpn"]) == 3  # SAM2 backbone always have 3 levels
-            assert all(x.mask is None for x in feats["backbone_fpn"])
             # cast the SAM2 backbone features to bfloat16 for all-gather (this is usually
             # a no-op, SAM2 backbone features are likely already in bfloat16 due to AMP)
             backbone_fpn_bf16 = [x.to(torch.bfloat16) for x in feats["backbone_fpn"]]

@@ -1063,7 +1063,7 @@ class Sam3TrackerPredictor(Sam3TrackerBase):
         memory also need to be computed again with the memory encoder.
         """
         # Retrieve correct image features
-        image, _, current_vision_feats, _, _, feat_sizes = self._get_image_feature(
+        image, _, current_vision_feats, _, feat_sizes = self._get_image_feature(
             inference_state, frame_idx, batch_size
         )
         maskmem_features, maskmem_pos_enc = self._encode_new_memory(

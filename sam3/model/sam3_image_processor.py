@@ -101,22 +101,18 @@ class Sam3Processor:
 
         return self._forward_grounding(state)
 
-    @torch.inference_mode()
     def reset_all_prompts(self, state: Dict):
         """Removes all the prompts and results"""
-        if "language_features" in state:
-            del state["language_features"]
-        if "geometric_prompt" in state:
-            del state["geometric_prompt"]
-        if "boxes" in state:
-            del state["boxes"]
-        if "masks" in state:
-            del state["masks"]
-        if "masks_logits" in state:
-            del state["masks_logits"]
-        if "scores" in state:
-            del state["scores"]
-        return state
+        if 'backbone_out' in state:
+            backbone_keys_to_del = ['language_features', 'language_mask', 'language_embeds']
+            for key in backbone_keys_to_del:
+                if key in state['backbone_out']:
+                    del state['backbone_out'][key]
+        
+        keys_to_del = ["geometric_prompt", "boxes", "masks", "masks_logits", "scores"]
+        for key in keys_to_del:
+            if key in state:
+                del state[key]
 
     @torch.inference_mode()
     def set_confidence_threshold(self, threshold: float, state=None):
