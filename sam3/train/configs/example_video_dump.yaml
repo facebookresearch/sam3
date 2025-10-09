@@ -6,10 +6,10 @@ defaults:
 # Paths Configuration (Chage this to your own paths)
 # ============================================================================
 paths:
-  checkpoint_path: /fsx-onevision/kalyanv/paper_ckpts/sam3_v14_rc1_model_only_video.pt
-  experiment_log_dir: /fsx-onevision/kalyanv/video_prediction_dump_dir/
-  ytvis_json : /fsx-onevision/kalyanv/paper_ckpts/annotation/saco_veval_sav_test.json
-  ytvis_dir : /fsx-onevision/tym/sam3_and_data/data/media/saco_sav/JPEGImages_24fps
+  checkpoint_path: /home/kalyanv/sam3/assets/checkpoints/sam3_video_model_only.pt
+  experiment_log_dir: /home/kalyanv/video_prediction_dump_dir/
+  ytvis_json : /checkpoint/sam3/shared/data/sam3_and_data/data/annotation/saco_veval_sav_test.json
+  ytvis_dir : /checkpoint/sam3/shared/data/sam3_and_data/data/media/saco_sav/JPEGImages_24fps
   bpe_path: /home/kalyanv/sam3/assets/bpe_simple_vocab_16e6.txt.gz
   num_videos: 2 #  default should null but setting it to 2 for testing
 
@@ -38,17 +38,16 @@ scratch:
 
   # Model parameters
   d_model: 256
-  input_box_embedding_dim: ${add:${scratch.d_model},2}
 
   # Image processing parameters
   resolution: 1008
-  
+
   # Normalization parameters
   train_norm_mean: [0.5, 0.5, 0.5]
   train_norm_std: [0.5, 0.5, 0.5]
   val_norm_mean: [0.5, 0.5, 0.5]
   val_norm_std: [0.5, 0.5, 0.5]
-  
+
   val_batch_size: 1
   num_val_workers: 0
   max_data_epochs: 20
@@ -101,7 +100,7 @@ trainer:
         multiplier: 1
         load_segmentation: true
         training: false
-        
+
 
       shuffle: False
       batch_size: ${scratch.val_batch_size}
@@ -113,18 +112,17 @@ trainer:
         _partial_: true
         repeats: ${scratch.hybrid_repeats}
         dict_key: ytvis_val
-        input_box_embedding_dim: ${scratch.input_box_embedding_dim}
         with_seg_masks: true
-  
-  
+
+
   model:
-    _target_: sam3.sam3_dense_tracking_builder.build_sam3_dense_tracking_model
+    _target_: sam3.sam3_video_model_builder.build_sam3_video_model
     bpe_path: ${paths.bpe_path}
     checkpoint_path: ${paths.checkpoint_path}
     has_presence_token: True
     geo_encoder_use_img_cross_attn: True
 
-    
+
     # TODO: Check if these are correctly set in model builder cc Ronghang
     # score_threshold_detection: 0.5
     # assoc_iou_thresh: 0.1
@@ -157,7 +155,7 @@ trainer:
       enabled: True
       amp_dtype: bfloat16
 
-    
+
   checkpoint:
     save_dir: ${launcher.experiment_log_dir}/checkpoints
     save_freq: 0  # 0 only last checkpoint is saved.

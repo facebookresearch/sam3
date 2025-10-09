@@ -92,6 +92,7 @@ class Sam3VideoInference(Sam3VideoBase):
         inference_state["is_image_only"] = is_image_type(resource_path)
         return inference_state
 
+    @torch.inference_mode()
     def reset_state(self, inference_state):
         """Revert `inference_state` to what it was right after initialization."""
         inference_state["input_batch"].find_text_batch[0] = "<text placeholder>"
@@ -1029,6 +1030,7 @@ class Sam3VideoInferenceWithInstanceInteractivity(Sam3VideoInference):
             ]
         return inference_state
 
+    @torch.inference_mode()
     def reset_state(self, inference_state):
         super().reset_state(inference_state)
         # reset extra states
