@@ -66,13 +66,9 @@ class Sam3VideoPredictor:
                 text=request.get("text", None),
                 points=request.get("points", None),
                 point_labels=request.get("point_labels", None),
-                clear_old_points=request.get("clear_old_points", True),
                 bounding_boxes=request.get("bounding_boxes", None),
                 bounding_box_labels=request.get("bounding_box_labels", None),
-                clear_old_boxes=request.get("clear_old_boxes", True),
-                obj_id=request.get(
-                    "obj_id", None
-                ),
+                obj_id=request.get("obj_id", None),
             )
         elif request_type == "remove_object":
             return self.remove_object(
@@ -137,17 +133,15 @@ class Sam3VideoPredictor:
         text: Optional[str] = None,
         points: Optional[List[List[float]]] = None,
         point_labels: Optional[List[int]] = None,
-        clear_old_points: bool = True,
         bounding_boxes: Optional[List[List[float]]] = None,
         bounding_box_labels: Optional[List[int]] = None,
-        clear_old_boxes: bool = True,
         obj_id: Optional[int] = None,
     ):
         """Add text, box and/or point prompt on a specific video frame."""
         logger.info(
             f"add prompt on frame {frame_idx} in session {session_id}: "
-            f"{text=}, {points=}, {point_labels=}, {clear_old_points=}, "
-            f"{bounding_boxes=}, {bounding_box_labels=}, {clear_old_boxes=}"
+            f"{text=}, {points=}, {point_labels=}, "
+            f"{bounding_boxes=}, {bounding_box_labels=}"
         )
         session = self._get_session(session_id)
         inference_state = session["state"]
@@ -158,10 +152,8 @@ class Sam3VideoPredictor:
             text_str=text,
             points=points,
             point_labels=point_labels,
-            clear_old_points=clear_old_points,
             boxes_xywh=bounding_boxes,
             box_labels=bounding_box_labels,
-            clear_old_boxes=clear_old_boxes,
             obj_id=obj_id,
         )
         return {"frame_index": frame_idx, "outputs": outputs}
@@ -234,7 +226,7 @@ class Sam3VideoPredictor:
 
     def reset_session(self, session_id):
         """Reset the session to its initial state (as when it's initial opened)."""
-        logger.info(f"clear all inputs across the video in session {session_id}")
+        logger.info(f"reset session {session_id}")
         session = self._get_session(session_id)
         inference_state = session["state"]
         self.model.reset_state(inference_state)

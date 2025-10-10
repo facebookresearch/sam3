@@ -29,7 +29,6 @@ logger = get_logger(__name__)
 class Sam3VideoInference(Sam3VideoBase):
     TEXT_ID_FOR_TEXT = 0
     TEXT_ID_FOR_VISUAL = 1
-    TEXT_ID_FOR_GEOMETRIC = 2
 
     def __init__(
         self,
@@ -119,7 +118,7 @@ class Sam3VideoInference(Sam3VideoBase):
 
         # 2) find_text_batch
         # "<text placeholder>" will be replaced by the actual text prompt when adding prompts
-        find_text_batch = ["<text placeholder>", "visual", "geometric"]
+        find_text_batch = ["<text placeholder>", "visual"]
 
         # 3) find_inputs
         input_box_embedding_dim = 258  # historical default
@@ -841,12 +840,8 @@ class Sam3VideoInference(Sam3VideoBase):
         inference_state,
         frame_idx,
         text_str=None,
-        clear_old_points=True,
-        points=None,
-        point_labels=None,
         boxes_xywh=None,
         box_labels=None,
-        clear_old_boxes=True,
     ):
         """
         Add text, point or box prompts on a single frame. This method returns the inference
@@ -859,36 +854,26 @@ class Sam3VideoInference(Sam3VideoBase):
 
         num_frames = inference_state["num_frames"]
         assert (
-            text_str is not None or points is not None or boxes_xywh is not None
-        ), "at least one type of prompt (text, points, boxes) must be provided"
+            text_str is not None or boxes_xywh is not None
+        ), "at least one type of prompt (text, boxes) must be provided"
         assert (
             0 <= frame_idx < num_frames
         ), f"{frame_idx=} is out of range for a total of {num_frames} frames"
-
-        assert clear_old_boxes, "clear old boxes must be True"
-
-        assert (
-            points is None and clear_old_points is True and point_labels is None
-        ), "Point prompts not accepted"
 
         # since it's a semantic prompt, we start over
         self.reset_state(inference_state)
 
         # 1) add text prompt
-        if text_str is not None and text_str.lower().strip() != "visual":
+        if text_str is not None and text_str != "visual":
             inference_state["text_prompt"] = text_str
-            # add the text prompt into the input batch (to be applied to *all* frames)
             inference_state["input_batch"].find_text_batch[0] = text_str
-            for t in range(inference_state["num_frames"]):
-                text_id = self.TEXT_ID_FOR_TEXT
-                inference_state["input_batch"].find_inputs[t].text_ids[...] = text_id
+            text_id = self.TEXT_ID_FOR_TEXT
         else:
             inference_state["text_prompt"] = None
-            inference_state["input_batch"].find_text_batch[0] = ""
-            for t in range(inference_state["num_frames"]):
-                inference_state["input_batch"].find_inputs[t].text_ids[
-                    ...
-                ] = self.TEXT_ID_FOR_VISUAL
+            inference_state["input_batch"].find_text_batch[0] = "<text placeholder>"
+            text_id = self.TEXT_ID_FOR_VISUAL
+        for t in range(inference_state["num_frames"]):
+            inference_state["input_batch"].find_inputs[t].text_ids[...] = text_id
 
         # 2) handle box prompt
         assert (boxes_xywh is not None) == (box_labels is not None)
@@ -1363,10 +1348,11 @@ class Sam3VideoInferenceWithInstanceInteractivity(Sam3VideoInference):
         _ = self.run_backbone_and_detection(
             frame_idx=frame_idx,
             num_frames=num_frames,
-            reverse=reverse,
             input_batch=input_batch,
             geometric_prompt=geometric_prompt,
             feature_cache=feature_cache,
+            reverse=reverse,
+            allow_new_detections=True,
         )
 
     @torch.inference_mode()
@@ -1375,12 +1361,10 @@ class Sam3VideoInferenceWithInstanceInteractivity(Sam3VideoInference):
         inference_state,
         frame_idx,
         text_str=None,
-        clear_old_points=True,
-        points=None,
-        point_labels=None,
         boxes_xywh=None,
         box_labels=None,
-        clear_old_boxes=True,
+        points=None,
+        point_labels=None,
         obj_id=None,
         rel_coordinates=True,
     ):
@@ -1398,7 +1382,6 @@ class Sam3VideoInferenceWithInstanceInteractivity(Sam3VideoInference):
                 obj_id=obj_id,
                 points=points,
                 labels=point_labels,
-                clear_old_points=clear_old_points,
                 rel_coordinates=rel_coordinates,
                 use_prev_mem_frame=self.use_prev_mem_frame,
             )
@@ -1408,12 +1391,8 @@ class Sam3VideoInferenceWithInstanceInteractivity(Sam3VideoInference):
                 inference_state,
                 frame_idx,
                 text_str=text_str,
-                clear_old_points=clear_old_points,
-                points=points,
-                point_labels=point_labels,
                 boxes_xywh=boxes_xywh,
                 box_labels=box_labels,
-                clear_old_boxes=clear_old_boxes,
             )
 
     @torch.inference_mode()
@@ -1424,7 +1403,6 @@ class Sam3VideoInferenceWithInstanceInteractivity(Sam3VideoInference):
         obj_id,
         points,
         labels,
-        clear_old_points,
         rel_coordinates=True,
         use_prev_mem_frame=False,
     ):
@@ -1559,7 +1537,7 @@ class Sam3VideoInferenceWithInstanceInteractivity(Sam3VideoInference):
                     obj_id=obj_id,
                     points=points,
                     labels=labels,
-                    clear_old_points=clear_old_points,
+                    clear_old_points=True,
                     rel_coordinates=rel_coordinates,
                     use_prev_mem_frame=use_prev_mem_frame,
                 )
