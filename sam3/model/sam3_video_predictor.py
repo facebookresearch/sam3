@@ -74,6 +74,12 @@ class Sam3VideoPredictor:
                     "obj_id", None
                 ),
             )
+        elif request_type == "remove_object":
+            return self.remove_object(
+                session_id=request["session_id"],
+                obj_id=request["obj_id"],
+                is_user_action=request.get("is_user_action", True),
+            )
         elif request_type == "reset_session":
             return self.reset_session(session_id=request["session_id"])
         elif request_type == "close_session":
@@ -159,6 +165,27 @@ class Sam3VideoPredictor:
             obj_id=obj_id,
         )
         return {"frame_index": frame_idx, "outputs": outputs}
+
+    def remove_object(
+        self,
+        session_id: str,
+        obj_id: int,
+        is_user_action: bool = True,
+    ):
+        """Remove an object from tracking."""
+        logger.info(
+            f"remove object {obj_id} in session {session_id}: "
+            f"{is_user_action=}"
+        )
+        session = self._get_session(session_id)
+        inference_state = session["state"]
+
+        self.model.remove_object(
+            inference_state=inference_state,
+            obj_id=obj_id,
+            is_user_action=is_user_action,
+        )
+        return {"is_success": True}
 
     def propagate_in_video(
         self,
