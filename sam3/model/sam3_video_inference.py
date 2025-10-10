@@ -16,7 +16,7 @@ from sam3.model.act_ckpt_utils import clone_output_wrapper
 from sam3.model.box_ops import box_xywh_to_cxcywh, box_xyxy_to_xywh
 from sam3.model.data_misc import BatchedDatapoint, convert_my_tensors, FindStage
 from sam3.model.geometry_encoders import Prompt
-from sam3.model.io_utils import load_resource_as_video_frames
+from sam3.model.io_utils import IMAGE_EXTS, load_resource_as_video_frames
 from sam3.model.sam3_tracker_utils import fill_holes_in_mask_scores
 from sam3.model.sam3_video_base import MaskletConfirmationStatus, Sam3VideoBase
 from sam3.perflib.compile import compile_wrapper, shape_logging_wrapper
@@ -84,6 +84,7 @@ class Sam3VideoInference(Sam3VideoBase):
         inference_state["tracker_metadata"] = {}
         inference_state["feature_cache"] = {}
         inference_state["cached_frame_outputs"] = {}
+        inference_state["action_history"] = []  # for logging user actions
         inference_state["is_image_only"] = is_image_type(resource_path)
         return inference_state
 
@@ -107,7 +108,8 @@ class Sam3VideoInference(Sam3VideoBase):
         inference_state["tracker_inference_states"].clear()
         inference_state["tracker_metadata"].clear()
         inference_state["feature_cache"].clear()
-        inference_state["cached_frame_outputs"] = {}
+        inference_state["cached_frame_outputs"].clear()
+        inference_state["action_history"].clear()  # for logging user actions
 
     def _construct_initial_input_batch(self, inference_state, images):
         """Construct an initial `BatchedDatapoint` instance as input."""
@@ -252,7 +254,6 @@ class Sam3VideoInference(Sam3VideoBase):
         start_frame_idx=None,
         max_frame_num_to_track=None,
         reverse=False,
-        is_instance_processing=False,
     ):
         """
         Propagate the prompts to get grounding results for the entire video. This method
@@ -289,12 +290,7 @@ class Sam3VideoInference(Sam3VideoBase):
         for frame_idx in tqdm(
             processing_order, desc="propagate_in_video", disable=self.rank > 0
         ):
-            out = self._run_single_frame_inference(
-                inference_state,
-                frame_idx,
-                reverse,
-                is_instance_processing=is_instance_processing,
-            )
+            out = self._run_single_frame_inference(inference_state, frame_idx, reverse)
 
             if self.hotstart_delay > 0:
                 # accumulate the outputs for the first `hotstart_delay` frames
@@ -359,9 +355,7 @@ class Sam3VideoInference(Sam3VideoBase):
                     postprocessed_out = None  # no output on other GPUs
                 yield yield_frame_idx, postprocessed_out
 
-    def _run_single_frame_inference(
-        self, inference_state, frame_idx, reverse, is_instance_processing=False
-    ):
+    def _run_single_frame_inference(self, inference_state, frame_idx, reverse):
         """
         Perform inference on a single frame and get its inference results. This would
         also update `inference_state`.
@@ -369,10 +363,9 @@ class Sam3VideoInference(Sam3VideoBase):
         # prepare inputs
         input_batch = inference_state["input_batch"]
         tracker_states_local = inference_state["tracker_inference_states"]
-        geometric_prompt = (
-            inference_state["constants"]["empty_geometric_prompt"]
-            if inference_state["per_frame_geometric_prompt"][frame_idx] is None
-            else inference_state["per_frame_geometric_prompt"][frame_idx]
+        has_text_prompt = inference_state["text_prompt"] is not None
+        has_geometric_prompt = (
+            inference_state["per_frame_geometric_prompt"][frame_idx] is not None
         )
         # run inference for the current frame
         (
@@ -381,19 +374,24 @@ class Sam3VideoInference(Sam3VideoBase):
             tracker_states_local_new,
             tracker_metadata_new,
             frame_stats,
-            tracker_obj_scores_global,
+            _,
         ) = self._det_track_one_frame(
             frame_idx=frame_idx,
             num_frames=inference_state["num_frames"],
             reverse=reverse,
             input_batch=input_batch,
-            geometric_prompt=geometric_prompt,
+            geometric_prompt=(
+                inference_state["constants"]["empty_geometric_prompt"]
+                if not has_geometric_prompt
+                else inference_state["per_frame_geometric_prompt"][frame_idx]
+            ),
             tracker_states_local=tracker_states_local,
             tracker_metadata_prev=inference_state["tracker_metadata"],
             feature_cache=inference_state["feature_cache"],
             orig_vid_height=inference_state["orig_height"],
             orig_vid_width=inference_state["orig_width"],
             is_image_only=inference_state["is_image_only"],
+            allow_new_detections=has_text_prompt or has_geometric_prompt,
         )
         # update inference state
         inference_state["tracker_inference_states"] = tracker_states_local_new
@@ -532,9 +530,6 @@ class Sam3VideoInference(Sam3VideoBase):
         removed_obj_ids=None,
         unconfirmed_obj_ids=None,
     ):
-        if "cached_frame_outputs" not in inference_state:
-            inference_state["cached_frame_outputs"] = {}
-
         # Filter out suppressed, removed, and unconfirmed objects from the cache
         filtered_obj_id_to_mask = obj_id_to_mask.copy()
 
@@ -880,13 +875,20 @@ class Sam3VideoInference(Sam3VideoBase):
         self.reset_state(inference_state)
 
         # 1) add text prompt
-        if text_str is not None:
+        if text_str is not None and text_str.lower().strip() != "visual":
             inference_state["text_prompt"] = text_str
             # add the text prompt into the input batch (to be applied to *all* frames)
             inference_state["input_batch"].find_text_batch[0] = text_str
             for t in range(inference_state["num_frames"]):
                 text_id = self.TEXT_ID_FOR_TEXT
                 inference_state["input_batch"].find_inputs[t].text_ids[...] = text_id
+        else:
+            inference_state["text_prompt"] = None
+            inference_state["input_batch"].find_text_batch[0] = ""
+            for t in range(inference_state["num_frames"]):
+                inference_state["input_batch"].find_inputs[t].text_ids[
+                    ...
+                ] = self.TEXT_ID_FOR_VISUAL
 
         # 2) handle box prompt
         assert (boxes_xywh is not None) == (box_labels is not None)
@@ -995,30 +997,6 @@ class Sam3VideoInferenceWithInstanceInteractivity(Sam3VideoInference):
             refinement_detector_cond_frame_removal_window
         )
 
-    @torch.inference_mode()
-    def init_state(
-        self,
-        resource_path,
-        offload_video_to_cpu=False,
-        async_loading_frames=False,
-        video_loader_type="cv2",
-    ):
-        inference_state = super().init_state(
-            resource_path=resource_path,
-            offload_video_to_cpu=offload_video_to_cpu,
-            async_loading_frames=async_loading_frames,
-            video_loader_type=video_loader_type,
-        )
-        # initialize extra states
-        inference_state["action_history"] = []  # for logging user actions
-        return inference_state
-
-    @torch.inference_mode()
-    def reset_state(self, inference_state):
-        super().reset_state(inference_state)
-        # reset extra states
-        inference_state["action_history"].clear()
-
     def _init_new_tracker_state(self, inference_state):
         return self.tracker.init_state(
             cached_features=inference_state["feature_cache"],
@@ -1034,7 +1012,6 @@ class Sam3VideoInferenceWithInstanceInteractivity(Sam3VideoInference):
         start_frame_idx=None,
         max_frame_num_to_track=None,
         reverse=False,
-        is_instance_processing=False,
     ):
         # step 1: check which type of propagation to run, should be the same for all GPUs.
         propagation_type, obj_ids = self.parse_action_history_for_propagation(
@@ -1246,8 +1223,6 @@ class Sam3VideoInferenceWithInstanceInteractivity(Sam3VideoInference):
         inference_state["action_history"].append(action)
 
     def _has_object_been_refined(self, inference_state, obj_id):
-        if "action_history" not in inference_state:
-            return False
         action_history = inference_state["action_history"]
         for action in action_history:
             if action["type"] in ["add", "refine"] and action.get("obj_ids"):
@@ -1756,9 +1731,4 @@ class Sam3VideoInferenceWithInstanceInteractivity(Sam3VideoInference):
 def is_image_type(resource_path: str) -> bool:
     if isinstance(resource_path, list):
         return len(resource_path) == 1
-    if resource_path.lower().endswith(
-        (".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp")
-    ):
-        return True
-
-    return False
+    return resource_path.lower().endswith(tuple(IMAGE_EXTS))
