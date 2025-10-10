@@ -48,6 +48,9 @@ class Sam3TrackerPredictor(Sam3TrackerBase):
         self.bf16_context = torch.autocast(device_type="cuda", dtype=torch.bfloat16)
         self.bf16_context.__enter__()  # keep using for the entire model process
 
+        self.iter_use_prev_mask_pred = False #TODO
+        self.add_all_frames_to_correct_as_cond = False #TODO
+
     @torch.inference_mode()
     def init_state(
         self,
@@ -599,7 +602,10 @@ class Sam3TrackerPredictor(Sam3TrackerBase):
             mask_inputs=mask_inputs,
             gt_masks=None,
             frames_to_add_correction_pt=[],
-            output_dict={},
+            output_dict={
+                "cond_frame_outputs": {},
+                "non_cond_frame_outputs": {},
+            },
             num_frames=inference_state["num_frames"],
             track_in_reverse=False,
             run_mem_encoder=False,

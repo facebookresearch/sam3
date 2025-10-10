@@ -461,8 +461,9 @@ class Sam3VideoInference(Sam3VideoBase):
                     for obj_id in curr_obj_ids
                 ]
             )
+            device = inference_state["device"]
             out_binary_masks = torch.cat(
-                [obj_id_to_mask[obj_id] for obj_id in curr_obj_ids], dim=0
+                [obj_id_to_mask[obj_id].to(device) for obj_id in curr_obj_ids], dim=0
             )
 
             assert out_binary_masks.dtype == torch.bool
@@ -1066,7 +1067,7 @@ class Sam3VideoInferenceWithInstanceInteractivity(Sam3VideoInference):
             if propagation_type == "propagation_partial"
             else f"Fetching existing VG predictions without running any propagation (reverse={reverse})."
         )
-        processing_order = self.tracker._get_processing_order(
+        processing_order, _ = self._get_processing_order(
             inference_state,
             start_frame_idx=start_frame_idx,
             max_frame_num_to_track=max_frame_num_to_track,
