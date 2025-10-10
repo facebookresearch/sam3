@@ -70,6 +70,9 @@ class Sam3VideoPredictor:
                 bounding_boxes=request.get("bounding_boxes", None),
                 bounding_box_labels=request.get("bounding_box_labels", None),
                 clear_old_boxes=request.get("clear_old_boxes", True),
+                obj_id=request.get(
+                    "obj_id", None
+                ),
             )
         elif request_type == "reset_session":
             return self.reset_session(session_id=request["session_id"])
@@ -132,6 +135,7 @@ class Sam3VideoPredictor:
         bounding_boxes: Optional[List[List[float]]] = None,
         bounding_box_labels: Optional[List[int]] = None,
         clear_old_boxes: bool = True,
+        obj_id: Optional[int] = None,
     ):
         """Add text, box and/or point prompt on a specific video frame."""
         logger.info(
@@ -152,6 +156,7 @@ class Sam3VideoPredictor:
             boxes_xywh=bounding_boxes,
             box_labels=bounding_box_labels,
             clear_old_boxes=clear_old_boxes,
+            obj_id=obj_id,
         )
         return {"frame_index": frame_idx, "outputs": outputs}
 
