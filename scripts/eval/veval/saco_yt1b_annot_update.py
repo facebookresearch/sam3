@@ -76,7 +76,7 @@ def update_yt1b_annot(yt1b_input_annot_path, yt1b_media_dir, yt1b_output_annot_p
 
     with open(yt1b_output_annot_path, "w") as f:
         json.dump(data, f)
-        
+
     return data
 
 
