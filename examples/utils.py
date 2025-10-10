@@ -163,10 +163,10 @@ def normalize_bbox(bbox_xyxy, img_w, img_h):
     return bbox_xyxy
 
 
-def visualize_frame_output(frame_idx, image_files, outputs, figsize=(12, 8)):
+def visualize_frame_output(frame_idx, video_frames, outputs, figsize=(12, 8)):
     plt.figure(figsize=figsize)
     plt.title(f"frame {frame_idx}")
-    img = plt.imread(image_files[frame_idx])
+    img = load_frame(video_frames[frame_idx])
     img_H, img_W, _ = img.shape
     plt.imshow(img)
     for i in range(len(outputs["out_probs"])):
@@ -188,7 +188,7 @@ def visualize_frame_output(frame_idx, image_files, outputs, figsize=(12, 8)):
 
 def visualize_formatted_frame_output(
     frame_idx,
-    image_files,
+    video_frames,
     outputs_list,
     titles=None,
     points_list=None,
@@ -217,7 +217,9 @@ def visualize_formatted_frame_output(
     if isinstance(outputs_list, dict) and frame_idx in outputs_list:
         # This is a single outputs dict with frame indices as keys
         outputs_list = [outputs_list]
-    elif isinstance(outputs_list, dict) and not any(isinstance(k, int) for k in outputs_list.keys()):
+    elif isinstance(outputs_list, dict) and not any(
+        isinstance(k, int) for k in outputs_list.keys()
+    ):
         # This is a single frame's outputs {obj_id: mask}
         single_frame_outputs = {frame_idx: outputs_list}
         outputs_list = [single_frame_outputs]
@@ -229,11 +231,11 @@ def visualize_formatted_frame_output(
         len(titles) == num_outputs
     ), "length of `titles` should match that of `outputs_list` if not None."
 
-    fig, axes = plt.subplots(1, num_outputs, figsize=figsize)
+    _, axes = plt.subplots(1, num_outputs, figsize=figsize)
     if num_outputs == 1:
         axes = [axes]  # Make it iterable
 
-    img = plt.imread(image_files[frame_idx])
+    img = load_frame(video_frames[frame_idx])
     img_H, img_W, _ = img.shape
 
     for idx in range(num_outputs):
@@ -248,48 +250,67 @@ def visualize_formatted_frame_output(
             continue
 
         if prompt_info and frame_idx == 0:  # Show prompts on first frame
-            if 'boxes' in prompt_info:
-                for box in prompt_info['boxes']:
+            if "boxes" in prompt_info:
+                for box in prompt_info["boxes"]:
                     # box is in [x, y, w, h] normalized format
                     x, y, w, h = box
                     plot_bbox(
-                        img_H, img_W,
-                        [x, y, x+w, y+h],  # Convert to XYXY
+                        img_H,
+                        img_W,
+                        [x, y, x + w, y + h],  # Convert to XYXY
                         box_format="XYXY",
                         relative_coords=True,
                         color="yellow",
                         linestyle="dashed",
                         text="PROMPT BOX",
-                        ax=ax
+                        ax=ax,
                     )
 
-            if 'points' in prompt_info and 'point_labels' in prompt_info:
-                points = np.array(prompt_info['points'])
-                labels = np.array(prompt_info['point_labels'])
+            if "points" in prompt_info and "point_labels" in prompt_info:
+                points = np.array(prompt_info["points"])
+                labels = np.array(prompt_info["point_labels"])
                 # Convert normalized to pixel coordinates
                 points_pixel = points * np.array([img_W, img_H])
 
                 # Draw positive points (green stars)
                 pos_points = points_pixel[labels == 1]
                 if len(pos_points) > 0:
-                    ax.scatter(pos_points[:, 0], pos_points[:, 1],
-                              color="lime", marker="*", s=200,
-                              edgecolor="white", linewidth=2,
-                              label="Positive Points", zorder=10)
+                    ax.scatter(
+                        pos_points[:, 0],
+                        pos_points[:, 1],
+                        color="lime",
+                        marker="*",
+                        s=200,
+                        edgecolor="white",
+                        linewidth=2,
+                        label="Positive Points",
+                        zorder=10,
+                    )
 
                 # Draw negative points (red stars)
                 neg_points = points_pixel[labels == 0]
                 if len(neg_points) > 0:
-                    ax.scatter(neg_points[:, 0], neg_points[:, 1],
-                              color="red", marker="*", s=200,
-                              edgecolor="white", linewidth=2,
-                              label="Negative Points", zorder=10)
+                    ax.scatter(
+                        neg_points[:, 0],
+                        neg_points[:, 1],
+                        color="red",
+                        marker="*",
+                        s=200,
+                        edgecolor="white",
+                        linewidth=2,
+                        label="Negative Points",
+                        zorder=10,
+                    )
 
         objects_drawn = 0
         for obj_id, binary_mask in _outputs.items():
-            mask_sum = binary_mask.sum() if hasattr(binary_mask, 'sum') else np.sum(binary_mask)
+            mask_sum = (
+                binary_mask.sum()
+                if hasattr(binary_mask, "sum")
+                else np.sum(binary_mask)
+            )
 
-            if  mask_sum > 0:  # Only draw if mask has content
+            if mask_sum > 0:  # Only draw if mask has content
                 # Convert to torch tensor if it's not already
                 if not isinstance(binary_mask, torch.Tensor):
                     binary_mask = torch.tensor(binary_mask)
@@ -315,13 +336,26 @@ def visualize_formatted_frame_output(
                 )
 
                 # Convert back to numpy for plotting
-                mask_np = binary_mask.numpy() if isinstance(binary_mask, torch.Tensor) else binary_mask
+                mask_np = (
+                    binary_mask.numpy()
+                    if isinstance(binary_mask, torch.Tensor)
+                    else binary_mask
+                )
                 plot_mask(mask_np, color=color, ax=ax)
                 objects_drawn += 1
 
         if objects_drawn == 0:
-            ax.text(0.5, 0.5, "No objects detected", transform=ax.transAxes,
-                   fontsize=16, ha='center', va='center', color='red', weight='bold')
+            ax.text(
+                0.5,
+                0.5,
+                "No objects detected",
+                transform=ax.transAxes,
+                fontsize=16,
+                ha="center",
+                va="center",
+                color="red",
+                weight="bold",
+            )
 
         # Draw additional points if provided
         if points_list is not None and points_list[idx] is not None:
@@ -329,7 +363,7 @@ def visualize_formatted_frame_output(
                 points_list[idx], points_labels_list[idx], ax=ax, marker_size=200
             )
 
-        ax.axis('off')
+        ax.axis("off")
 
     plt.tight_layout()
     plt.show()
@@ -413,12 +447,12 @@ def render_masklet_frame(img, outputs, frame_idx=None, alpha=0.5):
     return overlay
 
 
-def save_masklet_video(image_files, outputs, out_path, alpha=0.5, fps=10):
+def save_masklet_video(video_frames, outputs, out_path, alpha=0.5, fps=10):
     # Each outputs dict has keys: "out_boxes_xywh", "out_probs", "out_obj_ids", "out_binary_masks"
-    # image_files: list of image file paths, same length as outputs_list
+    # video_frames: list of video frame data, same length as outputs_list
 
     # Read first frame to get size
-    first_img = plt.imread(image_files[0])
+    first_img = load_frame(video_frames[0])
     height, width = first_img.shape[:2]
     if first_img.dtype == np.float32 or first_img.max() <= 1.0:
         first_img = (first_img * 255).astype(np.uint8)
@@ -427,12 +461,12 @@ def save_masklet_video(image_files, outputs, out_path, alpha=0.5, fps=10):
     writer = cv2.VideoWriter("temp.mp4", fourcc, fps, (width, height))
 
     outputs_list = [
-        (image_files[frame_idx], frame_idx, outputs[frame_idx])
+        (video_frames[frame_idx], frame_idx, outputs[frame_idx])
         for frame_idx in sorted(outputs.keys())
     ]
 
-    for img_path, frame_idx, frame_outputs in tqdm(outputs_list):
-        img = plt.imread(img_path)
+    for frame, frame_idx, frame_outputs in tqdm(outputs_list):
+        img = load_frame(frame)
         overlay = render_masklet_frame(
             img, frame_outputs, frame_idx=frame_idx, alpha=alpha
         )
@@ -447,11 +481,11 @@ def save_masklet_video(image_files, outputs, out_path, alpha=0.5, fps=10):
     os.remove("temp.mp4")  # Clean up temporary file
 
 
-def save_masklet_image(image_file, outputs, out_path, alpha=0.5, frame_idx=None):
+def save_masklet_image(frame, outputs, out_path, alpha=0.5, frame_idx=None):
     """
     Save a single image with masklet overlays.
     """
-    img = plt.imread(image_file)
+    img = load_frame(frame)
     overlay = render_masklet_frame(img, outputs, frame_idx=frame_idx, alpha=alpha)
     Image.fromarray(overlay).save(out_path)
     print(f"Overlay image saved to {out_path}")
@@ -671,21 +705,37 @@ def get_vis_example(
 
     return frame, mask, noun_phrase
 
-def visualize_prompt_overlay(frame_idx, image_files, title="Prompt Visualization",
-                           text_prompt=None, point_prompts=None, point_labels=None,
-                           bounding_boxes=None, box_labels=None, obj_id=None):
+
+def visualize_prompt_overlay(
+    frame_idx,
+    video_frames,
+    title="Prompt Visualization",
+    text_prompt=None,
+    point_prompts=None,
+    point_labels=None,
+    bounding_boxes=None,
+    box_labels=None,
+    obj_id=None,
+):
     """Simple prompt visualization function"""
-    img = Image.open(image_files[frame_idx])
+    img = Image.fromarray(load_frame(video_frames[frame_idx]))
     fig, ax = plt.subplots(1, figsize=(6, 4))
     ax.imshow(img)
 
     img_w, img_h = img.size
 
     if text_prompt:
-        ax.text(0.02, 0.98, f'Text: "{text_prompt}"',
-                transform=ax.transAxes, fontsize=12, color='white', weight='bold',
-                bbox=dict(boxstyle="round,pad=0.3", facecolor='red', alpha=0.7),
-                verticalalignment='top')
+        ax.text(
+            0.02,
+            0.98,
+            f'Text: "{text_prompt}"',
+            transform=ax.transAxes,
+            fontsize=12,
+            color="white",
+            weight="bold",
+            bbox=dict(boxstyle="round,pad=0.3", facecolor="red", alpha=0.7),
+            verticalalignment="top",
+        )
 
     if point_prompts:
         for i, point in enumerate(point_prompts):
@@ -695,16 +745,30 @@ def visualize_prompt_overlay(frame_idx, image_files, title="Prompt Visualization
 
             # Use different colors for positive/negative points
             if point_labels and len(point_labels) > i:
-                color = 'green' if point_labels[i] == 1 else 'red'
-                marker = 'o' if point_labels[i] == 1 else 'x'
+                color = "green" if point_labels[i] == 1 else "red"
+                marker = "o" if point_labels[i] == 1 else "x"
             else:
-                color = 'green'
-                marker = 'o'
+                color = "green"
+                marker = "o"
 
-            ax.plot(x_img, y_img, marker=marker, color=color, markersize=10,
-                   markeredgewidth=2, markeredgecolor='white')
-            ax.text(x_img + 5, y_img - 5, f'P{i+1}', color=color, fontsize=10, weight='bold',
-                   bbox=dict(boxstyle="round,pad=0.2", facecolor='white', alpha=0.8))
+            ax.plot(
+                x_img,
+                y_img,
+                marker=marker,
+                color=color,
+                markersize=10,
+                markeredgewidth=2,
+                markeredgecolor="white",
+            )
+            ax.text(
+                x_img + 5,
+                y_img - 5,
+                f"P{i+1}",
+                color=color,
+                fontsize=10,
+                weight="bold",
+                bbox=dict(boxstyle="round,pad=0.2", facecolor="white", alpha=0.8),
+            )
 
     if bounding_boxes:
         for i, box in enumerate(bounding_boxes):
@@ -715,27 +779,48 @@ def visualize_prompt_overlay(frame_idx, image_files, title="Prompt Visualization
 
             # Use different colors for positive/negative boxes
             if box_labels and len(box_labels) > i:
-                color = 'green' if box_labels[i] == 1 else 'red'
+                color = "green" if box_labels[i] == 1 else "red"
             else:
-                color = 'green'
+                color = "green"
 
-            rect = patches.Rectangle((x_img, y_img), w_img, h_img,
-                                   linewidth=2, edgecolor=color, facecolor='none')
+            rect = patches.Rectangle(
+                (x_img, y_img),
+                w_img,
+                h_img,
+                linewidth=2,
+                edgecolor=color,
+                facecolor="none",
+            )
             ax.add_patch(rect)
-            ax.text(x_img, y_img - 5, f'B{i+1}', color=color, fontsize=10, weight='bold',
-                   bbox=dict(boxstyle="round,pad=0.2", facecolor='white', alpha=0.8))
+            ax.text(
+                x_img,
+                y_img - 5,
+                f"B{i+1}",
+                color=color,
+                fontsize=10,
+                weight="bold",
+                bbox=dict(boxstyle="round,pad=0.2", facecolor="white", alpha=0.8),
+            )
 
     # Add object ID info if provided
     if obj_id is not None:
-        ax.text(0.02, 0.02, f"Object ID: {obj_id}",
-                transform=ax.transAxes, fontsize=10, color='white', weight='bold',
-                bbox=dict(boxstyle="round,pad=0.3", facecolor='blue', alpha=0.7),
-                verticalalignment='bottom')
+        ax.text(
+            0.02,
+            0.02,
+            f"Object ID: {obj_id}",
+            transform=ax.transAxes,
+            fontsize=10,
+            color="white",
+            weight="bold",
+            bbox=dict(boxstyle="round,pad=0.3", facecolor="blue", alpha=0.7),
+            verticalalignment="bottom",
+        )
 
     ax.set_title(title)
-    ax.axis('off')
+    ax.axis("off")
     plt.tight_layout()
     plt.show()
+
 
 def plot_results(img, results):
     plt.figure(figsize=(12, 8))
@@ -748,28 +833,58 @@ def plot_results(img, results):
         w, h = img.size
         prob = results["scores"][i].item()
         plot_bbox(
-                h,
-                w,
-                results["boxes"][i].cpu(),
-                text=f"(id={i}, {prob=:.2f})",
-                box_format="XYXY",
-                color=color,
-                relative_coords=False,
-            )
+            h,
+            w,
+            results["boxes"][i].cpu(),
+            text=f"(id={i}, {prob=:.2f})",
+            box_format="XYXY",
+            color=color,
+            relative_coords=False,
+        )
+
 
 def single_visualization(img, anns, title):
     """
     Create a single image visualization with overlays.
     """
     fig, ax = plt.subplots(figsize=(7, 7))
-    fig.suptitle(title, fontsize=16, fontweight='bold')
+    fig.suptitle(title, fontsize=16, fontweight="bold")
     overlay = render_masklet_frame(img, anns, alpha=0.5)
     ax.imshow(overlay)
-    ax.axis('off')
+    ax.axis("off")
     plt.tight_layout()
 
+
 def show_points(coords, labels, ax, marker_size=375):
-    pos_points = coords[labels==1]
-    neg_points = coords[labels==0]
-    ax.scatter(pos_points[:, 0], pos_points[:, 1], color='green', marker='*', s=marker_size, edgecolor='white', linewidth=1.25)
-    ax.scatter(neg_points[:, 0], neg_points[:, 1], color='red', marker='*', s=marker_size, edgecolor='white', linewidth=1.25)
+    pos_points = coords[labels == 1]
+    neg_points = coords[labels == 0]
+    ax.scatter(
+        pos_points[:, 0],
+        pos_points[:, 1],
+        color="green",
+        marker="*",
+        s=marker_size,
+        edgecolor="white",
+        linewidth=1.25,
+    )
+    ax.scatter(
+        neg_points[:, 0],
+        neg_points[:, 1],
+        color="red",
+        marker="*",
+        s=marker_size,
+        edgecolor="white",
+        linewidth=1.25,
+    )
+
+
+def load_frame(frame):
+    if isinstance(frame, np.ndarray):
+        img = frame
+    elif isinstance(frame, Image.Image):
+        img = np.array(frame)
+    elif isinstance(frame, str) and os.path.isfile(frame):
+        img = plt.imread(frame)
+    else:
+        raise ValueError(f"Invalid video frame type: {type(frame)=}")
+    return img
