@@ -777,10 +777,10 @@ class Sam3ImageOnVideoMultiGPU(Sam3Image):
             }
             if self.gather_backbone_out:
                 # also add gathered SAM 2 backbone features to frame_buffer
-                frame_buffer["sam2_backbone_fpn_0"] = (fpn0[rank], fpn_handle0)
-                frame_buffer["sam2_backbone_fpn_1"] = (fpn1[rank], fpn_handle1)
-                frame_buffer["sam2_backbone_fpn_2"] = (fpn2[rank], fpn_handle2)
-                frame_buffer["sam2_backbone_pos_enc"] = (vision_pos_enc, None)
+                frame_buffer["tracker_backbone_fpn_0"] = (fpn0[rank], fpn_handle0)
+                frame_buffer["tracker_backbone_fpn_1"] = (fpn1[rank], fpn_handle1)
+                frame_buffer["tracker_backbone_fpn_2"] = (fpn2[rank], fpn_handle2)
+                frame_buffer["tracker_backbone_pos_enc"] = (vision_pos_enc, None)
 
             multigpu_buffer[frame_idx_to_save] = frame_buffer
 

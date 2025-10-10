@@ -1,6 +1,5 @@
 # Copyright (c) Meta, Inc. and its affiliates. All Rights Reserved
 
-import gc
 import logging
 from collections import defaultdict
 
@@ -82,11 +81,8 @@ class Sam3VideoInference(Sam3VideoBase):
         # inputs on each frame
         self._construct_initial_input_batch(inference_state, images)
         # initialize extra states
-        # sam2_inference_states will contain separate inference_states for each frame having new objects if
-        # self.sam2_predictor.per_obj_inference is False (bucketized batching), or a single inference_state
-        # containing all objects if self.sam2_predictor.per_obj_inference is True (no batching at all).
-        inference_state["sam2_inference_states"] = []
-        inference_state["sam2_metadata"] = {}
+        inference_state["tracker_inference_states"] = []
+        inference_state["tracker_metadata"] = {}
         inference_state["feature_cache"] = {}
         inference_state["cached_frame_outputs"] = {}
         inference_state["is_image_only"] = is_image_type(resource_path)
@@ -109,11 +105,8 @@ class Sam3VideoInference(Sam3VideoBase):
 
         inference_state["visual_prompt_embed"] = None
         inference_state["visual_prompt_mask"] = None
-        gc.collect()
-        torch.cuda.empty_cache()
-        # reset extra states
-        inference_state["sam2_inference_states"].clear()
-        inference_state["sam2_metadata"].clear()
+        inference_state["tracker_inference_states"].clear()
+        inference_state["tracker_metadata"].clear()
         inference_state["feature_cache"].clear()
         inference_state["cached_frame_outputs"] = {}
 
@@ -260,8 +253,6 @@ class Sam3VideoInference(Sam3VideoBase):
         start_frame_idx=None,
         max_frame_num_to_track=None,
         reverse=False,
-        output_prob_thresh=0.5,
-        compute_stability_score=False,
         is_instance_processing=False,
     ):
         """
@@ -378,7 +369,7 @@ class Sam3VideoInference(Sam3VideoBase):
         """
         # prepare inputs
         input_batch = inference_state["input_batch"]
-        sam2_states_local = inference_state["sam2_inference_states"]
+        tracker_states_local = inference_state["tracker_inference_states"]
         geometric_prompt = (
             inference_state["constants"]["empty_geometric_prompt"]
             if inference_state["per_frame_geometric_prompt"][frame_idx] is None
@@ -388,26 +379,26 @@ class Sam3VideoInference(Sam3VideoBase):
         (
             obj_id_to_mask,
             obj_id_to_score,
-            sam2_states_local_new,
-            sam2_metadata_new,
+            tracker_states_local_new,
+            tracker_metadata_new,
             frame_stats,
-            sam2_obj_scores_global,
+            tracker_obj_scores_global,
         ) = self._det_track_one_frame(
             frame_idx=frame_idx,
             num_frames=inference_state["num_frames"],
             reverse=reverse,
             input_batch=input_batch,
             geometric_prompt=geometric_prompt,
-            sam2_states_local=sam2_states_local,
-            sam2_metadata_prev=inference_state["sam2_metadata"],
+            tracker_states_local=tracker_states_local,
+            tracker_metadata_prev=inference_state["tracker_metadata"],
             feature_cache=inference_state["feature_cache"],
             orig_vid_height=inference_state["orig_height"],
             orig_vid_width=inference_state["orig_width"],
             is_image_only=inference_state["is_image_only"],
         )
         # update inference state
-        inference_state["sam2_inference_states"] = sam2_states_local_new
-        inference_state["sam2_metadata"] = sam2_metadata_new
+        inference_state["tracker_inference_states"] = tracker_states_local_new
+        inference_state["tracker_metadata"] = tracker_metadata_new
         # use a dummy string in "previous_stages_out" to indicate this frame has outputs
         inference_state["previous_stages_out"][frame_idx] = "_THIS_FRAME_HAS_OUTPUTS_"
 
@@ -417,13 +408,13 @@ class Sam3VideoInference(Sam3VideoBase):
         out = {
             "obj_id_to_mask": obj_id_to_mask,
             "obj_id_to_score": obj_id_to_score,  # first frame detection score
-            "obj_id_to_sam2_score": sam2_metadata_new[
-                "obj_id_to_sam2_score_frame_wise"
+            "obj_id_to_tracker_score": tracker_metadata_new[
+                "obj_id_to_tracker_score_frame_wise"
             ][frame_idx],
         }
         # removed_obj_ids is only needed on rank 0 to handle hotstart delay buffer
         if self.rank == 0:
-            rank0_metadata = sam2_metadata_new["rank0_metadata"]
+            rank0_metadata = tracker_metadata_new["rank0_metadata"]
             removed_obj_ids = rank0_metadata["removed_obj_ids"]
             out["removed_obj_ids"] = removed_obj_ids
             out["suppressed_obj_ids"] = rank0_metadata["suppressed_obj_ids"][frame_idx]
@@ -431,7 +422,7 @@ class Sam3VideoInference(Sam3VideoBase):
             if self.masklet_confirmation_enable:
                 status = rank0_metadata["masklet_confirmation"]["status"]
                 is_unconfirmed = status == MaskletConfirmationStatus.UNCONFIRMED.value
-                out["unconfirmed_obj_ids"] = sam2_metadata_new["obj_ids_all_gpu"][
+                out["unconfirmed_obj_ids"] = tracker_metadata_new["obj_ids_all_gpu"][
                     is_unconfirmed
                 ].tolist()
             else:
@@ -460,11 +451,11 @@ class Sam3VideoInference(Sam3VideoBase):
             out_probs = torch.tensor(
                 [out["obj_id_to_score"][obj_id] for obj_id in curr_obj_ids]
             )
-            out_sam2_probs = torch.tensor(
+            out_tracker_probs = torch.tensor(
                 [
                     (
-                        out["obj_id_to_sam2_score"][obj_id]
-                        if obj_id in out["obj_id_to_sam2_score"]
+                        out["obj_id_to_tracker_score"][obj_id]
+                        if obj_id in out["obj_id_to_tracker_score"]
                         else 0.0
                     )
                     for obj_id in curr_obj_ids
@@ -496,7 +487,7 @@ class Sam3VideoInference(Sam3VideoBase):
 
             out_obj_ids = torch.index_select(out_obj_ids, 0, keep_idx)
             out_probs = torch.index_select(out_probs, 0, keep_idx)
-            out_sam2_probs = torch.index_select(out_sam2_probs, 0, keep_idx)
+            out_tracker_probs = torch.index_select(out_tracker_probs, 0, keep_idx)
             out_binary_masks = torch.index_select(out_binary_masks, 0, keep_idx_gpu)
 
             if perflib.is_enabled:
@@ -515,11 +506,11 @@ class Sam3VideoInference(Sam3VideoBase):
 
         # apply non-overlapping constraints on the existing masklets
         if out_binary_masks.shape[0] > 1:
-            assert len(out_binary_masks) == len(out_sam2_probs)
+            assert len(out_binary_masks) == len(out_tracker_probs)
             out_binary_masks = (
-                self.sam2_predictor._apply_object_wise_non_overlapping_constraints(
+                self.tracker._apply_object_wise_non_overlapping_constraints(
                     out_binary_masks.unsqueeze(1),
-                    out_sam2_probs.unsqueeze(1).to(out_binary_masks.device),
+                    out_tracker_probs.unsqueeze(1).to(out_binary_masks.device),
                     background_value=0,
                 ).squeeze(1)
             ) > 0
@@ -563,7 +554,7 @@ class Sam3VideoInference(Sam3VideoBase):
 
         inference_state["cached_frame_outputs"][frame_idx] = filtered_obj_id_to_mask
 
-    def _build_sam2_output(
+    def _build_tracker_output(
         self, inference_state, frame_idx, refined_obj_id_to_mask=None
     ):
         assert (
@@ -586,7 +577,7 @@ class Sam3VideoInference(Sam3VideoBase):
 
     def _compile_model(self):
         """Compile the SAM model with torch.compile for speedup."""
-        # TODO: compile SAM2 model components
+        # TODO: compile Tracker model components
         is_compiled = getattr(self, "_model_is_compiled", False)
         if is_compiled or not self.compile_model:
             return
@@ -607,48 +598,48 @@ class Sam3VideoInference(Sam3VideoBase):
         # )
 
         ## Compile SAM3 model components
-        self.sam3_model.backbone.vision_backbone.forward = clone_output_wrapper(
+        self.detector.backbone.vision_backbone.forward = clone_output_wrapper(
             torch.compile(
-                self.sam3_model.backbone.vision_backbone.forward,
+                self.detector.backbone.vision_backbone.forward,
                 fullgraph=True,
                 mode="max-autotune",
             )
         )
-        self.sam3_model.transformer.encoder.forward = clone_output_wrapper(
+        self.detector.transformer.encoder.forward = clone_output_wrapper(
             torch.compile(
-                self.sam3_model.transformer.encoder.forward,
+                self.detector.transformer.encoder.forward,
                 fullgraph=True,
                 mode="max-autotune",
             )
         )
-        self.sam3_model.transformer.decoder.forward = clone_output_wrapper(
+        self.detector.transformer.decoder.forward = clone_output_wrapper(
             torch.compile(
-                self.sam3_model.transformer.decoder.forward,
+                self.detector.transformer.decoder.forward,
                 fullgraph=True,
                 mode="max-autotune",
                 dynamic=False,  # note: FA decoder uses static shapes
             )
         )
 
-        self.sam3_model.segmentation_head.forward = clone_output_wrapper(
+        self.detector.segmentation_head.forward = clone_output_wrapper(
             torch.compile(
-                self.sam3_model.segmentation_head.forward,
+                self.detector.segmentation_head.forward,
                 fullgraph=True,
                 mode="max-autotune",
             )
         )
 
-        ## Compile SAM2 model components
-        self.sam2_predictor.maskmem_backbone.forward = compile_wrapper(
-            self.sam2_predictor.maskmem_backbone.forward,
+        ## Compile Tracker model components
+        self.tracker.maskmem_backbone.forward = compile_wrapper(
+            self.tracker.maskmem_backbone.forward,
             mode="max-autotune",
             fullgraph=True,
             dynamic=False,
         )
 
-        self.sam2_predictor.transformer.encoder.forward = shape_logging_wrapper(
+        self.tracker.transformer.encoder.forward = shape_logging_wrapper(
             compile_wrapper(
-                self.sam2_predictor.transformer.encoder.forward,
+                self.tracker.transformer.encoder.forward,
                 mode="max-autotune-no-cudagraphs",
                 fullgraph=True,
                 dynamic=True,
@@ -656,8 +647,8 @@ class Sam3VideoInference(Sam3VideoBase):
             keep_kwargs=["src", "src_pos", "prompt", "prompt_pos"],
         )
 
-        self.sam2_predictor.sam_mask_decoder.forward = compile_wrapper(
-            self.sam2_predictor.sam_mask_decoder.forward,
+        self.tracker.sam_mask_decoder.forward = compile_wrapper(
+            self.tracker.sam_mask_decoder.forward,
             mode="max-autotune",
             fullgraph=True,
             dynamic=False,  # Accuracy regression on True
@@ -685,7 +676,7 @@ class Sam3VideoInference(Sam3VideoBase):
                 inference_state = self.add_fake_objects_to_inference_state(
                     inference_state, num_objects, frame_idx=start_frame_idx
                 )
-                inference_state["sam2_metadata"]["rank0_metadata"].update(
+                inference_state["tracker_metadata"]["rank0_metadata"].update(
                     {
                         "masklet_confirmation": {
                             "status": np.zeros(num_objects, dtype=np.int64),
@@ -708,21 +699,20 @@ class Sam3VideoInference(Sam3VideoBase):
                     f"{i+1}/{num_rounds} warming up model compilation -- completed round {i+1} out of {num_rounds}"
                 )
 
-        # Warm up SAM2 memory encoder with varying input shapes
+        # Warm up Tracker memory encoder with varying input shapes
         num_iters = 3
-        feat_size = self.sam2_predictor.sam_image_embedding_size**2  # 72 * 72 = 5184
-        hidden_dim = self.sam2_predictor.hidden_dim  # 256
-        mem_dim = self.sam2_predictor.mem_dim  # 64
+        feat_size = self.tracker.sam_image_embedding_size**2  # 72 * 72 = 5184
+        hidden_dim = self.tracker.hidden_dim  # 256
+        mem_dim = self.tracker.mem_dim  # 64
         for _ in tqdm(range(num_iters)):
             for b in range(1, self.num_obj_for_compile + 1):
                 for i in range(
                     1,
-                    self.sam2_predictor.max_cond_frames_in_attn
-                    + self.sam2_predictor.num_maskmem,
+                    self.tracker.max_cond_frames_in_attn + self.tracker.num_maskmem,
                 ):
                     for j in range(
-                        self.sam2_predictor.max_cond_frames_in_attn
-                        + self.sam2_predictor.max_obj_ptrs_in_encoder
+                        self.tracker.max_cond_frames_in_attn
+                        + self.tracker.max_obj_ptrs_in_encoder
                     ):
                         num_obj_ptr_tokens = (hidden_dim // mem_dim) * j
                         src = torch.randn(feat_size, b, hidden_dim, device=self.device)
@@ -742,7 +732,7 @@ class Sam3VideoInference(Sam3VideoBase):
                             device=self.device,
                         )
 
-                        self.sam2_predictor.transformer.encoder.forward(
+                        self.tracker.transformer.encoder.forward(
                             src=src,
                             src_pos=src_pos,
                             prompt=prompt,
@@ -758,24 +748,24 @@ class Sam3VideoInference(Sam3VideoBase):
     ):
         new_det_obj_ids_local = np.arange(num_objects)
         high_res_H, high_res_W = (
-            self.sam2_predictor.maskmem_backbone.mask_downsampler.interpol_size
+            self.tracker.maskmem_backbone.mask_downsampler.interpol_size
         )
         new_det_masks = torch.ones(
             len(new_det_obj_ids_local), high_res_H, high_res_W
         ).to(self.device)
 
-        inference_state["sam2_inference_states"] = self._sam2_add_new_objects(
+        inference_state["tracker_inference_states"] = self._tracker_add_new_objects(
             frame_idx=frame_idx,
             num_frames=inference_state["num_frames"],
             new_obj_ids=new_det_obj_ids_local,
             new_obj_masks=new_det_masks,
-            sam2_states_local=inference_state["sam2_inference_states"],
+            tracker_states_local=inference_state["tracker_inference_states"],
             orig_vid_height=inference_state["orig_height"],
             orig_vid_width=inference_state["orig_width"],
             feature_cache=inference_state["feature_cache"],
         )
 
-        # Synthesize obj_id_to_mask data for cached_frame_outputs to support _build_sam2_output during warmup
+        # Synthesize obj_id_to_mask data for cached_frame_outputs to support _build_tracker_output during warmup
         obj_id_to_mask = {}
         if num_objects > 0:
             H_video = inference_state["orig_height"]
@@ -793,7 +783,7 @@ class Sam3VideoInference(Sam3VideoBase):
             for fidx in range(inference_state["num_frames"]):
                 self._cache_frame_outputs(inference_state, fidx, obj_id_to_mask)
 
-        inference_state["sam2_metadata"].update(
+        inference_state["tracker_metadata"].update(
             {
                 "obj_ids_per_gpu": [np.arange(num_objects)],
                 "obj_ids_all_gpu": np.arange(num_objects),  # Same as 1 GPU
@@ -830,8 +820,8 @@ class Sam3VideoInference(Sam3VideoBase):
         # temporally set to single GPU temporarily for warm-up compilation
         orig_rank = self.rank
         orig_world_size = self.world_size
-        self.rank = self.sam3_model.rank = 0
-        self.world_size = self.sam3_model.world_size = 1
+        self.rank = self.detector.rank = 0
+        self.world_size = self.detector.world_size = 1
         orig_recondition_every_nth_frame = self.recondition_every_nth_frame
         # self.recondition_every_nth_frame = 2
 
@@ -845,11 +835,11 @@ class Sam3VideoInference(Sam3VideoBase):
         logger.info("Warm-up compilation completed.")
 
         # revert to the original GPU and rank
-        self.rank = self.sam3_model.rank = orig_rank
-        self.world_size = self.sam3_model.world_size = orig_world_size
+        self.rank = self.detector.rank = orig_rank
+        self.world_size = self.detector.world_size = orig_world_size
         self.recondition_every_nth_frame = orig_recondition_every_nth_frame
         self._warm_up_complete = True
-        self.sam2_predictor.transformer.encoder.forward.set_logging(True)
+        self.tracker.transformer.encoder.forward.set_logging(True)
 
     @torch.inference_mode()
     def add_prompt(
@@ -863,7 +853,6 @@ class Sam3VideoInference(Sam3VideoBase):
         boxes_xywh=None,
         box_labels=None,
         clear_old_boxes=True,
-        output_prob_thresh=0.5,
     ):
         """
         Add text, point or box prompts on a single frame. This method returns the inference
@@ -935,8 +924,8 @@ class Sam3VideoInference(Sam3VideoBase):
         # set the model to single GPU for benchmark evaluation (to be compatible with trainer)
         orig_rank = self.rank
         orig_world_size = self.world_size
-        self.rank = self.sam3_model.rank = 0
-        self.world_size = self.sam3_model.world_size = 1
+        self.rank = self.detector.rank = 0
+        self.world_size = self.detector.world_size = 1
 
         # get data
         text_prompt_ids = input.find_metadatas[0].original_category_id
@@ -964,7 +953,7 @@ class Sam3VideoInference(Sam3VideoBase):
                     current_frame_res[obj_id + start_obj_id] = mask_tensor
                 obj_ids_this_prompt.update(current_frame_res.keys())
 
-            obj_id_to_score = inference_state["sam2_metadata"]["obj_id_to_score"]
+            obj_id_to_score = inference_state["tracker_metadata"]["obj_id_to_score"]
             for obj_id, score in obj_id_to_score.items():
                 if obj_id + start_obj_id in obj_ids_this_prompt:
                     score_tensor = torch.tensor(score, dtype=torch.float32)
@@ -976,8 +965,8 @@ class Sam3VideoInference(Sam3VideoBase):
         preds = self.prep_for_evaluator(input.raw_images, tracking_res, scores_labels)
 
         # revert the model to the original GPU and rank
-        self.rank = self.sam3_model.rank = orig_rank
-        self.world_size = self.sam3_model.world_size = orig_world_size
+        self.rank = self.detector.rank = orig_rank
+        self.world_size = self.detector.world_size = orig_world_size
         return {video_id: preds}
 
     def back_convert(self, targets):
@@ -1023,11 +1012,6 @@ class Sam3VideoInferenceWithInstanceInteractivity(Sam3VideoInference):
         )
         # initialize extra states
         inference_state["action_history"] = []  # for logging user actions
-        if self.sam2_predictor.per_obj_inference:
-            # in per_obj mode only 1 inference state is needed, we init it here.
-            inference_state["sam2_inference_states"] = [
-                self._init_new_sam2_state(inference_state)
-            ]
         return inference_state
 
     @torch.inference_mode()
@@ -1035,13 +1019,9 @@ class Sam3VideoInferenceWithInstanceInteractivity(Sam3VideoInference):
         super().reset_state(inference_state)
         # reset extra states
         inference_state["action_history"].clear()
-        if self.sam2_predictor.per_obj_inference:
-            inference_state["sam2_inference_states"] = [
-                self._init_new_sam2_state(inference_state)
-            ]
 
-    def _init_new_sam2_state(self, inference_state):
-        return self.sam2_predictor.init_state(
+    def _init_new_tracker_state(self, inference_state):
+        return self.tracker.init_state(
             cached_features=inference_state["feature_cache"],
             video_height=inference_state["orig_height"],
             video_width=inference_state["orig_width"],
@@ -1055,8 +1035,6 @@ class Sam3VideoInferenceWithInstanceInteractivity(Sam3VideoInference):
         start_frame_idx=None,
         max_frame_num_to_track=None,
         reverse=False,
-        output_prob_thresh=0.5,
-        compute_stability_score=False,
         is_instance_processing=False,
     ):
         # step 1: check which type of propagation to run, should be the same for all GPUs.
@@ -1081,21 +1059,21 @@ class Sam3VideoInferenceWithInstanceInteractivity(Sam3VideoInference):
             )
             return
 
-        # step 3: run SAM2 partial propagation or direct fetch existing predictions
+        # step 3: run Tracker partial propagation or direct fetch existing predictions
         assert propagation_type in ["propagation_partial", "propagation_fetch"]
         logger.info(
-            f"Running SAM2 propagation for objects {obj_ids} and merging it with existing VG predictions (reverse={reverse})."
+            f"Running Tracker propagation for objects {obj_ids} and merging it with existing VG predictions (reverse={reverse})."
             if propagation_type == "propagation_partial"
             else f"Fetching existing VG predictions without running any propagation (reverse={reverse})."
         )
-        processing_order = self.sam2_predictor._get_processing_order(
+        processing_order = self.tracker._get_processing_order(
             inference_state,
             start_frame_idx=start_frame_idx,
             max_frame_num_to_track=max_frame_num_to_track,
             reverse=reverse,
         )
 
-        sam2_metadata = inference_state["sam2_metadata"]
+        tracker_metadata = inference_state["tracker_metadata"]
 
         # if fetch just return from output
         if propagation_type == "propagation_fetch":
@@ -1103,18 +1081,18 @@ class Sam3VideoInferenceWithInstanceInteractivity(Sam3VideoInference):
                 if self.rank == 0:
                     obj_id_to_mask = inference_state["cached_frame_outputs"][frame_idx]
                     # post processing - remove suppressed obj_ids
-                    obj_id_to_score = sam2_metadata["obj_id_to_score"]
-                    suppressed_obj_ids = sam2_metadata["rank0_metadata"][
+                    obj_id_to_score = tracker_metadata["obj_id_to_score"]
+                    suppressed_obj_ids = tracker_metadata["rank0_metadata"][
                         "suppressed_obj_ids"
                     ][frame_idx]
-                    obj_id_to_sam2_score = sam2_metadata[
-                        "obj_id_to_sam2_score_frame_wise"
+                    obj_id_to_tracker_score = tracker_metadata[
+                        "obj_id_to_tracker_score_frame_wise"
                     ][frame_idx]
 
                     out = {
                         "obj_id_to_mask": obj_id_to_mask,
                         "obj_id_to_score": obj_id_to_score,
-                        "obj_id_to_sam2_score": obj_id_to_sam2_score,
+                        "obj_id_to_tracker_score": obj_id_to_tracker_score,
                     }
                     yield (
                         frame_idx,
@@ -1127,31 +1105,31 @@ class Sam3VideoInferenceWithInstanceInteractivity(Sam3VideoInference):
 
             return
 
-        # get SAM2 inference states containing selected obj_ids
+        # get Tracker inference states containing selected obj_ids
         if propagation_type == "propagation_partial":
             # can be empty for GPUs where objects are not in their inference states
-            sam2_states_local = self._get_sam2_inference_states_by_obj_ids(
+            tracker_states_local = self._get_tracker_inference_states_by_obj_ids(
                 inference_state, obj_ids
             )
-            for sam2_state in sam2_states_local:
-                self.sam2_predictor.propagate_in_video_preflight(
-                    sam2_state, run_mem_encoder=True
+            for tracker_state in tracker_states_local:
+                self.tracker.propagate_in_video_preflight(
+                    tracker_state, run_mem_encoder=True
                 )
 
         for frame_idx in tqdm(processing_order):
-            # run SAM2 propagation
+            # run Tracker propagation
             if propagation_type == "propagation_partial":
                 self._prepare_backbone_feats(inference_state, frame_idx, reverse)
-                obj_ids_local, low_res_masks_local, sam2_scores_local = (
-                    self._propogate_sam2_one_frame_local_gpu(
-                        sam2_states_local,
+                obj_ids_local, low_res_masks_local, tracker_scores_local = (
+                    self._propogate_tracker_one_frame_local_gpu(
+                        tracker_states_local,
                         frame_idx=frame_idx,
                         reverse=reverse,
                         run_mem_encoder=True,
                     )
                 )
 
-                # broadcast refined object sam2 scores and masks to all GPUs
+                # broadcast refined object tracker scores and masks to all GPUs
                 # handle multiple objects that can be located on different GPUs
                 refined_obj_data = {}  # obj_id -> (score, mask_video_res)
 
@@ -1164,7 +1142,7 @@ class Sam3VideoInferenceWithInstanceInteractivity(Sam3VideoInference):
                         refined_mask_low_res = low_res_masks_local[
                             refined_obj_idx
                         ]  # (H_low_res, W_low_res)
-                        refined_score = sam2_scores_local[refined_obj_idx]
+                        refined_score = tracker_scores_local[refined_obj_idx]
 
                         # Keep low resolution for broadcasting to reduce communication cost
                         local_obj_data[obj_id] = (refined_score, refined_mask_low_res)
@@ -1190,14 +1168,14 @@ class Sam3VideoInferenceWithInstanceInteractivity(Sam3VideoInference):
                     # Single GPU case
                     refined_obj_data = local_obj_data
 
-                # Update SAM2 scores for all refined objects
+                # Update Tracker scores for all refined objects
                 for obj_id, (refined_score, _) in refined_obj_data.items():
-                    sam2_metadata["obj_id_to_sam2_score_frame_wise"][frame_idx].update(
-                        {obj_id: refined_score.item()}
-                    )
+                    tracker_metadata["obj_id_to_tracker_score_frame_wise"][
+                        frame_idx
+                    ].update({obj_id: refined_score.item()})
 
                 if self.rank == 0:
-                    # get predictions from SAM2 inference states, it includes the original
+                    # get predictions from Tracker inference states, it includes the original
                     # VG predictions and the refined predictions from interactivity.
 
                     # Prepare refined masks dictionary - upscale to video resolution after broadcast
@@ -1210,17 +1188,17 @@ class Sam3VideoInferenceWithInstanceInteractivity(Sam3VideoInference):
                         )  # (1, H_video, W_video) bool
                         refined_obj_id_to_mask[obj_id] = refined_mask_video_res
 
-                    obj_id_to_mask = self._build_sam2_output(
+                    obj_id_to_mask = self._build_tracker_output(
                         inference_state, frame_idx, refined_obj_id_to_mask
                     )
                     out = {
                         "obj_id_to_mask": obj_id_to_mask,
-                        "obj_id_to_score": sam2_metadata["obj_id_to_score"],
-                        "obj_id_to_sam2_score": sam2_metadata[
-                            "obj_id_to_sam2_score_frame_wise"
+                        "obj_id_to_score": tracker_metadata["obj_id_to_score"],
+                        "obj_id_to_tracker_score": tracker_metadata[
+                            "obj_id_to_tracker_score_frame_wise"
                         ][frame_idx],
                     }
-                    suppressed_obj_ids = sam2_metadata["rank0_metadata"][
+                    suppressed_obj_ids = tracker_metadata["rank0_metadata"][
                         "suppressed_obj_ids"
                     ][frame_idx]
                     self._cache_frame_outputs(
@@ -1229,7 +1207,7 @@ class Sam3VideoInferenceWithInstanceInteractivity(Sam3VideoInference):
                         obj_id_to_mask,
                         suppressed_obj_ids=suppressed_obj_ids,
                     )
-                    suppressed_obj_ids = sam2_metadata["rank0_metadata"][
+                    suppressed_obj_ids = tracker_metadata["rank0_metadata"][
                         "suppressed_obj_ids"
                     ][frame_idx]
                     yield (
@@ -1284,9 +1262,9 @@ class Sam3VideoInferenceWithInstanceInteractivity(Sam3VideoInference):
         Returns:
             propagation_type: one of ["propagation_full", "propagation_partial", "propagation_fetch"]
                 - "propagation_full": run VG propagation for all objects
-                - "propagation_partial": run SAM2 propagation for selected objects, useful for add/refine actions
+                - "propagation_partial": run Tracker propagation for selected objects, useful for add/refine actions
                 - "propagation_fetch": fetch existing VG predictions without running any propagation
-            obj_ids: list of object ids to run SAM2 propagation on if propagation_type is "propagation_partial".
+            obj_ids: list of object ids to run Tracker propagation on if propagation_type is "propagation_partial".
 
         TODO: (Jie) this function works for our current workflows, but may need more tests to ensure it works
         correctly with different action histories for future workflows.
@@ -1337,15 +1315,15 @@ class Sam3VideoInferenceWithInstanceInteractivity(Sam3VideoInference):
 
     def remove_object(self, inference_state, obj_id, is_user_action=False):
         """
-        We try to remove object from sam2 states on every GPU, it will do nothing
+        We try to remove object from tracker states on every GPU, it will do nothing
         for states without this object.
         """
         obj_rank = self._get_gpu_id_by_obj_id(inference_state, obj_id)
         assert obj_rank is not None, f"Object {obj_id} not found in any GPU."
 
-        sam2_states_local = inference_state["sam2_inference_states"]
+        tracker_states_local = inference_state["tracker_inference_states"]
         if self.rank == obj_rank:
-            self._sam2_remove_object(sam2_states_local, obj_id)
+            self._tracker_remove_object(tracker_states_local, obj_id)
 
         if is_user_action:
             self.add_action_history(
@@ -1353,17 +1331,17 @@ class Sam3VideoInferenceWithInstanceInteractivity(Sam3VideoInference):
             )
 
         # update metadata
-        sam2_metadata = inference_state["sam2_metadata"]
-        _obj_ids = sam2_metadata["obj_ids_per_gpu"][obj_rank]
-        sam2_metadata["obj_ids_per_gpu"][obj_rank] = _obj_ids[_obj_ids != obj_id]
-        sam2_metadata["num_obj_per_gpu"][obj_rank] = len(
-            sam2_metadata["obj_ids_per_gpu"][obj_rank]
+        tracker_metadata = inference_state["tracker_metadata"]
+        _obj_ids = tracker_metadata["obj_ids_per_gpu"][obj_rank]
+        tracker_metadata["obj_ids_per_gpu"][obj_rank] = _obj_ids[_obj_ids != obj_id]
+        tracker_metadata["num_obj_per_gpu"][obj_rank] = len(
+            tracker_metadata["obj_ids_per_gpu"][obj_rank]
         )
-        sam2_metadata["obj_ids_all_gpu"] = np.concatenate(
-            sam2_metadata["obj_ids_per_gpu"]
+        tracker_metadata["obj_ids_all_gpu"] = np.concatenate(
+            tracker_metadata["obj_ids_per_gpu"]
         )
-        sam2_metadata["obj_id_to_score"].pop(obj_id, None)
-        # sam2_metadata["max_obj_id"] # we do not reuse the object id, so we do not update it here
+        tracker_metadata["obj_id_to_score"].pop(obj_id, None)
+        # tracker_metadata["max_obj_id"] # we do not reuse the object id, so we do not update it here
 
         # Clean up cached frame outputs to remove references to the deleted object
         if "cached_frame_outputs" in inference_state:
@@ -1376,21 +1354,21 @@ class Sam3VideoInferenceWithInstanceInteractivity(Sam3VideoInference):
         """
         Locate GPU ID for a given object.
         """
-        obj_ids_per_gpu = inference_state["sam2_metadata"]["obj_ids_per_gpu"]
+        obj_ids_per_gpu = inference_state["tracker_metadata"]["obj_ids_per_gpu"]
         for rank, obj_ids in enumerate(obj_ids_per_gpu):
             if obj_id in obj_ids:
                 return rank
         return None  # object not found in any GPU
 
-    def _get_sam2_inference_states_by_obj_ids(self, inference_state, obj_ids):
+    def _get_tracker_inference_states_by_obj_ids(self, inference_state, obj_ids):
         """
-        Get the SAM2 inference states that contain the given object ids.
-        This is used to run partial SAM2 propagation on a single object/bucket.
+        Get the Tracker inference states that contain the given object ids.
+        This is used to run partial Tracker propagation on a single object/bucket.
         Possibly multiple or zero states can be returned.
         """
         states = [
             state
-            for state in inference_state["sam2_inference_states"]
+            for state in inference_state["tracker_inference_states"]
             if set(obj_ids) & set(state["obj_ids"])
         ]
         return states
@@ -1425,19 +1403,18 @@ class Sam3VideoInferenceWithInstanceInteractivity(Sam3VideoInference):
         boxes_xywh=None,
         box_labels=None,
         clear_old_boxes=True,
-        output_prob_thresh=0.5,
         obj_id=None,
         rel_coordinates=True,
     ):
         if points is not None:
-            # SAM2 instance prompts
+            # Tracker instance prompts
             assert (
                 text_str is None and boxes_xywh is None
             ), "When points are provided, text_str and boxes_xywh must be None."
             assert (
                 obj_id is not None
             ), "When points are provided, obj_id must be provided."
-            return self.add_sam2_new_points(
+            return self.add_tracker_new_points(
                 inference_state,
                 frame_idx,
                 obj_id=obj_id,
@@ -1459,11 +1436,10 @@ class Sam3VideoInferenceWithInstanceInteractivity(Sam3VideoInference):
                 boxes_xywh=boxes_xywh,
                 box_labels=box_labels,
                 clear_old_boxes=clear_old_boxes,
-                output_prob_thresh=output_prob_thresh,
             )
 
     @torch.inference_mode()
-    def add_sam2_new_points(
+    def add_tracker_new_points(
         self,
         inference_state,
         frame_idx,
@@ -1474,17 +1450,17 @@ class Sam3VideoInferenceWithInstanceInteractivity(Sam3VideoInference):
         rel_coordinates=True,
         use_prev_mem_frame=False,
     ):
-        """Add a new point prompt to SAM2. Suppporting instance refinement to existing
+        """Add a new point prompt to Tracker. Suppporting instance refinement to existing
         objects by passing existing obj_id or adding a new object by passing a new obj_id.
         use_prev_mem_frame=False to disable cross attention to previous memory frames.
         Every GPU returns the same results, and results should contain all masks including
         these masks not refined or not added by the current user points.
         """
         assert obj_id is not None, "obj_id must be provided to add new points"
-        sam2_metadata = inference_state["sam2_metadata"]
-        if sam2_metadata == {}:
+        tracker_metadata = inference_state["tracker_metadata"]
+        if tracker_metadata == {}:
             # initialize masklet metadata if it's uninitialized (empty dict)
-            sam2_metadata.update(self._initialize_metadata())
+            tracker_metadata.update(self._initialize_metadata())
 
         obj_rank = self._get_gpu_id_by_obj_id(inference_state, obj_id)
 
@@ -1506,14 +1482,14 @@ class Sam3VideoInferenceWithInstanceInteractivity(Sam3VideoInference):
 
         if obj_rank is None:
             # new object, we assign it a GPU and create a new inference state if limit allows
-            num_prev_obj = np.sum(sam2_metadata["num_obj_per_gpu"])
+            num_prev_obj = np.sum(tracker_metadata["num_obj_per_gpu"])
             if num_prev_obj >= self.max_num_objects:
                 logger.warning(
-                    f"add_sam2_new_points: cannot add a new object as we are already tracking {num_prev_obj=} "
+                    f"add_tracker_new_points: cannot add a new object as we are already tracking {num_prev_obj=} "
                     f"masklets (under {self.max_num_objects=})"
                 )
                 obj_ids = []
-                H_low_res = W_low_res = self.sam2_predictor.low_res_mask_size
+                H_low_res = W_low_res = self.tracker.low_res_mask_size
                 H_video_res = inference_state["orig_height"]
                 W_video_res = inference_state["orig_width"]
                 low_res_masks = torch.zeros(0, 1, H_low_res, W_low_res)
@@ -1522,33 +1498,30 @@ class Sam3VideoInferenceWithInstanceInteractivity(Sam3VideoInference):
 
             new_det_gpu_ids = self._assign_new_det_to_gpus(
                 new_det_num=1,
-                prev_workload_per_gpu=sam2_metadata["num_obj_per_gpu"],
+                prev_workload_per_gpu=tracker_metadata["num_obj_per_gpu"],
             )
             obj_rank = new_det_gpu_ids[0]
 
-            # get sam2 inference state for the new object
+            # get tracker inference state for the new object
             if self.rank == obj_rank:
-                if self.sam2_predictor.per_obj_inference:
-                    sam2_state = inference_state["sam2_inference_states"][0]
-                else:
-                    # for batched inference, we create a new inference state
-                    sam2_state = self._init_new_sam2_state(inference_state)
-                    inference_state["sam2_inference_states"].append(sam2_state)
+                # for batched inference, we create a new inference state
+                tracker_state = self._init_new_tracker_state(inference_state)
+                inference_state["tracker_inference_states"].append(tracker_state)
 
             # update metadata
-            sam2_metadata["obj_ids_per_gpu"][obj_rank] = np.concatenate(
+            tracker_metadata["obj_ids_per_gpu"][obj_rank] = np.concatenate(
                 [
-                    sam2_metadata["obj_ids_per_gpu"][obj_rank],
+                    tracker_metadata["obj_ids_per_gpu"][obj_rank],
                     np.array([obj_id], dtype=np.int64),
                 ]
             )
-            sam2_metadata["num_obj_per_gpu"][obj_rank] = len(
-                sam2_metadata["obj_ids_per_gpu"][obj_rank]
+            tracker_metadata["num_obj_per_gpu"][obj_rank] = len(
+                tracker_metadata["obj_ids_per_gpu"][obj_rank]
             )
-            sam2_metadata["obj_ids_all_gpu"] = np.concatenate(
-                sam2_metadata["obj_ids_per_gpu"]
+            tracker_metadata["obj_ids_all_gpu"] = np.concatenate(
+                tracker_metadata["obj_ids_per_gpu"]
             )
-            sam2_metadata["max_obj_id"] = max(sam2_metadata["max_obj_id"], obj_id)
+            tracker_metadata["max_obj_id"] = max(tracker_metadata["max_obj_id"], obj_id)
 
             logger.info(
                 f"[rank={self.rank}] Adding new object with id {obj_id} at frame {frame_idx}."
@@ -1559,13 +1532,13 @@ class Sam3VideoInferenceWithInstanceInteractivity(Sam3VideoInference):
         else:
             # existing object, for refinement
             if self.rank == obj_rank:
-                sam2_states = self._get_sam2_inference_states_by_obj_ids(
+                tracker_states = self._get_tracker_inference_states_by_obj_ids(
                     inference_state, [obj_id]
                 )
                 assert (
-                    len(sam2_states) == 1
-                ), f"[rank={self.rank}] Multiple SAM2 inference states found for the same object id."
-                sam2_state = sam2_states[0]
+                    len(tracker_states) == 1
+                ), f"[rank={self.rank}] Multiple Tracker inference states found for the same object id."
+                tracker_state = tracker_states[0]
 
             # log
             logger.info(
@@ -1576,11 +1549,11 @@ class Sam3VideoInferenceWithInstanceInteractivity(Sam3VideoInference):
             )
 
         # assign higher score to added/refined object
-        sam2_metadata["obj_id_to_score"][obj_id] = 1.0
-        sam2_metadata["obj_id_to_sam2_score_frame_wise"][frame_idx][obj_id] = 1.0
+        tracker_metadata["obj_id_to_score"][obj_id] = 1.0
+        tracker_metadata["obj_id_to_tracker_score_frame_wise"][frame_idx][obj_id] = 1.0
 
         if self.rank == 0:
-            rank0_metadata = sam2_metadata.get("rank0_metadata", {})
+            rank0_metadata = tracker_metadata.get("rank0_metadata", {})
 
             if "removed_obj_ids" in rank0_metadata:
                 rank0_metadata["removed_obj_ids"].discard(obj_id)
@@ -1590,7 +1563,7 @@ class Sam3VideoInferenceWithInstanceInteractivity(Sam3VideoInference):
                     rank0_metadata["suppressed_obj_ids"][frame_id].discard(obj_id)
 
             if "masklet_confirmation" in rank0_metadata:
-                obj_ids_all_gpu = sam2_metadata["obj_ids_all_gpu"]
+                obj_ids_all_gpu = tracker_metadata["obj_ids_all_gpu"]
                 obj_indices = np.where(obj_ids_all_gpu == obj_id)[0]
                 if len(obj_indices) > 0:
                     obj_idx = obj_indices[0]
@@ -1602,8 +1575,8 @@ class Sam3VideoInferenceWithInstanceInteractivity(Sam3VideoInference):
 
         if self.rank == obj_rank:
             frame_idx, obj_ids, low_res_masks, video_res_masks = (
-                self.sam2_predictor.add_new_points(
-                    inference_state=sam2_state,
+                self.tracker.add_new_points(
+                    inference_state=tracker_state,
                     frame_idx=frame_idx,
                     obj_id=obj_id,
                     points=points,
@@ -1624,13 +1597,15 @@ class Sam3VideoInferenceWithInstanceInteractivity(Sam3VideoInference):
 
             # TODO: will this cause issue when user switching to refine another object?
             # Since the mem encoder has already run for the current input points?
-            self.sam2_predictor.propagate_in_video_preflight(
-                sam2_state, run_mem_encoder=True
+            self.tracker.propagate_in_video_preflight(
+                tracker_state, run_mem_encoder=True
             )
             # Clear detector conditioning frames when user clicks are received to allow
             # model updating masks on these frames. It is a noop if user is refining on the
             # detector conditioning frames or adding new objects.
-            self.clear_detector_added_cond_frame_in_sam2(sam2_state, obj_id, frame_idx)
+            self.clear_detector_added_cond_frame_in_tracker(
+                tracker_state, obj_id, frame_idx
+            )
 
         # fetch results from states and gather across GPUs
         # Use optimized caching approach to avoid reprocessing unmodified objects
@@ -1648,24 +1623,24 @@ class Sam3VideoInferenceWithInstanceInteractivity(Sam3VideoInference):
             new_mask_data = data_list[0]
 
         if self.rank == 0:
-            obj_id_to_mask = self._build_sam2_output(
+            obj_id_to_mask = self._build_tracker_output(
                 inference_state,
                 frame_idx,
                 {obj_id: new_mask_data} if new_mask_data is not None else None,
             )
             # post processing - remove suppressed obj_ids
-            obj_id_to_score = sam2_metadata["obj_id_to_score"]
-            suppressed_obj_ids = sam2_metadata["rank0_metadata"]["suppressed_obj_ids"][
-                frame_idx
-            ]
-            obj_id_to_sam2_score = sam2_metadata["obj_id_to_sam2_score_frame_wise"][
-                frame_idx
-            ]
+            obj_id_to_score = tracker_metadata["obj_id_to_score"]
+            suppressed_obj_ids = tracker_metadata["rank0_metadata"][
+                "suppressed_obj_ids"
+            ][frame_idx]
+            obj_id_to_tracker_score = tracker_metadata[
+                "obj_id_to_tracker_score_frame_wise"
+            ][frame_idx]
 
             out = {
                 "obj_id_to_mask": obj_id_to_mask,
                 "obj_id_to_score": obj_id_to_score,
-                "obj_id_to_sam2_score": obj_id_to_sam2_score,
+                "obj_id_to_tracker_score": obj_id_to_tracker_score,
             }
             self._cache_frame_outputs(
                 inference_state,
@@ -1681,11 +1656,11 @@ class Sam3VideoInferenceWithInstanceInteractivity(Sam3VideoInference):
 
     def _gather_obj_id_to_mask_across_gpus(self, inference_state, obj_id_to_mask_local):
         """Gather obj_id_to_mask from all GPUs. Optionally resize the masks to the video resolution."""
-        sam2_metadata = inference_state["sam2_metadata"]
+        tracker_metadata = inference_state["tracker_metadata"]
 
         # concatenate the output masklets from all local inference states
-        H_mask = W_mask = self.sam2_predictor.low_res_mask_size
-        obj_ids_local = sam2_metadata["obj_ids_per_gpu"][self.rank]
+        H_mask = W_mask = self.tracker.low_res_mask_size
+        obj_ids_local = tracker_metadata["obj_ids_per_gpu"][self.rank]
         low_res_masks_local = []
         for obj_id in obj_ids_local:
             if obj_id in obj_id_to_mask_local:
@@ -1706,7 +1681,7 @@ class Sam3VideoInferenceWithInstanceInteractivity(Sam3VideoInference):
             low_res_masks_local = low_res_masks_local.float().contiguous()
             low_res_masks_peers = [
                 low_res_masks_local.new_empty(num_obj, H_mask, W_mask)
-                for num_obj in sam2_metadata["num_obj_per_gpu"]
+                for num_obj in tracker_metadata["num_obj_per_gpu"]
             ]
             dist.all_gather(low_res_masks_peers, low_res_masks_local)
             low_res_masks_global = torch.cat(low_res_masks_peers, dim=0)
@@ -1716,7 +1691,7 @@ class Sam3VideoInferenceWithInstanceInteractivity(Sam3VideoInference):
 
     def _convert_low_res_mask_to_video_res(self, low_res_mask, inference_state):
         """
-        Convert a low-res mask to video resolution, matching the format expected by _build_sam2_output.
+        Convert a low-res mask to video resolution, matching the format expected by _build_tracker_output.
 
         Args:
             low_res_mask: Tensor of shape (H_low_res, W_low_res)
@@ -1745,17 +1720,17 @@ class Sam3VideoInferenceWithInstanceInteractivity(Sam3VideoInference):
         # Convert to boolean - already in the right shape!
         return (video_res_mask.squeeze(0) > 0.0).to(torch.bool)
 
-    def clear_detector_added_cond_frame_in_sam2(
-        self, sam2_state, obj_id, refined_frame_idx
+    def clear_detector_added_cond_frame_in_tracker(
+        self, tracker_state, obj_id, refined_frame_idx
     ):
         """Clear detector added conditioning frame if it is within a predefined window
         of the refined frame. This allow model to update masks on these frames."""
-        obj_idx = self.sam2_predictor._obj_id_to_idx(sam2_state, obj_id)
+        obj_idx = self.tracker._obj_id_to_idx(tracker_state, obj_id)
 
         mask_only_cond_frame_indices = []
         window = self.refinement_detector_cond_frame_removal_window
-        for frame_idx in sam2_state["mask_inputs_per_obj"][obj_idx]:
-            if frame_idx not in sam2_state["point_inputs_per_obj"][obj_idx]:
+        for frame_idx in tracker_state["mask_inputs_per_obj"][obj_idx]:
+            if frame_idx not in tracker_state["point_inputs_per_obj"][obj_idx]:
                 # clear conditioning frames within a window of the refined frame
                 if abs(frame_idx - refined_frame_idx) <= window:
                     mask_only_cond_frame_indices.append(frame_idx)
@@ -1765,13 +1740,13 @@ class Sam3VideoInferenceWithInstanceInteractivity(Sam3VideoInference):
             for frame_idx in mask_only_cond_frame_indices:
                 # obj_ids_on_this_frame is essentially all obj_ids in the state
                 # since they are bucket batched
-                obj_ids_on_this_frame = sam2_state["obj_id_to_idx"].keys()
+                obj_ids_on_this_frame = tracker_state["obj_id_to_idx"].keys()
                 for obj_id2 in obj_ids_on_this_frame:
-                    self.sam2_predictor.clear_all_points_in_frame(
-                        sam2_state, frame_idx, obj_id2, need_output=False
+                    self.tracker.clear_all_points_in_frame(
+                        tracker_state, frame_idx, obj_id2, need_output=False
                     )
             logger.info(
-                f"Cleared detector mask only conditioning frames ({mask_only_cond_frame_indices}) in SAM2."
+                f"Cleared detector mask only conditioning frames ({mask_only_cond_frame_indices}) in Tracker."
             )
         return
 
