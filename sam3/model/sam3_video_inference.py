@@ -72,7 +72,6 @@ class Sam3VideoInference(Sam3VideoBase):
         inference_state = {}
         inference_state["image_size"] = self.image_size
         inference_state["num_frames"] = len(images)
-        inference_state["device"] = torch.device("cuda")
         # the original video height and width, used for resizing final output scores
         inference_state["orig_height"] = orig_height
         inference_state["orig_width"] = orig_width
@@ -114,7 +113,7 @@ class Sam3VideoInference(Sam3VideoBase):
         """Construct an initial `BatchedDatapoint` instance as input."""
         # 1) img_batch
         num_frames = len(images)
-        device = inference_state["device"]
+        device = self.device
 
         # 2) find_text_batch
         # "<text placeholder>" will be replaced by the actual text prompt when adding prompts
@@ -197,7 +196,7 @@ class Sam3VideoInference(Sam3VideoBase):
             if not box_labels.item():
                 logging.warning("A negative box is added as a visual prompt.")
             # take the first box prompt as a visual prompt
-            device = inference_state["device"]
+            device = self.device
             new_visual_prompt = Prompt(
                 box_embeddings=boxes_cxcywh[None, 0:1, :].to(device),  # (seq, bs, 4)
                 box_mask=None,
@@ -461,9 +460,8 @@ class Sam3VideoInference(Sam3VideoBase):
                     for obj_id in curr_obj_ids
                 ]
             )
-            device = inference_state["device"]
             out_binary_masks = torch.cat(
-                [obj_id_to_mask[obj_id].to(device) for obj_id in curr_obj_ids], dim=0
+                [obj_id_to_mask[obj_id] for obj_id in curr_obj_ids], dim=0
             )
 
             assert out_binary_masks.dtype == torch.bool
@@ -1155,7 +1153,9 @@ class Sam3VideoInferenceWithInstanceInteractivity(Sam3VideoInference):
                         if self.rank == obj_rank:
                             # This GPU has the object, broadcast its data
                             data_to_broadcast = local_obj_data.get(obj_id, None)
-                            data_list = [data_to_broadcast]
+                            data_list = [
+                                (data_to_broadcast[0].cpu(), data_to_broadcast[1].cpu())
+                            ]
                             self.broadcast_python_obj_cpu(data_list, src=obj_rank)
                             if data_to_broadcast is not None:
                                 refined_obj_data[obj_id] = data_to_broadcast
@@ -1163,8 +1163,10 @@ class Sam3VideoInferenceWithInstanceInteractivity(Sam3VideoInference):
                             # This GPU doesn't have the object, receive data
                             data_list = [None]
                             self.broadcast_python_obj_cpu(data_list, src=obj_rank)
-                            if data_list[0] is not None:
-                                refined_obj_data[obj_id] = data_list[0]
+                            refined_obj_data[obj_id] = (
+                                data_list[0][0].to(self.device),
+                                data_list[0][1].to(self.device),
+                            )
                 else:
                     # Single GPU case
                     refined_obj_data = local_obj_data
@@ -1616,12 +1618,11 @@ class Sam3VideoInferenceWithInstanceInteractivity(Sam3VideoInference):
             )
         else:
             new_mask_data = None
-
         # Broadcast the new mask data across all ranks for consistency
         if self.world_size > 1:
-            data_list = [new_mask_data]
+            data_list = [new_mask_data.cpu() if new_mask_data is not None else None]
             self.broadcast_python_obj_cpu(data_list, src=obj_rank)
-            new_mask_data = data_list[0]
+            new_mask_data = data_list[0].to(self.device)
 
         if self.rank == 0:
             obj_id_to_mask = self._build_tracker_output(
