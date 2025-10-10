@@ -41,10 +41,12 @@ from sam3.model.model_misc import (
 from sam3.model.necks import Sam3DualViTDetNeck
 from sam3.model.position_encoding import PositionEmbeddingSine
 from sam3.model.sam3_image import Sam3ImageOnVideoMultiGPU
+from sam3.model.sam3_tracker_base import Sam3TrackerBase
 from sam3.model.sam3_tracking_predictor import Sam3TrackerPredictor
 from sam3.model.sam3_video_inference import Sam3VideoInferenceWithInstanceInteractivity
 from sam3.model.text_encoder_ve import VETextEncoder
 from sam3.model.tokenizer_ve import SimpleTokenizer
+from sam3.model.sam3_tracking_predictor import Sam3TrackerPredictor
 from sam3.model.vitdet import ViT
 from sam3.model.vl_combiner import SAM3VLBackbone
 from sam3.sam.transformer import RoPEAttention
@@ -243,6 +245,56 @@ def build_sam2_model() -> Sam2Predictor:
     )
 
     return Sam2Predictor(model)
+
+def build_sam3_tracking_predictor(sam3_ckpt=None) -> Sam3TrackerBase:
+    """
+    Build SAM3 tracker model for video tracking.
+
+    Returns:
+        Sam3TrackerBase: Wrapped SAM3 model for video tracking
+    """
+
+    # Create model components
+    maskmem_backbone = _create_sam2_components()
+    transformer = _create_sam2_transformer()
+    vision_backbone = _create_sam3_visual_backbone()
+    backbone = SAM3VLBackbone(scalp=1, visual=vision_backbone, text=None)
+    # Create the main SAM2 model
+    model = Sam3TrackerBase(
+        image_size=1008,
+        num_maskmem=7,
+        backbone=backbone,
+        backbone_stride=14,
+        transformer=transformer,
+        maskmem_backbone=maskmem_backbone,
+        # SAM parameters
+        multimask_output_in_sam=True,
+        # Evaluation
+        forward_backbone_per_frame_for_eval=True,
+        trim_past_non_cond_mem_for_eval=False,
+        # Multimask
+        multimask_output_for_tracking=True,
+        multimask_min_pt_num=0,
+        multimask_max_pt_num=1,
+        # Mask overlap
+        non_overlap_masks_for_mem_enc=False,
+        max_cond_frames_in_attn=4,
+        offload_output_to_cpu_for_eval=False,
+        # SAM decoder settings
+        sam_mask_decoder_extra_args={
+            "dynamic_multimask_via_stability": True,
+            "dynamic_multimask_stability_delta": 0.05,
+            "dynamic_multimask_stability_thresh": 0.98,
+        },
+    )
+
+    if sam3_ckpt is not None:
+        # Keep tracker heads + sam3 backbone
+        state_dict = {k:v for k,v in sam3_ckpt.items() if "sam2_predictor" in k or "backbone.vision_backbone" in k}
+        state_dict = {k.replace("sam2_predictor.model.", "") : v for k,v  in state_dict.items()}
+        state_dict = {k.replace("sam3_model.backbone", "backbone") : v for k,v  in state_dict.items()}
+        model.load_state_dict(state_dict)
+    return model
 
 
 def _create_sam3_visual_backbone() -> Sam3DualViTDetNeck:

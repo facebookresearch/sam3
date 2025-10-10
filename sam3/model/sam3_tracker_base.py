@@ -5,7 +5,7 @@ import logging
 import torch
 import torch.nn.functional as F
 
-from timm.models.layers import trunc_normal_
+from timm.layers import trunc_normal_
 
 from sam3.model.memory import SimpleMaskEncoder
 
