@@ -30,8 +30,8 @@ def load_resource_as_video_frames(
     resource_path,
     image_size,
     offload_video_to_cpu,
-    img_mean=(0.485, 0.456, 0.406),
-    img_std=(0.229, 0.224, 0.225),
+    img_mean=(0.5, 0.5, 0.5),
+    img_std=(0.5, 0.5, 0.5),
     async_loading_frames=False,
     video_loader_type="cv2",
 ):
@@ -94,8 +94,8 @@ def load_image_as_single_frame_video(
     image_path,
     image_size,
     offload_video_to_cpu,
-    img_mean=(0.485, 0.456, 0.406),
-    img_std=(0.229, 0.224, 0.225),
+    img_mean=(0.5, 0.5, 0.5),
+    img_std=(0.5, 0.5, 0.5),
 ):
     """Load an image as a single-frame video."""
     images, image_height, image_width = _load_img_as_tensor(image_path, image_size)
@@ -117,8 +117,8 @@ def load_video_frames(
     video_path,
     image_size,
     offload_video_to_cpu,
-    img_mean=(0.485, 0.456, 0.406),
-    img_std=(0.229, 0.224, 0.225),
+    img_mean=(0.5, 0.5, 0.5),
+    img_std=(0.5, 0.5, 0.5),
     async_loading_frames=False,
     video_loader_type="cv2",
 ):
@@ -255,8 +255,8 @@ def load_video_frames_from_video_file(
 def load_video_frames_from_video_file_using_cv2(
     video_path: str,
     image_size: int,
-    img_mean: tuple = (0.485, 0.456, 0.406),
-    img_std: tuple = (0.229, 0.224, 0.225),
+    img_mean: tuple = (0.5, 0.5, 0.5),
+    img_std: tuple = (0.5, 0.5, 0.5),
     offload_video_to_cpu: bool = False,
 ) -> torch.Tensor:
     """
