@@ -8,14 +8,12 @@ import weakref
 from collections.abc import Iterator
 from contextlib import AbstractContextManager
 from enum import auto, Enum
-from typing import Dict, List, Optional, Set, Tuple, Union
+from typing import Dict, List, Optional, Union
 
 import numpy as np
 import torch
 import torch.nn.functional as F
-import torch.utils._pytree as pytree
 from torch import nn, Tensor
-from torch.nn.functional import pad
 from typing_extensions import override
 
 
@@ -157,108 +155,6 @@ class TransformerWrapper(nn.Module):
                     and "reference_points" not in n
                 ):
                     nn.init.xavier_uniform_(p)
-
-
-class NestedTensor:
-    def __init__(self, tensors, mask):
-        self.tensors = tensors
-        self.mask = mask
-
-    def to(self, *args, **kwargs):
-        cast_tensor = self.tensors.to(*args, **kwargs)
-        cast_mask = self.mask.to(*args, **kwargs) if self.mask is not None else None
-        return type(self)(cast_tensor, cast_mask)
-
-    def clone(self):
-        new_tensors = self.tensors.clone()
-        new_mask = None if self.mask is None else self.mask.clone()
-        return NestedTensor(new_tensors, new_mask)
-
-    @property
-    def device(self):
-        return self.tensors.device
-
-    @property
-    def shape(self):
-        return self.tensors.shape
-
-    # custom memory pinning method on custom type
-    def pin_memory(self, device=None):
-        self.tensors = self.tensors.pin_memory(device)
-        if self.mask is not None:
-            self.mask = self.mask.pin_memory(device)
-        return self
-
-    def decompose(self):
-        return self.tensors, self.mask
-
-    @classmethod
-    def from_tensor_list(cls, tensor_list, rounding=None):
-        # TODO make this more general
-        if tensor_list[0].ndim == 3:
-            # TODO make it support different-sized images
-            max_size = tuple(max(s) for s in zip(*[img.shape for img in tensor_list]))
-            # min_size = tuple(min(s) for s in zip(*[img.shape for img in tensor_list]))
-            batch_shape = (len(tensor_list),) + max_size
-            b, c, h, w = batch_shape
-            if rounding is not None:
-                # Round to an even size to avoid rounding issues in fpn
-                p = rounding
-                h = h if h % p == 0 else (h // p + 1) * p
-                w = w if w % p == 0 else (w // p + 1) * p
-                batch_shape = b, c, h, w
-
-            dtype = tensor_list[0].dtype
-            device = tensor_list[0].device
-            tensor = torch.zeros(batch_shape, dtype=dtype, device=device)
-            mask = torch.ones((b, h, w), dtype=torch.bool, device=device)
-            mask_required = False
-            for img, pad_img, m in zip(tensor_list, tensor, mask):
-                pad_img[: img.shape[0], : img.shape[1], : img.shape[2]].copy_(img)
-                m[: img.shape[1], : img.shape[2]] = False
-                if img.shape[1] != h or img.shape[2] != w:
-                    mask_required = True
-
-            if not mask_required:
-                mask = None
-        else:
-            raise ValueError("not supported")
-        return cls(tensor, mask)
-
-    def to_tensor_list(self):
-        """
-        Undo the batching and padding, returning a list of tensors of
-        different sizes.
-        """
-        data = self.tensors
-        masks = self.mask.to(torch.int)
-        # mask is 0 in the tensor and 1 outside it; argmax finds the smallest 1 index
-        # and can be used to get heights and widths. Since padding is always to the
-        # bottom and right, we can take the first value along x to get height and
-        # visa versa for y and width. To handle cases with no padding, pad masks
-        # out by one element so an edge is always found.
-        masks = pad(masks, (0, 1, 0, 1), value=1)
-        heights = torch.argmax(masks, dim=-2)
-        assert torch.all(
-            (heights == heights[:, 0:1]) | (heights == 0)
-        ), "Image mask is not a box."
-        heights = heights[:, 0]
-        widths = torch.argmax(masks, dim=-1)
-        assert torch.all(
-            (widths == widths[:, 0:1]) | (widths == 0)
-        ), "Image mask is not a box."
-        widths = widths[:, 0]
-        return [data[i, :, :h, :w] for i, (h, w) in enumerate(zip(heights, widths))]
-
-    def __repr__(self):
-        return repr(self.tensors)
-
-
-pytree.register_pytree_node(
-    NestedTensor,
-    lambda x: ([x.tensors, x.mask], None),
-    lambda values, _: NestedTensor(values[0], values[1]),
-)
 
 
 class MLP(nn.Module):

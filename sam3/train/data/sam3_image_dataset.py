@@ -2,27 +2,21 @@
 
 """Dataset class for modulated detection"""
 
-import io
 import json
-import logging
 import os
-import pickle
 import random
 import sys
-import tarfile
 import traceback
 from collections import Counter
 from dataclasses import dataclass
 from enum import Enum
-from random import Random
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
 
-import pycocotools.mask as mask_utils
 import torch
 import torch.utils.data
 import torchvision
 from decord import cpu, VideoReader
-from iopath.common.file_io import g_pathmgr, PathManager
+from iopath.common.file_io import g_pathmgr
 
 from PIL import Image as PILImage
 from PIL.Image import DecompressionBombError
@@ -31,13 +25,6 @@ from torchvision.datasets.vision import VisionDataset
 from sam3.model.box_ops import box_xywh_to_xyxy
 
 from .coco_json_loaders import COCO_TRAIN_API_FROM_JSON_BOX_ONLY
-
-
-class QueryType(Enum):
-    """Enum representing the various possible query type"""
-
-    # Standard find query
-    FindQuery = 0
 
 
 @dataclass
@@ -70,9 +57,6 @@ class InferenceMetadata:
 
 @dataclass
 class FindQuery:
-    # id: int
-
-    query_type: QueryType
     query_text: str
 
     image_id: int
@@ -85,15 +69,15 @@ class FindQuery:
     # See below the slightly different "pixel exhaustivity"
     is_exhaustive: bool
 
-    # Find queries can be inter-dependent, requiring several rounds.
-    # This index tells us at which round this query should be done
-    query_processing_order: int
+    # The order in which the queries are processed (only meaningful for video)
+    query_processing_order: int = 0
 
-    # Input geometry, initially in denormalized XYXY format. Expected to be transformed as follows:
+    # Input geometry, initially in denormalized XYXY format. Then
     # 1. converted to normalized CxCyWH by the Normalize transform
-    # 2. converted to a position-encoding based representation by the ApplyPosEmbedToBoxesAPI transform
     input_bbox: Optional[torch.Tensor] = None
     input_bbox_label: Optional[torch.Tensor] = None
+
+    # Only for the PVS task
     input_points: Optional[torch.Tensor] = None
 
     semantic_target: Optional[torch.Tensor] = None
@@ -103,18 +87,11 @@ class FindQuery:
     # Note that instance_exhaustive implies pixel_exhaustive
     is_pixel_exhaustive: Optional[bool] = None
 
-    # This adds a an ordering within each stage
-    within_stage_order: int = -1
-
 
 @dataclass
 class FindQueryLoaded(FindQuery):
     # Must have default value since FindQuery has entries with default values
     inference_metadata: Optional[InferenceMetadata] = None
-
-    # The boxes converted to normalized CxCyWH but BEFORE position-encoding (for visualization)
-    input_bbox_before_embed: Optional[torch.Tensor] = None
-    input_points_before_embed: Optional[torch.Tensor] = None
 
 
 @dataclass
@@ -339,11 +316,7 @@ class CustomCocoDetectionAPI(VisionDataset):
         stage2num_queries = Counter()
         for i, query in enumerate(queries):
             stage2num_queries[query["query_processing_order"]] += 1
-            qtype = QueryType(query["query_type"])
-            if qtype in [
-                QueryType.FindQuery,
-            ]:
-                id2index_find_query[query["id"]] = i
+            id2index_find_query[query["id"]] = i
 
         # Sanity check: all the stages should have the same number of queries
         num_queries_per_stage = stage2num_queries.most_common(1)[0][1]
@@ -353,126 +326,100 @@ class CustomCocoDetectionAPI(VisionDataset):
             ), f"Number of queries in stage {stage} is {num_queries}, expected {num_queries_per_stage}"
 
         for query_id, query in enumerate(queries):
-            qtype = QueryType(query["query_type"])
-            if qtype in [
-                QueryType.FindQuery,
-            ]:
-                h, w = id2imsize[query["image_id"]]
-                if (
-                    "input_box" in query
-                    and query["input_box"] is not None
-                    and len(query["input_box"]) > 0
-                ):
-                    bbox = box_xywh_to_xyxy(torch.as_tensor(query["input_box"])).view(
-                        -1, 4
-                    )
-                    bbox[:, 0::2].mul_(w).clamp_(min=0, max=w)
-                    bbox[:, 1::2].mul_(h).clamp_(min=0, max=h)
-                    if (
-                        "input_box_label" in query
-                        and query["input_box_label"] is not None
-                    ):
-                        bbox_label = torch.as_tensor(
-                            query["input_box_label"], dtype=torch.long
-                        ).view(-1)
-                        assert len(bbox_label) == len(bbox)
-                    else:
-                        # assume the boxes are positives
-                        bbox_label = torch.ones(len(bbox), dtype=torch.long)
+            h, w = id2imsize[query["image_id"]]
+            if (
+                "input_box" in query
+                and query["input_box"] is not None
+                and len(query["input_box"]) > 0
+            ):
+                bbox = box_xywh_to_xyxy(torch.as_tensor(query["input_box"])).view(-1, 4)
+                bbox[:, 0::2].mul_(w).clamp_(min=0, max=w)
+                bbox[:, 1::2].mul_(h).clamp_(min=0, max=h)
+                if "input_box_label" in query and query["input_box_label"] is not None:
+                    bbox_label = torch.as_tensor(
+                        query["input_box_label"], dtype=torch.long
+                    ).view(-1)
+                    assert len(bbox_label) == len(bbox)
                 else:
-                    bbox = None
-                    bbox_label = None
-
-                if "input_points" in query and query["input_points"] is not None:
-                    points = torch.as_tensor(query["input_points"]).view(1, -1, 3)
-                    points[:, :, 0:1].mul_(w).clamp_(min=0, max=w)
-                    points[:, :, 1:2].mul_(h).clamp_(min=0, max=h)
-                else:
-                    points = None
-
-                try:
-                    original_image_id = int(
-                        img_metadata[id2index_img[query["image_id"]]]["original_img_id"]
-                    )
-                except ValueError:
-                    original_image_id = -1
-
-                try:
-                    img_metadata_query = img_metadata[id2index_img[query["image_id"]]]
-                    coco_image_id = (
-                        int(img_metadata_query["coco_img_id"])
-                        if "coco_img_id" in img_metadata_query
-                        else query["id"]
-                    )
-                except KeyError:
-                    coco_image_id = -1
-
-                try:
-                    original_category_id = int(query["original_cat_id"])
-                except (ValueError, KeyError):
-                    original_category_id = -1
-
-                # For evaluation, we associate the ids of the object to be tracked to the query
-                # TODO(gabeur): Make it work for multi-object tracking
-                if query["object_ids_output"]:
-                    obj_id = query["object_ids_output"][0]
-                    obj_idx = id2index_obj[obj_id]
-                    image_idx = id2index_img[query["image_id"]]
-                    object_id = images[image_idx].objects[obj_idx].object_id
-                    frame_index = images[image_idx].objects[obj_idx].frame_index
-                else:
-                    object_id = -1
-                    frame_index = -1
-
-                find_queries.append(
-                    FindQueryLoaded(
-                        # id=query["id"],
-                        query_type=qtype,
-                        query_text=(
-                            query["query_text"]
-                            if query["query_text"] is not None
-                            else ""
-                        ),
-                        image_id=id2index_img[query["image_id"]],
-                        input_bbox=bbox,
-                        input_bbox_label=bbox_label,
-                        input_points=points,
-                        object_ids_output=[
-                            id2index_obj[obj_id]
-                            for obj_id in query["object_ids_output"]
-                        ],
-                        is_exhaustive=query["is_exhaustive"],
-                        is_pixel_exhaustive=(
-                            query["is_pixel_exhaustive"]
-                            if "is_pixel_exhaustive" in query
-                            else (
-                                query["is_exhaustive"]
-                                if query["is_exhaustive"]
-                                else None
-                            )
-                        ),
-                        query_processing_order=query["query_processing_order"],
-                        within_stage_order=(
-                            query["within_stage_order"]
-                            if "within_stage_order" in query
-                            and query["within_stage_order"] >= 0
-                            else query_id % num_queries_per_stage
-                        ),
-                        inference_metadata=InferenceMetadata(
-                            coco_image_id=-1 if self.training else coco_image_id,
-                            original_image_id=(
-                                -1 if self.training else original_image_id
-                            ),
-                            frame_index=frame_index,
-                            original_category_id=original_category_id,
-                            original_size=(h, w),
-                            object_id=object_id,
-                        ),
-                    )
-                )
+                    # assume the boxes are positives
+                    bbox_label = torch.ones(len(bbox), dtype=torch.long)
             else:
-                print(f"Unknown query type: {query['query_type']}")
-                raise NotImplementedError
+                bbox = None
+                bbox_label = None
+
+            if "input_points" in query and query["input_points"] is not None:
+                points = torch.as_tensor(query["input_points"]).view(1, -1, 3)
+                points[:, :, 0:1].mul_(w).clamp_(min=0, max=w)
+                points[:, :, 1:2].mul_(h).clamp_(min=0, max=h)
+            else:
+                points = None
+
+            try:
+                original_image_id = int(
+                    img_metadata[id2index_img[query["image_id"]]]["original_img_id"]
+                )
+            except ValueError:
+                original_image_id = -1
+
+            try:
+                img_metadata_query = img_metadata[id2index_img[query["image_id"]]]
+                coco_image_id = (
+                    int(img_metadata_query["coco_img_id"])
+                    if "coco_img_id" in img_metadata_query
+                    else query["id"]
+                )
+            except KeyError:
+                coco_image_id = -1
+
+            try:
+                original_category_id = int(query["original_cat_id"])
+            except (ValueError, KeyError):
+                original_category_id = -1
+
+            # For evaluation, we associate the ids of the object to be tracked to the query
+            if query["object_ids_output"]:
+                obj_id = query["object_ids_output"][0]
+                obj_idx = id2index_obj[obj_id]
+                image_idx = id2index_img[query["image_id"]]
+                object_id = images[image_idx].objects[obj_idx].object_id
+                frame_index = images[image_idx].objects[obj_idx].frame_index
+            else:
+                object_id = -1
+                frame_index = -1
+
+            find_queries.append(
+                FindQueryLoaded(
+                    # id=query["id"],
+                    # query_type=qtype,
+                    query_text=(
+                        query["query_text"] if query["query_text"] is not None else ""
+                    ),
+                    image_id=id2index_img[query["image_id"]],
+                    input_bbox=bbox,
+                    input_bbox_label=bbox_label,
+                    input_points=points,
+                    object_ids_output=[
+                        id2index_obj[obj_id] for obj_id in query["object_ids_output"]
+                    ],
+                    is_exhaustive=query["is_exhaustive"],
+                    is_pixel_exhaustive=(
+                        query["is_pixel_exhaustive"]
+                        if "is_pixel_exhaustive" in query
+                        else (
+                            query["is_exhaustive"] if query["is_exhaustive"] else None
+                        )
+                    ),
+                    query_processing_order=query["query_processing_order"],
+                    inference_metadata=InferenceMetadata(
+                        coco_image_id=-1 if self.training else coco_image_id,
+                        original_image_id=(-1 if self.training else original_image_id),
+                        frame_index=frame_index,
+                        original_category_id=original_category_id,
+                        original_size=(h, w),
+                        object_id=object_id,
+                    ),
+                )
+            )
 
         return Datapoint(
             find_queries=find_queries,

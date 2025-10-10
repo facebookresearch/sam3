@@ -26,34 +26,21 @@ from .model.vitdet import ViT
 from .model.vl_combiner import NonFusionVLBackbone
 
 
-def build_sam3_image_model(
-    bpe_path,
-    device="cuda" if torch.cuda.is_available() else "cpu",
-    eval_mode=True,
-    checkpoint_path=None,
-    enable_segmentation=True,
-    has_presence_token=True,
-):
-    """
-    This function replaces the Hydra-based configuration in sam3_image_v1.4.yaml
-    for image - only setting.
-
-    Args:
-        bpe_path: Path to the BPE tokenizer vocabulary
-
-    Returns:
-        A SAM3 image model for interactive segmentation
-    """
-    # Create position encoding for visual backbone
-    position_encoding = PositionEmbeddingSine(
-        num_pos_feats=256, normalize=True, scale=None, temperature=10000
+def _create_position_encoding(precompute_resolution=None):
+    """Create position encoding for visual backbone."""
+    return PositionEmbeddingSine(
+        num_pos_feats=256,
+        normalize=True,
+        scale=None,
+        temperature=10000,
+        precompute_resolution=precompute_resolution,
     )
 
-    # Create ViT backbone
-    vit_backbone = ViT(
+
+def _create_vit_backbone():
+    """Create ViT backbone for visual feature extraction."""
+    return ViT(
         img_size=1008,
-        # weights_path=None,
-        # freezing="NoFreeze",
         pretrain_img_size=336,
         patch_size=14,
         embed_dim=1024,
@@ -68,7 +55,6 @@ def build_sam3_image_model(
         global_att_blocks=(7, 15, 23, 31),
         rel_pos_blocks=(),
         use_rope=True,
-        # use_tiled_rope=False,
         use_interp_rope=True,
         window_size=24,
         pretrain_use_cls_token=True,
@@ -77,38 +63,40 @@ def build_sam3_image_model(
         ln_post=False,
         return_interm_layers=False,
         bias_patch_embed=False,
-        # use_act_checkpoint=True,
         compile_mode="default",
     )
 
-    # Create ViT neck
-    vit_neck = OriginalViTDetNeck(
+
+def _create_vit_neck(position_encoding, vit_backbone):
+    """Create ViT neck for feature pyramid."""
+    return OriginalViTDetNeck(
         position_encoding=position_encoding,
-        # neck_norm=None,
         d_model=256,
         scale_factors=[4.0, 2.0, 1.0, 0.5],
         trunk=vit_backbone,
     )
 
-    # Create text tokenizer
-    tokenizer = SimpleTokenizer(bpe_path=bpe_path)
 
-    # Create text encoder
+def _create_text_components(bpe_path):
+    """Create text tokenizer and encoder."""
+    tokenizer = SimpleTokenizer(bpe_path=bpe_path)
     text_encoder = VETextEncoder(
-        # frozen=False,
         tokenizer=tokenizer,
         d_model=256,
-        # weights_path=None,
         width=1024,
         heads=16,
         layers=24,
-        # use_act_checkpoint=True
     )
+    return tokenizer, text_encoder
 
-    # Create visual-language backbone
-    backbone = NonFusionVLBackbone(visual=vit_neck, text=text_encoder, scalp=1)
 
-    # Create transformer encoder layer
+def _create_vl_backbone(vit_neck, text_encoder):
+    """Create visual-language backbone."""
+    return NonFusionVLBackbone(visual=vit_neck, text=text_encoder, scalp=1)
+
+
+def _create_transformer_encoder():
+    """Create transformer encoder with its layer."""
     encoder_layer = TransformerEncoderLayer(
         activation="relu",
         d_model=256,
@@ -132,7 +120,6 @@ def build_sam3_image_model(
         ),
     )
 
-    # Create transformer encoder
     encoder = TransformerEncoderFusion(
         layer=encoder_layer,
         num_layers=6,
@@ -143,8 +130,11 @@ def build_sam3_image_model(
         add_pooled_text_to_img_feat=False,
         pool_text_with_mask=True,
     )
+    return encoder
 
-    # Create transformer decoder layer
+
+def _create_transformer_decoder():
+    """Create transformer decoder with its layer."""
     decoder_layer = TransformerDecoderLayer(
         activation="relu",
         d_model=256,
@@ -159,7 +149,6 @@ def build_sam3_image_model(
         use_text_cross_attention=True,
     )
 
-    # Create transformer decoder
     decoder = TransformerDecoder(
         layer=decoder_layer,
         num_layers=6,
@@ -176,13 +165,13 @@ def build_sam3_image_model(
         use_act_checkpoint=True,
         instance_query=True,
         num_instances=4,
-        presence_token=has_presence_token,
+        presence_token=True,
     )
+    return decoder
 
-    # Create transformer
-    transformer = TransformerWrapper(encoder=encoder, decoder=decoder, d_model=256)
 
-    # Create MLP for dot product scorer
+def _create_dot_product_scoring():
+    """Create dot product scoring module."""
     prompt_mlp = MLP(
         input_dim=256,
         hidden_dim=2048,
@@ -192,59 +181,41 @@ def build_sam3_image_model(
         residual=True,
         out_norm=nn.LayerNorm(256),
     )
+    return DotProductScoring(d_model=256, d_proj=256, prompt_mlp=prompt_mlp)
 
-    # Create dot product scorer
-    dot_prod_scoring = DotProductScoring(d_model=256, d_proj=256, prompt_mlp=prompt_mlp)
 
-    if enable_segmentation:
-        # Create pixel decoder for segmentation head
-        pixel_decoder = PixelDecoder(
-            num_upsampling_stages=3,
-            interpolation_mode="nearest",
-            hidden_dim=256,
-            compile_mode="default",
-        )
-
-        # Create cross attention for segmentation head
-        cross_attend_prompt = MultiheadAttention(
-            num_heads=8,
-            dropout=0,
-            embed_dim=256,
-        )
-        if not has_presence_token:
-            dp_scoring = DotProductScoring(
-                d_model=256,
-                d_proj=256,
-                prompt_mlp=MLP(
-                    input_dim=256,
-                    hidden_dim=2048,
-                    output_dim=256,
-                    num_layers=2,
-                    dropout=0.1,
-                    residual=True,
-                    out_norm=nn.LayerNorm(256),
-                ),
-            )
-        else:
-            dp_scoring = None
-        # Create segmentation head
-        segmentation_head = UniversalSegmentationHead(
-            hidden_dim=256,
-            upsampling_stages=3,
-            aux_masks=False,
-            presence_head=not has_presence_token,
-            dot_product_scorer=dp_scoring,
-            act_ckpt=True,
-            cross_attend_prompt=cross_attend_prompt,
-            pixel_decoder=pixel_decoder,
-        )
-    else:
-        segmentation_head = None
-
-    # Create position encoding for geometry encoder
-    geo_pos_enc = PositionEmbeddingSine(
-        num_pos_feats=256, normalize=True, scale=None, temperature=10000
+def _create_segmentation_head():
+    """Create segmentation head with pixel decoder."""
+    pixel_decoder = PixelDecoder(
+        num_upsampling_stages=3,
+        interpolation_mode="nearest",
+        hidden_dim=256,
+        compile_mode="default",
     )
+
+    cross_attend_prompt = MultiheadAttention(
+        num_heads=8,
+        dropout=0,
+        embed_dim=256,
+    )
+
+    segmentation_head = UniversalSegmentationHead(
+        hidden_dim=256,
+        upsampling_stages=3,
+        aux_masks=False,
+        presence_head=False,
+        dot_product_scorer=None,
+        act_ckpt=True,
+        cross_attend_prompt=cross_attend_prompt,
+        pixel_decoder=pixel_decoder,
+    )
+    return segmentation_head
+
+
+def _create_geometry_encoder():
+    """Create geometry encoder with all its components."""
+    # Create position encoding for geometry encoder
+    geo_pos_enc = _create_position_encoding()
 
     # Create mask downsampler
     mask_downsampler = SimpleMaskDownSampler(
@@ -266,13 +237,7 @@ def build_sam3_image_model(
     # Create mask encoder
     mask_encoder = FusedMaskEncoder(
         out_dim=256,
-        position_encoding=PositionEmbeddingSine(
-            num_pos_feats=256,
-            normalize=True,
-            scale=None,
-            temperature=10000,
-            precompute_resolution=1008,
-        ),
+        position_encoding=_create_position_encoding(precompute_resolution=1008),
         mask_downsampler=mask_downsampler,
         fuser=fuser,
     )
@@ -319,59 +284,134 @@ def build_sam3_image_model(
         add_post_encode_proj=True,
         mask_encoder=mask_encoder,
     )
+    return input_geometry_encoder
 
-    if eval_mode:
-        # from .model.sam3_demo_hf import Sam3ImageInteractiveDemo
 
-        model = Sam3Image(
-            backbone=backbone,
-            transformer=transformer,
-            input_geometry_encoder=input_geometry_encoder,
-            segmentation_head=segmentation_head,
-            num_feature_levels=1,
-            o2m_mask_predict=True,
-            dot_prod_scoring=dot_prod_scoring,
-            use_instance_query=True,
-            multimask_output=True,
-        )
-    else:
+def _create_sam3_model(
+    backbone,
+    transformer,
+    input_geometry_encoder,
+    segmentation_head,
+    dot_prod_scoring,
+    eval_mode,
+):
+    """Create the SAM3 image model."""
+    common_params = {
+        "backbone": backbone,
+        "transformer": transformer,
+        "input_geometry_encoder": input_geometry_encoder,
+        "segmentation_head": segmentation_head,
+        "num_feature_levels": 1,
+        "o2m_mask_predict": True,
+        "dot_prod_scoring": dot_prod_scoring,
+        "use_instance_query": True,
+        "multimask_output": True,
+    }
+
+    matcher = None
+    if not eval_mode:
         from sam3.train.matcher import BinaryHungarianMatcherV2
 
-        model = Sam3Image(
-            backbone=backbone,
-            transformer=transformer,
-            input_geometry_encoder=input_geometry_encoder,
-            segmentation_head=segmentation_head,
-            num_feature_levels=1,
-            o2m_mask_predict=True,
-            dot_prod_scoring=dot_prod_scoring,
-            use_instance_query=True,
-            multimask_output=True,
-            matcher=BinaryHungarianMatcherV2(
-                focal=True,
-                cost_class=2.0,
-                cost_bbox=5.0,
-                cost_giou=2.0,
-                alpha=0.25,
-                gamma=2,
-                stable=False,
-            ),
+        matcher = BinaryHungarianMatcherV2(
+            focal=True,
+            cost_class=2.0,
+            cost_bbox=5.0,
+            cost_giou=2.0,
+            alpha=0.25,
+            gamma=2,
+            stable=False,
         )
-    # move to eval mode
-    if checkpoint_path is not None:
-        ckpt = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
-        if "model" in ckpt and isinstance(ckpt["model"], dict):
-            ckpt = ckpt["model"]
-        missing_keys, unexpected_keys = model.load_state_dict(ckpt, strict=False)
-        if len(missing_keys) > 0 or len(unexpected_keys) > 0:
-            print(
-                f"loaded {checkpoint_path} and found "
-                f"missing and/or unexpected keys:\n{missing_keys=}\n{unexpected_keys=}"
-            )
+    common_params["matcher"] = matcher
+    model = Sam3Image(**common_params)
 
+    return model
+
+
+def _load_checkpoint(model, checkpoint_path):
+    """Load model checkpoint from file."""
+    ckpt = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
+    if "model" in ckpt and isinstance(ckpt["model"], dict):
+        ckpt = ckpt["model"]
+    missing_keys, unexpected_keys = model.load_state_dict(ckpt, strict=False)
+    if len(missing_keys) > 0 or len(unexpected_keys) > 0:
+        print(
+            f"loaded {checkpoint_path} and found "
+            f"missing and/or unexpected keys:\n{missing_keys=}\n{unexpected_keys=}"
+        )
+
+
+def _setup_device_and_mode(model, device, eval_mode):
+    """Setup model device and evaluation mode."""
     if device == "cuda":
         model = model.cuda()
     if eval_mode:
         model.eval()
+    return model
+
+
+def build_sam3_image_model(
+    bpe_path,
+    device="cuda" if torch.cuda.is_available() else "cpu",
+    eval_mode=True,
+    checkpoint_path=None,
+    enable_segmentation=True,
+):
+    """
+    Build SAM3 image model for interactive segmentation.
+
+    This function replaces the Hydra-based configuration in sam3_image_v1.4.yaml
+    for image-only setting.
+
+    Args:
+        bpe_path: Path to the BPE tokenizer vocabulary
+        device: Device to load the model on ('cuda' or 'cpu')
+        eval_mode: Whether to set the model to evaluation mode
+        checkpoint_path: Optional path to model checkpoint
+        enable_segmentation: Whether to enable segmentation head
+
+    Returns:
+        A SAM3 image model for interactive segmentation
+    """
+    # Create visual components
+    position_encoding = _create_position_encoding()
+    vit_backbone = _create_vit_backbone()
+    vit_neck = _create_vit_neck(position_encoding, vit_backbone)
+
+    # Create text components
+    tokenizer, text_encoder = _create_text_components(bpe_path)
+
+    # Create visual-language backbone
+    backbone = _create_vl_backbone(vit_neck, text_encoder)
+
+    # Create transformer components
+    encoder = _create_transformer_encoder()
+    decoder = _create_transformer_decoder()
+    transformer = TransformerWrapper(encoder=encoder, decoder=decoder, d_model=256)
+
+    # Create dot product scoring
+    dot_prod_scoring = _create_dot_product_scoring()
+
+    # Create segmentation head if enabled
+    segmentation_head = _create_segmentation_head() if enable_segmentation else None
+
+    # Create geometry encoder
+    input_geometry_encoder = _create_geometry_encoder()
+
+    # Create the SAM3 model
+    model = _create_sam3_model(
+        backbone,
+        transformer,
+        input_geometry_encoder,
+        segmentation_head,
+        dot_prod_scoring,
+        eval_mode,
+    )
+
+    # Load checkpoint if provided
+    if checkpoint_path is not None:
+        _load_checkpoint(model, checkpoint_path)
+
+    # Setup device and mode
+    model = _setup_device_and_mode(model, device, eval_mode)
 
     return model

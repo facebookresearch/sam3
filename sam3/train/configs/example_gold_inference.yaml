@@ -44,27 +44,19 @@ scratch:
 
   # Box processing
   original_box_postprocessor:
-    _target_: sam3.train.eval.postprocessors.PostProcessAPI
-    soft_token: true
-    focal_loss: true
-    max_dets_per_img: -1  # infinite detections
+    _target_: sam3.train.eval.postprocessors.PostProcessImage
     use_original_ids: true
     use_original_sizes: true
     use_presence: ${scratch.use_presence_eval}
 
   box_postprocessor:
-    _target_: sam3.train.eval.postprocessors.PostProcessAPI
-    soft_token: true
-    focal_loss: true
-    max_dets_per_img: -1 #infinite detections
+    _target_: sam3.train.eval.postprocessors.PostProcessImage
     use_original_ids: false
     use_original_sizes: false
     use_presence: ${scratch.use_presence_eval}
 
   box_postprocessor_thresholded:
-    _target_: sam3.train.eval.postprocessors.PostProcessAPI
-    soft_token: true
-    focal_loss: true
+    _target_: sam3.train.eval.postprocessors.PostProcessImage
     max_dets_per_img: -1 #infinite detections
     use_original_ids: false
     use_original_sizes: false
@@ -72,9 +64,7 @@ scratch:
     use_presence: ${scratch.use_presence_eval}
 
   mask_postprocessor_w_boundary_thresholded:
-    _target_: sam3.train.eval.postprocessors.PostProcessAPI
-    soft_token: true
-    focal_loss: true
+    _target_: sam3.train.eval.postprocessors.PostProcessImage
     max_dets_per_img: -1 #infinite detections
     iou_type: "segm"
     use_original_ids: false

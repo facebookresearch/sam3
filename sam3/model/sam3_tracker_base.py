@@ -8,7 +8,6 @@ import torch.nn.functional as F
 from timm.layers import trunc_normal_
 
 from sam3.model.memory import SimpleMaskEncoder
-from sam3.model.model_misc import NestedTensor
 
 from sam3.model.sam3_tracker_utils import get_1d_sine_pe, select_closest_cond_frames
 
@@ -439,16 +438,16 @@ class Sam3TrackerBase(torch.nn.Module):
         backbone_out = self.backbone.forward_image(img_batch)["sam2_backbone_out"]
         # precompute projected level 0 and level 1 features in SAM decoder
         # to avoid running it again on every SAM click
-        backbone_out["backbone_fpn"][0].tensors = self.sam_mask_decoder.conv_s0(
-            backbone_out["backbone_fpn"][0].tensors
+        backbone_out["backbone_fpn"][0] = self.sam_mask_decoder.conv_s0(
+            backbone_out["backbone_fpn"][0]
         )
-        backbone_out["backbone_fpn"][1].tensors = self.sam_mask_decoder.conv_s1(
-            backbone_out["backbone_fpn"][1].tensors
+        backbone_out["backbone_fpn"][1] = self.sam_mask_decoder.conv_s1(
+            backbone_out["backbone_fpn"][1]
         )
         # Clone to help torch.compile
         for i in range(len(backbone_out["backbone_fpn"])):
-            backbone_out["backbone_fpn"][i].tensors = self._maybe_clone(
-                backbone_out["backbone_fpn"][i].tensors
+            backbone_out["backbone_fpn"][i] = self._maybe_clone(
+                backbone_out["backbone_fpn"][i]
             )
             backbone_out["vision_pos_enc"][i] = self._maybe_clone(
                 backbone_out["vision_pos_enc"][i]
@@ -466,15 +465,10 @@ class Sam3TrackerBase(torch.nn.Module):
 
         feat_sizes = [(x.shape[-2], x.shape[-1]) for x in vision_pos_embeds]
         # flatten NxCxHxW to HWxNxC
-        vision_feats = [x.tensors.flatten(2).permute(2, 0, 1) for x in feature_maps]
+        vision_feats = [x.flatten(2).permute(2, 0, 1) for x in feature_maps]
         vision_pos_embeds = [x.flatten(2).permute(2, 0, 1) for x in vision_pos_embeds]
-        vision_masks = [x.mask for x in feature_maps]
 
-        for i, vision_mask in enumerate(vision_masks):
-            if vision_mask is not None:
-                vision_masks[i] = vision_mask.flatten(1)
-
-        return backbone_out, vision_feats, vision_pos_embeds, vision_masks, feat_sizes
+        return backbone_out, vision_feats, vision_pos_embeds, feat_sizes
 
     def _prepare_backbone_features_per_frame(self, img_batch, img_ids):
         """Compute the image backbone features on the fly for the given img_ids."""
@@ -486,16 +480,12 @@ class Sam3TrackerBase(torch.nn.Module):
             unique_img_ids, inv_ids = img_ids, None
 
         # Compute the image features on those unique image ids
-        image = img_batch.tensors[unique_img_ids]
-        image_mask = (
-            img_batch.mask[unique_img_ids] if img_batch.mask is not None else None
-        )
-        backbone_out = self.forward_image(NestedTensor(tensors=image, mask=image_mask))
+        image = img_batch[unique_img_ids]
+        backbone_out = self.forward_image(image)
         (
             _,
             vision_feats,
             vision_pos_embeds,
-            vision_masks,
             feat_sizes,
         ) = self._prepare_backbone_features(backbone_out)
         # Inverse-map image features for `unique_img_ids` to the final image features
@@ -503,10 +493,9 @@ class Sam3TrackerBase(torch.nn.Module):
         if inv_ids is not None:
             image = image[inv_ids]
             vision_feats = [x[:, inv_ids] for x in vision_feats]
-            vision_masks = [x[inv_ids] if x is not None else None for x in vision_masks]
             vision_pos_embeds = [x[:, inv_ids] for x in vision_pos_embeds]
 
-        return image, vision_feats, vision_masks, vision_pos_embeds, feat_sizes
+        return image, vision_feats, vision_pos_embeds, feat_sizes
 
     def cal_mem_score(self, object_score_logits, iou_score):
         object_score_norm = torch.where(
@@ -854,12 +843,10 @@ class Sam3TrackerBase(torch.nn.Module):
         if img_feats_already_computed:
             # Prepare the backbone features
             # - vision_feats and vision_pos_embeds are in (HW)BC format
-            # - vision_masks are in B(HW) format, dtype=bool (False is valid, True is padding)
             (
                 _,
                 vision_feats,
                 vision_pos_embeds,
-                vision_masks,
                 feat_sizes,
             ) = self._prepare_backbone_features(backbone_out)
 
@@ -879,11 +866,8 @@ class Sam3TrackerBase(torch.nn.Module):
             img_ids = input.find_inputs[stage_id].img_ids
             if img_feats_already_computed:
                 # Retrieve image features according to img_ids (if they are already computed).
-                current_image = input.img_batch.tensors[img_ids]
+                current_image = input.img_batch[img_ids]
                 current_vision_feats = [x[:, img_ids] for x in vision_feats]
-                current_vision_masks = [
-                    x[img_ids] if x is not None else None for x in vision_masks
-                ]
                 current_vision_pos_embeds = [x[:, img_ids] for x in vision_pos_embeds]
             else:
                 # Otherwise, compute the image features on the fly for the given img_ids
@@ -891,7 +875,6 @@ class Sam3TrackerBase(torch.nn.Module):
                 (
                     current_image,
                     current_vision_feats,
-                    current_vision_masks,
                     current_vision_pos_embeds,
                     feat_sizes,
                 ) = self._prepare_backbone_features_per_frame(input.img_batch, img_ids)
@@ -901,7 +884,6 @@ class Sam3TrackerBase(torch.nn.Module):
                 frame_idx=stage_id,
                 is_init_cond_frame=stage_id in init_cond_frames,
                 current_vision_feats=current_vision_feats,
-                current_vision_masks=current_vision_masks,
                 current_vision_pos_embeds=current_vision_pos_embeds,
                 feat_sizes=feat_sizes,
                 image=current_image,

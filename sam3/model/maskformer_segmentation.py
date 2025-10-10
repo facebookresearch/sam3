@@ -1,14 +1,14 @@
 # Copyright (c) Meta, Inc. and its affiliates. All Rights Reserved
 
 import math
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.utils.checkpoint as checkpoint
 
-from .model_misc import MLP, NestedTensor
+from .model_misc import MLP
 
 
 class LinearPresenceHead(nn.Sequential):
@@ -101,40 +101,31 @@ class SegmentationHead(nn.Module):
 
     def _embed_pixels(
         self,
-        backbone_feats: NestedTensor,
+        backbone_feats: List[torch.Tensor],
         image_ids,
         encoder_hidden_states,
     ) -> torch.Tensor:
-        feature_device = backbone_feats[0].tensors.device  # features could be on CPU
+        feature_device = backbone_feats[0].device  # features could be on CPU
         model_device = self.device
         image_ids_ = image_ids.to(feature_device)
         if self.use_encoder_inputs:
-            if backbone_feats[0].tensors.shape[0] > 1:
+            if backbone_feats[0].shape[0] > 1:
                 # For bs > 1, we construct the per query backbone features
                 backbone_visual_feats = []
                 for feat in backbone_feats:
                     # Copy the img features per query (pixel decoder won't share img feats)
-                    backbone_visual_feats.append(
-                        NestedTensor(
-                            feat.tensors[image_ids_, ...],
-                            (
-                                feat.mask[image_ids_, ...]
-                                if feat.mask is not None
-                                else None
-                            ),
-                        ).to(model_device)
-                    )
+                    backbone_visual_feats.append(feat[image_ids_, ...].to(model_device))
             else:
                 # Bs=1, we rely on broadcasting for query-based processing
                 backbone_visual_feats = [bb_feat.clone() for bb_feat in backbone_feats]
             # Extract visual embeddings
             encoder_hidden_states = encoder_hidden_states.permute(1, 2, 0)
-            spatial_dim = math.prod(backbone_feats[-1].tensors.shape[-2:])
+            spatial_dim = math.prod(backbone_feats[-1].shape[-2:])
             encoder_visual_embed = encoder_hidden_states[..., :spatial_dim].reshape(
-                -1, *backbone_feats[-1].tensors.shape[1:]
+                -1, *backbone_feats[-1].shape[1:]
             )
 
-            backbone_visual_feats[-1].tensors = encoder_visual_embed
+            backbone_visual_feats[-1] = encoder_visual_embed
             if self.act_ckpt:
                 pixel_embed = checkpoint.checkpoint(
                     self.pixel_decoder, backbone_visual_feats, use_reentrant=False
@@ -153,7 +144,7 @@ class SegmentationHead(nn.Module):
 
     def forward(
         self,
-        backbone_feats: NestedTensor,
+        backbone_feats: List[torch.Tensor],
         obj_queries: torch.Tensor,
         image_ids,
         encoder_hidden_states: Optional[torch.Tensor] = None,
@@ -211,13 +202,13 @@ class PixelDecoder(nn.Module):
             # Needed to make checkpointing happy. But we don't know if the module is checkpointed, so we disable it by default.
             torch._dynamo.config.optimize_ddp = False
 
-    def forward(self, backbone_feats: NestedTensor):
+    def forward(self, backbone_feats: List[torch.Tensor]):
         # Assumes backbone features are already projected (C == hidden dim)
 
-        prev_fpn = backbone_feats[-1].tensors
+        prev_fpn = backbone_feats[-1]
         fpn_feats = backbone_feats[:-1]
         for layer_idx, bb_feat in enumerate(fpn_feats[::-1]):
-            curr_fpn = bb_feat.tensors
+            curr_fpn = bb_feat
             prev_fpn = curr_fpn + F.interpolate(
                 prev_fpn, size=curr_fpn.shape[-2:], mode=self.interpolation_mode
             )
@@ -280,7 +271,7 @@ class UniversalSegmentationHead(SegmentationHead):
 
     def forward(
         self,
-        backbone_feats: NestedTensor,
+        backbone_feats: List[torch.Tensor],
         obj_queries: torch.Tensor,
         image_ids,
         encoder_hidden_states: Optional[torch.Tensor] = None,

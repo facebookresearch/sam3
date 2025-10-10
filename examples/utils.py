@@ -10,7 +10,6 @@ import cv2
 import matplotlib.patches as patches
 import matplotlib.pyplot as plt
 import numpy as np
-import pandas as pd
 import pycocotools.mask as mask_utils
 import torch
 from matplotlib.colors import to_rgb

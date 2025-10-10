@@ -47,8 +47,6 @@ roboflow_train:
         - _target_: sam3.train.transforms.basic_for_api.NormalizeAPI
           mean: ${scratch.train_norm_mean}
           std: ${scratch.train_norm_std}
-        - _target_: sam3.train.transforms.mdetr.ApplyPosEmbedToBoxesAPI
-          pos_embed: ${scratch.pos_embed}
         - _target_: sam3.train.transforms.filter_query_transforms.FlexibleFilterFindGetQueries
           query_filter:
             _target_: sam3.train.transforms.filter_query_transforms.FilterEmptyTargets
@@ -70,12 +68,8 @@ roboflow_train:
           consistent_transform: False
         - _target_: sam3.train.transforms.basic_for_api.ToTensorAPI
         - _target_: sam3.train.transforms.basic_for_api.NormalizeAPI
-          # mean: [0.485, 0.456, 0.406]
-          # std: [0.229, 0.224, 0.225]
           mean: ${scratch.train_norm_mean}
           std: ${scratch.train_norm_std}
-    - _target_: sam3.train.transforms.mdetr.ApplyPosEmbedToBoxesAPI
-      pos_embed: ${scratch.pos_embed}
 
   # loss config (no mask loss)
   loss:
@@ -177,9 +171,7 @@ scratch:
   # Box processing
   use_presence_eval: True
   original_box_postprocessor:
-    _target_: sam3.train.eval.postprocessors.PostProcessAPI
-    soft_token: true
-    focal_loss: true
+    _target_: sam3.train.eval.postprocessors.PostProcessImage
     max_dets_per_img: -1  # infinite detections
     use_original_ids: true
     use_original_sizes: true
@@ -233,7 +225,6 @@ scratch:
   collate_fn_val:
     _target_: sam3.train.data.collator.collate_fn_api
     _partial_: true
-    input_box_embedding_dim: ${scratch.input_box_embedding_dim}
     repeats: ${scratch.hybrid_repeats}
     dict_key: roboflow100
     with_seg_masks: ${scratch.enable_segmentation} # Note: Set this to true if using segmentation masks!
@@ -243,7 +234,6 @@ scratch:
   collate_fn:
     _target_: sam3.train.data.collator.collate_fn_api
     _partial_: true
-    input_box_embedding_dim: ${scratch.input_box_embedding_dim}
     repeats: ${scratch.hybrid_repeats}
     dict_key: all
     with_seg_masks: ${scratch.enable_segmentation} # Note: Set this to true if using segmentation masks!
@@ -254,7 +244,6 @@ scratch:
   #   _target_: sam3.train.data.collator.collate_fn_api_with_chunking
   #   _partial_: true
   #   num_chunks: ${scratch.gradient_accumulation_steps}
-  #   input_box_embedding_dim: ${scratch.input_box_embedding_dim}
   #   repeats: ${scratch.hybrid_repeats}
   #   dict_key: all
   #   with_seg_masks:  ${scratch.enable_segmentation} # Note: Set this to true if using segmentation masks!
@@ -341,7 +330,6 @@ trainer:
     eval_mode: false
     enable_segmentation: ${scratch.enable_segmentation} # Warning: Enable this if using segmentation.
     checkpoint_path: ${paths.checkpoint_path}
-    has_presence_token: ${scratch.use_presence_eval}
 
   meters:
     val:

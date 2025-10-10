@@ -15,19 +15,14 @@ from sam3 import perflib
 from sam3.logger import get_logger
 from sam3.model.act_ckpt_utils import clone_output_wrapper
 from sam3.model.box_ops import box_xywh_to_cxcywh, box_xyxy_to_xywh
-from sam3.model.data_misc import (
-    BatchedDatapoint,
-    convert_my_tensors,
-    FindStage,
-    recursive_to,
-)
+from sam3.model.data_misc import BatchedDatapoint, convert_my_tensors, FindStage
 from sam3.model.geometry_encoders import Prompt
 from sam3.model.io_utils import load_resource_as_video_frames
-from sam3.model.model_misc import NestedTensor
 from sam3.model.sam3_tracker_utils import fill_holes_in_mask_scores
 from sam3.model.sam3_video_base import MaskletConfirmationStatus, Sam3VideoBase
 from sam3.perflib.compile import compile_wrapper, shape_logging_wrapper
 from sam3.perflib.masks_to_boxes import masks_to_boxes as perf_masks_to_boxes
+from sam3.train.utils.train_utils import copy_data_to_device
 
 logger = get_logger(__name__)
 
@@ -97,6 +92,7 @@ class Sam3VideoInference(Sam3VideoBase):
         inference_state["is_image_only"] = is_image_type(resource_path)
         return inference_state
 
+    @torch.inference_mode()
     def reset_state(self, inference_state):
         """Revert `inference_state` to what it was right after initialization."""
         inference_state["input_batch"].find_text_batch[0] = "<text placeholder>"
@@ -126,7 +122,6 @@ class Sam3VideoInference(Sam3VideoBase):
         # 1) img_batch
         num_frames = len(images)
         device = inference_state["device"]
-        img_batch = NestedTensor(tensors=images, mask=None)
 
         # 2) find_text_batch
         # "<text placeholder>" will be replaced by the actual text prompt when adding prompts
@@ -140,11 +135,9 @@ class Sam3VideoInference(Sam3VideoBase):
                 img_ids=[stage_id],
                 text_ids=[0],
                 input_boxes=[torch.zeros(input_box_embedding_dim)],
-                input_boxes_before_embed=[torch.empty(0, 4)],
                 input_boxes_mask=[torch.empty(0, dtype=torch.bool)],
                 input_boxes_label=[torch.empty(0, dtype=torch.long)],
                 input_points=[torch.empty(0, input_points_embedding_dim)],
-                input_points_before_embed=[torch.empty(0, 3)],
                 input_points_mask=[torch.empty(0)],
                 object_ids=[],
             )
@@ -155,13 +148,13 @@ class Sam3VideoInference(Sam3VideoBase):
 
         # construct the final `BatchedDatapoint` and cast to GPU
         input_batch = BatchedDatapoint(
-            img_batch=img_batch,
+            img_batch=images,
             find_text_batch=find_text_batch,
             find_inputs=stages,
             find_targets=[None] * num_frames,
             find_metadatas=[None] * num_frames,
         )
-        input_batch = recursive_to(input_batch, device, non_blocking=True)
+        input_batch = copy_data_to_device(input_batch, device, non_blocking=True)
         inference_state["input_batch"] = input_batch
 
         # construct the placeholder interactive prompts and tracking queries
@@ -1037,6 +1030,7 @@ class Sam3VideoInferenceWithInstanceInteractivity(Sam3VideoInference):
             ]
         return inference_state
 
+    @torch.inference_mode()
     def reset_state(self, inference_state):
         super().reset_state(inference_state)
         # reset extra states

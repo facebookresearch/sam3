@@ -21,7 +21,7 @@ import torch.utils.checkpoint as checkpoint
 from timm.layers import DropPath, Mlp, trunc_normal_
 from torch import Tensor
 
-from .model_misc import LayerScale, NestedTensor
+from .model_misc import LayerScale
 
 
 def init_t_xy(
@@ -807,9 +807,7 @@ class ViT(nn.Module):
             nn.init.constant_(m.bias, 0)
             nn.init.constant_(m.weight, 1.0)
 
-    def forward(self, tensor_list: NestedTensor) -> List[NestedTensor]:
-        x = tensor_list.tensors
-
+    def forward(self, x: torch.Tensor) -> List[torch.Tensor]:
         x = self.patch_embed(x)
         h, w = x.shape[1], x.shape[2]
 
@@ -832,7 +830,6 @@ class ViT(nn.Module):
         x = self.ln_pre(x)
 
         outputs = []
-        masks = None
         for i, blk in enumerate(self.blocks):
             if self.use_act_checkpoint and self.training:
                 x = checkpoint.checkpoint(blk, x, use_reentrant=False)
@@ -854,18 +851,7 @@ class ViT(nn.Module):
                         feats.shape[0], h, w, feats.shape[-1]
                     ).permute(0, 3, 1, 2)
 
-                # Optimization, if the mask is all False, just ignore it
-                if (
-                    tensor_list.mask is not None
-                    and tensor_list.mask.any()
-                    and masks is None
-                ):
-                    masks = F.interpolate(
-                        tensor_list.mask[None].float(),
-                        size=feats.shape[-2:],
-                        align_corners=False,
-                    ).bool()[0]
-                outputs.append(NestedTensor(feats, masks))
+                outputs.append(feats)
 
         return outputs
 
