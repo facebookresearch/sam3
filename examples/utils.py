@@ -572,33 +572,38 @@ def get_media_dir(media_dir: str, dataset: str):
         raise ValueError(f"Dataset {dataset} not found")
 
 
-def get_vis_example(
-    annot_dfs: Dict[str, Any], dataset: str, row_num: int, frame_num: int, data_dir: str
+def get_all_annotations_for_frame(
+    dataset_df: pd.DataFrame, video_id: int, frame_idx: int, data_dir: str, dataset: str
 ):
     media_dir = os.path.join(data_dir, "media")
 
     # Load the annotation and video data
-    annot_df = annot_dfs[dataset]["annotations"]
-    video_df = annot_dfs[dataset]["videos"]
+    annot_df = dataset_df["annotations"]
+    video_df = dataset_df["videos"]
 
-    # Get the mask
-    annot_row = annot_df.iloc[row_num]
-    rle = annot_row.segmentations[frame_num]
-    mask = mask_util.decode(rle)
-
-    # Get the noun phrase
-    noun_phrase = annot_row.noun_phrase
-
-    # Get the video frame
-    video_df = video_df[video_df.id == annot_row.video_id]
-    assert len(video_df) == 1, f"Expected 1 video row, got {len(video_df)}"
-
-    video_row = video_df.iloc[0]
-    file_name = video_row.file_names[frame_num]
+    # Get the frame
+    video_df_current = video_df[video_df.id == video_id]
+    assert len(video_df_current) == 1, f"Expected 1 video row, got {len(video_df_current)}"
+    video_row = video_df_current.iloc[0]
+    file_name = video_row.file_names[frame_idx]
     file_path = os.path.join(
         get_media_dir(media_dir=media_dir, dataset=dataset), file_name
     )
     frame = cv2.imread(file_path)
     frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
-    return frame, mask, noun_phrase
+    # Get the masks and noun phrases annotated in this video in this frame
+    annot_df_current_video = annot_df[annot_df.video_id == video_id]
+    if len(annot_df_current_video) == 0:
+        print(f"No annotations found for video_id {video_id}")
+        return frame, None, None
+    else:
+        empty_mask = np.zeros(frame.shape[:2], dtype=np.uint8)
+        mask_np_pairs = annot_df_current_video.apply(
+            lambda row: (mask_util.decode(row.segmentations[frame_idx]) if row.segmentations[frame_idx] else empty_mask, row.noun_phrase), axis=1
+        )
+        # sort based on noun_phrases
+        mask_np_pairs = sorted(mask_np_pairs, key=lambda x: x[1])
+        masks, noun_phrases = zip(*mask_np_pairs)
+
+    return frame, masks, noun_phrases
