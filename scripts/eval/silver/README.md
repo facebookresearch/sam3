@@ -1,20 +1,31 @@
-# Download SA-CO Test Data
+# SA-CO/Silver benchmark
 
-This document contains information on how to download and setup the image data to prepare them for SA-CO evaluation.
+SA-Co/Silver is a benchmark for promptable concept segmentation (PCS) in images. The benchmark contains images paired with text labels (also referred as Noun Phrases aka NPs), each annotated exhaustively with masks on all object instances that match the label.
 
-First, download the .json with annotations: (here we will have the URL to download all the .jsons)
+SA-Co/Silver comprises 10 subsets, covering a diverse array of domains including food, art, robotics, driving etc.
 
-(internal [for Shoubhik during testing]): "download" from "/fsx-onevision/didac/data/saco_frames_test_sets/annotations_original" if you want to test the process including removing videos that are no longer on YouTube or Ego4D (at some point users will experience this). Or, "download" from "/fsx-onevision/didac/data/saco_frames_test_sets/annotations" to use the annotations that are already filtered (these will be the ones we will release). I suggest you copy the files to your directory, otherwise the code may modify mine. 
+- BDD100k
+- DROID
+- Ego4D
+- MyFoodRepo-273
+- GeoDE
+- iNaturalist-2017
+- National Gallery of Art
+- SA-V
+- YT-Temporal-1B
+- Fathomnet
 
+The README contains instructions on how to download and setup the annotations, image data to prepare them for evaluation on SA-CO/Silver.
 
-#### >>> TODOs (to synchronize with the team) <<<:
+## Download annotations
 
-- I added a "image_size" to the ["images"] annotations, to resize if necessary during download. (to make sure the sizes of the frames are the same)
-- Update "info" and "licenses" fields in the annotations? (or remove). In general, we need to unify the content of the released jsons.
+The GT annotations can be downloaded from [huggingface](https://huggingface.co/datasets/facebook/SACo-Silver)
 
-## Image Datasets
+## Download images and video frames
 
-### GeoDE
+### Image Datasets
+
+#### GeoDE
 
 1. Download dataset with raw images from [GeoDE](https://geodiverse-data-collection.cs.princeton.edu/).
 2. Extract the downloaded file to a location, say `<RAW_GEODE_IMAGES_FOLDER>`
@@ -24,14 +35,14 @@ First, download the .json with annotations: (here we will have the URL to downlo
     python preprocess_silver_geode_bdd100k_food_rec.py --annotation_file <FOLDER_WITH_SILVER_ANNOTATIONS>/silver_geode_merged_test.json --raw_images_folder <RAW_GEODE_IMAGES_FOLDER> --processed_images_folder <PROCESSED_GEODE_IMAGES_FOLDER> --dataset_name geode
     ```
 
-### National Gallery of Art (NGA)
+#### National Gallery of Art (NGA)
 
 1. Run the below command to download raw images and pre-process the images to prepare for evaluation. The proceesed images will be saved to the location specified in `<PROCESSED_NGA_IMAGES_FOLDER>`.
     ```
     python download_preprocess_nga.py --annotation_file <FOLDER_WITH_SILVER_ANNOTATIONS>/silver_nga_art_merged_test.json --raw_images_folder <RAW_NGA_IMAGES_FOLDER> --processed_images_folder <PROCESSED_NGA_IMAGES_FOLDER>
     ```
 
-### Berkeley Driving Dataset (BDD) 100k
+#### Berkeley Driving Dataset (BDD) 100k
 
 1. Download data with raw images from the `100K Images` dataset in [BDD100k](http://bdd-data.berkeley.edu/download.html)
 2. Extract the downloaded file to a location, say `<RAW_BDD_IMAGES_FOLDER>`
@@ -40,7 +51,7 @@ First, download the .json with annotations: (here we will have the URL to downlo
     python preprocess_silver_geode_bdd100k_food_rec.py --annotation_file <FOLDER_WITH_SILVER_ANNOTATIONS>/silver_bdd100k_merged_test.json --raw_images_folder <RAW_BDD_IMAGES_FOLDER> --processed_images_folder <PROCESSED_BDD_IMAGES_FOLDER> --dataset_name bdd100k
     ```
 
-### Food Recognition Challenge 2022
+#### Food Recognition Challenge 2022
 
 1. Download data with raw images from the [website](https://www.aicrowd.com/challenges/food-recognition-benchmark-2022). Download `[Round 2] public_validation_set_2.0.tar.gz` file.
 2. Extract the downloaded file to a location, say `<RAW_FOOD_IMAGES_FOLDER>`
@@ -49,14 +60,14 @@ First, download the .json with annotations: (here we will have the URL to downlo
     python preprocess_silver_geode_bdd100k_food_rec.py --annotation_file <FOLDER_WITH_SILVER_ANNOTATIONS>/silver_food_rec_merged_test.json --raw_images_folder <RAW_FOOD_IMAGES_FOLDER> --processed_images_folder <PROCESSED_FOOD_IMAGES_FOLDER> --dataset_name food_rec
     ```
 
-### iNaturalist
+#### iNaturalist
 
 1. Run the below command to download, extract images in `<RAW_INATURALIST_IMAGES_FOLDER>` and prepare them for evaluation. The proceesed images will be saved to the location specified in `<PROCESSED_INATURALIST_IMAGES_FOLDER>`
     ```
     python download_inaturalist.py --raw_images_folder <RAW_INATURALIST_IMAGES_FOLDER> --processed_images_folder <PROCESSED_INATURALIST_IMAGES_FOLDER>
     ```
 
-### Fathomnet
+#### Fathomnet
 
 1. Install the FathomNet API
     ```
@@ -68,13 +79,13 @@ First, download the .json with annotations: (here we will have the URL to downlo
     python download_fathomnet.py --processed_images_folder <PROCESSED_BFATHOMNET_IMAGES_FOLDER>
     ```
 
-## Frame Datasets
+### Frame Datasets
 
 These datasets correspond to annotations for individual frames coming from videos. The file `CONFIG_FRAMES.yaml` is used to unify the downloads for the datasets, as explained below.
 
 Before following the other dataset steps, update `CONFIG_FRAMES.yaml` with the correct `path_annotations` path where the annotation files are.
 
-### DROID
+#### DROID
 
 1. Install the gsutil package:
     ```bash
@@ -93,7 +104,7 @@ Before following the other dataset steps, update `CONFIG_FRAMES.yaml` with the c
 
 See the [DROID website](https://droid-dataset.github.io/droid/the-droid-dataset#-using-the-dataset) for more information.
 
-### SA-V
+#### SA-V
 
 1. Follow instructions in the [Segment Anything official website](https://ai.meta.com/datasets/segment-anything-video-downloads/) to obtain access to the download links (they are dynamic links).
 2. Update `CONFIG_FRAMES.yaml`:
@@ -109,7 +120,7 @@ See the [DROID website](https://droid-dataset.github.io/droid/the-droid-dataset#
     python extract_frames.py sav
     ```
 
-### Ego4D
+#### Ego4D
 
 1. Review and accept the license agreement in the [official Ego4D website](https://ego4d-data.org/docs/start-here/#license-agreement).
 2. Configure AWS credentials. Run:
@@ -140,7 +151,7 @@ See the [DROID website](https://droid-dataset.github.io/droid/the-droid-dataset#
 
 See the [official CLI](https://ego4d-data.org/docs/CLI/) and the [explanation about the videos](https://ego4d-data.org/docs/data/videos/) for more information.
 
-### YT1B
+#### YT1B
 1. Install the yt-dlp library:
     ```bash
     python3 -m pip install -U "yt-dlp[default]"
@@ -158,3 +169,11 @@ See the [official CLI](https://ego4d-data.org/docs/CLI/) and the [explanation ab
     ```
     python extract_frames.py yt1b
     ```
+
+## Run online evaluation
+
+Update the path for GT annotation and images and run the below command for online evaluation.
+
+```bash
+python sam3/train/train.py -c configs/silver_image_evals/sam3_silver_image_bdd100k.yaml --use-cluster 1
+```
