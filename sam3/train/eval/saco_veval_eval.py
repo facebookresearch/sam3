@@ -1,6 +1,6 @@
 import argparse
-import os
 import json
+import os
 from collections import defaultdict
 
 from iopath.common.file_io import g_pathmgr
