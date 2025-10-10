@@ -12,7 +12,6 @@ import numpy as np
 import torch
 from PIL.Image import Image
 
-from sam3.model.model_misc import NestedTensor
 from sam3.model.sam3_tracker_base import Sam3TrackerBase
 from sam3.model.utils.sam1_utils import SAM2Transforms
 
@@ -98,8 +97,13 @@ class SAM3InteractiveImagePredictor:
             len(input_image.shape) == 4 and input_image.shape[1] == 3
         ), f"input_image must be of size 1x3xHxW, got {input_image.shape}"
         logging.info("Computing image embeddings for the provided image...")
-        backbone_out = self.model.forward_image(NestedTensor(input_image, None))
-        _, vision_feats, _, _, _ = self.model._prepare_backbone_features(backbone_out)
+        backbone_out = self.model.forward_image(input_image)
+        (
+            _,
+            vision_feats,
+            _,
+            _,
+        ) = self.model._prepare_backbone_features(backbone_out)
         # Add no_mem_embed, which is added to the lowest rest feat. map during training on videos
         vision_feats[-1] = vision_feats[-1] + self.model.no_mem_embed
 
@@ -140,8 +144,13 @@ class SAM3InteractiveImagePredictor:
             len(img_batch.shape) == 4 and img_batch.shape[1] == 3
         ), f"img_batch must be of size Bx3xHxW, got {img_batch.shape}"
         logging.info("Computing image embeddings for the provided images...")
-        backbone_out = self.model.forward_image(NestedTensor(img_batch, None))
-        _, vision_feats, _, _, _ = self.model._prepare_backbone_features(backbone_out)
+        backbone_out = self.model.forward_image(img_batch)
+        (
+            _,
+            vision_feats,
+            _,
+            _,
+        ) = self.model._prepare_backbone_features(backbone_out)
         # Add no_mem_embed, which is added to the lowest rest feat. map during training on videos
         vision_feats[-1] = vision_feats[-1] + self.model.no_mem_embed
 

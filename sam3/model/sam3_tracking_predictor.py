@@ -962,9 +962,7 @@ class Sam3TrackerPredictor(Sam3TrackerBase):
             else:
                 # Cache miss -- we will run inference on a single image
                 image = inference_state["images"][frame_idx].cuda().float().unsqueeze(0)
-                backbone_out = self.forward_image(
-                    NestedTensor(tensors=image, mask=None)
-                )
+                backbone_out = self.forward_image(image)
                 # Cache the most recent frame's feature (for repeated interactions with
                 # a frame; we can use an LRU cache for more frames in the future).
                 inference_state["cached_features"] = {frame_idx: (image, backbone_out)}

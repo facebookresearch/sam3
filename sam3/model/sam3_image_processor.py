@@ -103,12 +103,16 @@ class Sam3Processor:
 
     def reset_all_prompts(self, state: Dict):
         """Removes all the prompts and results"""
-        if 'backbone_out' in state:
-            backbone_keys_to_del = ['language_features', 'language_mask', 'language_embeds']
+        if "backbone_out" in state:
+            backbone_keys_to_del = [
+                "language_features",
+                "language_mask",
+                "language_embeds",
+            ]
             for key in backbone_keys_to_del:
-                if key in state['backbone_out']:
-                    del state['backbone_out'][key]
-        
+                if key in state["backbone_out"]:
+                    del state["backbone_out"][key]
+
         keys_to_del = ["geometric_prompt", "boxes", "masks", "masks_logits", "scores"]
         for key in keys_to_del:
             if key in state:
