@@ -6,57 +6,62 @@ SA-Co/Gold is an evaluation dataset comprising of 7 subsets, each targeting a di
 
 ### Download annotations
 
-The GT annotations can be downloaded from the following [location](https://drive.google.com/drive/folders/1fLP-6WrNSCDBsHII9ST_4xDTuIKDog3k?usp=sharing)
+The GT annotations can be downloaded from the following [location](https://drive.google.com/drive/folders/1_DzesohTS4WYoKdPVLy2cY-UfJhcOjE2?usp=sharing)
 
 ### Download images
 
 There are two image sources for the evaluation dataset: MetaCLIP and SA-1B.
 
-1) The MetaCLIP images are referred in 6 out of 7 subsets and can be downloaded using the below commond. This will download all the images from the urls referred in `gold_metaclip_filename_urls_mapping_release.json`. The script should download 14856 images.
+1) The MetaCLIP images are referred in 6 out of 7 subsets and can be downloaded using the below commond. This will download all the images from the urls referred in `gold_metaclip_filename_urls_mapping_release.json`. The script should download 14856 images. (Note for Roboflow: The downloaded version with 148510 images i.e. 46 missing images is also fine and the annotations are updated accordingly)
 
 ```bash
 python download_metaclip_urls.py
 ```
 
-2) The SA-1B images referred in `sa1b_filenames.txt` (997 images) can be downloaded from the publicly released [version](https://ai.meta.com/datasets/segment-anything-downloads/).
+2) The SA-1B images referred in `sa1b_filenames.txt` (997 images) can be downloaded from the publicly released version. Please access the link for `sa_co_gold.tar` from dynamic links available under `Download text file` option in the publicly released [version](https://ai.meta.com/datasets/segment-anything-downloads/) to download and extract the SA-1B images.
 
-### Update annotations (Optional)
 
-If the number of MetaCLIP images downloaded is less than 14856, then run the below script to update the groundtruth annotations. This will filter annotations related to missing images.
-```bash
-python update_eval_files.py
-```
+### Run online evaluation
 
-### Evaluation
+Update the path for GT annotation and images and run the below command for online evaluation of 7 subsets.
 
-#### Run offline evaluation
-
-Sample SAM3 model predictions on SA-Co/Gold test set can be download from the following [location](https://drive.google.com/drive/folders/1-3fJCIYhB4ugN7SIPkn-OrEeXYvowLUN?usp=sharing)
-
-Run the below command for offline evaluation.
+#### MetaCLIP captioner NPs
 
 ```bash
-python eval_sam3.py
+python sam3/train/train.py -c configs/gold_image_evals/sam3_gold_image_metaclip_nps.yaml --use-cluster 1
 ```
+#### SA-1B captioner NPs
 
-The above script will print metrics similar to below after running the evaluation.
+Refer to SA-1B images for this subset. For the other 6 subsets, refer to MetaCLIP images.
+
+```bash
+python sam3/train/train.py -c configs/gold_image_evals/sam3_gold_image_sa1b_nps.yaml --use-cluster 1
 ```
-Subset name, CG_F1, IL_MCC, pmF1, demoF1, J&F
-metaclip: 61.25,0.81,75.93,55.82,84.82
-sa1b: 64.55,0.86,75.06,61.94,83.06
-crowded: 60.72,0.88,69.08,64.39,83.91
-fg_food: 66.59,0.81,82.66,62.24,87.22
-fg_sports_equipment: 74.73,0.9,82.98,70.61,90.27
-attributes: 66.44,0.77,86.69,64.27,88.51
-wiki_common: 56.03,0.69,80.77,57.22,85.65
-```
-
-#### Run online evaluation
-
-Update the path for GT annotation and images and run the below command for online evaluation.
+#### Attributes
 
 ```bash
 python sam3/train/train.py -c configs/gold_image_evals/sam3_gold_image_attributes.yaml --use-cluster 1
+```
+#### Crowded Scenes
+
+```bash
+python sam3/train/train.py -c configs/gold_image_evals/sam3_gold_image_crowded.yaml --use-cluster 1
+```
+#### Wiki-Common1K
+
+```bash
+python sam3/train/train.py -c configs/gold_image_evals/sam3_gold_image_wiki_common.yaml --use-cluster 1
+```
+#### Wiki-Food/Drink
+
+```bash
+python sam3/train/train.py -c configs/gold_image_evals/sam3_gold_image_fg_food.yaml --use-cluster 1
+```
+
+#### Wiki-Sports Equipment
+
+```bash
+python sam3/train/train.py -c configs/gold_image_evals/sam3_gold_image_fg_sports.yaml --use-cluster 1
 ```
 
 ## Annotation format

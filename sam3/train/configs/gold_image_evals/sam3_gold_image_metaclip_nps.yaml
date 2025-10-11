@@ -7,13 +7,13 @@ defaults:
 # ============================================================================
 paths:
   checkpoint_path: /fsx-onevision/shoubhikdn/sam3_ckpts/paper_image_only_checkpoint_presence_0.35_completed_model_only.pt
-  experiment_log_dir: /fsx-onevision/shoubhikdn/omnivision_onevision/release_experiments/gold_epsilon/
-  coco_gt : /fsx-onevision/shoubhikdn/release/gold_test_set/original/gold_epsilon_merged_a_test.json
+  experiment_log_dir: /fsx-onevision/shoubhikdn/omnivision_onevision/release_experiments/gold_metaclip_release/
+  coco_gt : /fsx-onevision/shoubhikdn/release/saco_gold/annotations_cleaned/gold_metaclip_merged_a_release_test.json
   coco_gts :
-    - /fsx-onevision/shoubhikdn/release/gold_test_set/original/gold_epsilon_merged_a_test.json
-    - /fsx-onevision/shoubhikdn/release/gold_test_set/original/gold_epsilon_merged_b_test.json
-    - /fsx-onevision/shoubhikdn/release/gold_test_set/original/gold_epsilon_merged_c_test.json
-  metaclip_img_path: /fsx-onevision/shared/data/metaclip_merged/
+    - /fsx-onevision/shoubhikdn/release/saco_gold/annotations_cleaned/gold_metaclip_merged_a_release_test.json
+    - /fsx-onevision/shoubhikdn/release/saco_gold/annotations_cleaned/gold_metaclip_merged_b_release_test.json
+    - /fsx-onevision/shoubhikdn/release/saco_gold/annotations_cleaned/gold_metaclip_merged_c_release_test.json
+  metaclip_img_path: /fsx-onevision/shoubhikdn/release/saco_gold/images/metaclip/
   bpe_path: /fsx-onevision/chayryali/ve/bpe_simple_vocab_16e6.txt.gz
 
 # ============================================================================
@@ -66,6 +66,16 @@ scratch:
     max_dets_per_img: -1 #infinite detections
     use_original_ids: false
     use_original_sizes: false
+    detection_threshold: 0.3
+    use_presence: ${scratch.use_presence_eval}
+
+  mask_postprocessor_thresholded:
+    _target_: sam3.train.eval.postprocessors.PostProcessImage
+    max_dets_per_img: -1 #infinite detections
+    iou_type: "segm"
+    use_original_ids: false
+    use_original_sizes: true
+    convert_mask_to_rle: True
     detection_threshold: 0.3
     use_presence: ${scratch.use_presence_eval}
 
@@ -163,7 +173,6 @@ trainer:
       collate_fn:
         _target_: sam3.train.data.collator.collate_fn_api
         _partial_: true
-        input_box_embedding_dim: ${scratch.input_box_embedding_dim}
         repeats: ${scratch.hybrid_repeats}
         dict_key: gold_epsilon_merged_test
 
@@ -174,7 +183,6 @@ trainer:
     eval_mode: true
     enable_segmentation: true # Warning: Enable this if using segmentation.
     checkpoint_path: ${paths.checkpoint_path}
-    has_presence_token: ${scratch.use_presence_eval}
 
   meters:
     val:
@@ -191,13 +199,13 @@ trainer:
           exhaustive_only: true
         demo_segm:
           _target_: sam3.train.eval.demo_eval.DemoEvaluator
-          compute_JnF: True
+          compute_JnF: False
           iou_types:
             - "segm"
           dump_dir: ${launcher.experiment_log_dir}/dumps/gold_epsilon_merged_test/predictions
           metrics_dump_dir:  ${launcher.experiment_log_dir}/dumps/gold_epsilon_merged_test/metrics
           coco_gt: ${paths.coco_gts}
-          postprocessor: ${scratch.mask_postprocessor_w_boundary_thresholded}
+          postprocessor: ${scratch.mask_postprocessor_thresholded}
           average_by_rarity: False
           gather_pred_via_filesys: ${scratch.gather_pred_via_filesys}
           exhaustive_only: true
@@ -280,7 +288,7 @@ trainer:
 # ============================================================================
 
 launcher:
-  num_nodes: 2
+  num_nodes: 4
   gpus_per_node: 8
   experiment_log_dir: ${paths.experiment_log_dir}
   multiprocessing_context: forkserver
