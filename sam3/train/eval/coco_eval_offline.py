@@ -81,123 +81,68 @@ class HeapElement:
 
 
 # # From https://github.com/facebookresearch/detectron2/blob/bcfd464d0c810f0442d91a349c0f6df945467143/detectron2/evaluation/fast_eval_api.py#L13
-# class COCOeval_opt(COCOeval):
-#     """
-#     This is a slightly modified version of the original COCO API, where the functions evaluateImg()
-#     and accumulate() are implemented in C++ to speedup evaluation
-#     """
+class COCOeval_opt(COCOeval):
+    """
+    This is a slightly modified version of the original COCO API, where the functions evaluateImg()
+    and accumulate() are implemented in C++ to speedup evaluation
+    """
 
-#     def evaluate(self):
-#         """
-#         Run per image evaluation on given images and store results in self.evalImgs_cpp, a
-#         datastructure that isn't readable from Python but is used by a c++ implementation of
-#         accumulate().  Unlike the original COCO PythonAPI, we don't populate the datastructure
-#         self.evalImgs because this datastructure is a computational bottleneck.
-#         :return: None
-#         """
+    def __init__(
+        self, cocoGt=None, cocoDt=None, iouType="segm", dt_only_positive=False
+    ):
+        super().__init__(cocoGt, cocoDt, iouType)
+        self.dt_only_positive = dt_only_positive
 
-#         p = self.params
-#         # add backward compatibility if useSegm is specified in params
-#         if p.useSegm is not None:
-#             p.iouType = "segm" if p.useSegm == 1 else "bbox"
-#         p.imgIds = list(np.unique(p.imgIds))
-#         if p.useCats:
-#             p.catIds = list(np.unique(p.catIds))
-#         p.maxDets = sorted(p.maxDets)
-#         self.params = p
+    def _prepare(self):
+        """
+        Prepare ._gts and ._dts for evaluation based on params
+        :return: None
+        """
 
-#         self._prepare()  # bottleneck
+        def _toMask(anns, coco):
+            # modify ann['segmentation'] by reference
+            for ann in anns:
+                rle = coco.annToRLE(ann)
+                ann["segmentation"] = rle
 
-#         # loop through images, area range, max detection number
-#         catIds = p.catIds if p.useCats else [-1]
+        p = self.params
+        if p.useCats:
+            gts = self.cocoGt.loadAnns(
+                self.cocoGt.getAnnIds(imgIds=p.imgIds, catIds=p.catIds)
+            )
+            dts = self.cocoDt.loadAnns(
+                self.cocoDt.getAnnIds(imgIds=p.imgIds, catIds=p.catIds)
+            )
+        else:
+            gts = self.cocoGt.loadAnns(self.cocoGt.getAnnIds(imgIds=p.imgIds))
+            dts = self.cocoDt.loadAnns(self.cocoDt.getAnnIds(imgIds=p.imgIds))
 
-#         if p.iouType == "segm" or p.iouType == "bbox":
-#             computeIoU = self.computeIoU
-#         elif p.iouType == "keypoints":
-#             computeIoU = self.computeOks
-#         self.ious = {
-#             (imgId, catId): computeIoU(imgId, catId)
-#             for imgId in p.imgIds
-#             for catId in catIds
-#         }  # bottleneck
+        # convert ground truth to mask if iouType == 'segm'
+        if p.iouType == "segm":
+            _toMask(gts, self.cocoGt)
+            _toMask(dts, self.cocoDt)
+        # set ignore flag
+        for gt in gts:
+            gt["ignore"] = gt["ignore"] if "ignore" in gt else 0
+            gt["ignore"] = "iscrowd" in gt and gt["iscrowd"]
+            if p.iouType == "keypoints":
+                gt["ignore"] = (gt["num_keypoints"] == 0) or gt["ignore"]
+        self._gts = defaultdict(list)  # gt for evaluation
+        self._dts = defaultdict(list)  # dt for evaluation
 
-#         maxDet = p.maxDets[-1]
-
-#         # <<<< Beginning of code differences with original COCO API
-#         def convert_instances_to_cpp(instances, is_det=False):
-#             # Convert annotations for a list of instances in an image to a format that's fast
-#             # to access in C++
-#             instances_cpp = []
-#             for instance in instances:
-#                 instance_cpp = _CPP.InstanceAnnotation(
-#                     int(instance["id"]),
-#                     instance["score"] if is_det else instance.get("score", 0.0),
-#                     instance["area"],
-#                     bool(instance.get("iscrowd", 0)),
-#                     bool(instance.get("ignore", 0)),
-#                 )
-#                 instances_cpp.append(instance_cpp)
-#             return instances_cpp
-
-#         # Convert GT annotations, detections, and IOUs to a format that's fast to access in C++
-#         ground_truth_instances = [
-#             [convert_instances_to_cpp(self._gts[imgId, catId]) for catId in p.catIds]
-#             for imgId in p.imgIds
-#         ]
-#         detected_instances = [
-#             [
-#                 convert_instances_to_cpp(self._dts[imgId, catId], is_det=True)
-#                 for catId in p.catIds
-#             ]
-#             for imgId in p.imgIds
-#         ]
-#         ious = [[self.ious[imgId, catId] for catId in catIds] for imgId in p.imgIds]
-
-#         if not p.useCats:
-#             # For each image, flatten per-category lists into a single list
-#             ground_truth_instances = [
-#                 [[o for c in i for o in c]] for i in ground_truth_instances
-#             ]
-#             detected_instances = [
-#                 [[o for c in i for o in c]] for i in detected_instances
-#             ]
-
-#         # Call C++ implementation of self.evaluateImgs()
-#         self._evalImgs_cpp = _CPP.COCOevalEvaluateImages(
-#             p.areaRng,
-#             maxDet,
-#             p.iouThrs,
-#             ious,
-#             ground_truth_instances,
-#             detected_instances,
-#         )
-#         self._evalImgs = None
-
-#         self._paramsEval = copy.deepcopy(self.params)
-#         # >>>> End of code differences with original COCO API
-
-#     def accumulate(self):
-#         """
-#         Accumulate per image evaluation results and store the result in self.eval.  Does not
-#         support changing parameter settings from those used by self.evaluate()
-#         """
-#         assert hasattr(
-#             self, "_evalImgs_cpp"
-#         ), "evaluate() must be called before accmulate() is called."
-
-#         self.eval = _CPP.COCOevalAccumulate(self._paramsEval, self._evalImgs_cpp)
-
-#         # recall is num_iou_thresholds X num_categories X num_area_ranges X num_max_detections
-#         self.eval["recall"] = np.array(self.eval["recall"]).reshape(
-#             self.eval["counts"][:1] + self.eval["counts"][2:]
-#         )
-
-#         # precision and scores are num_iou_thresholds X num_recall_thresholds X num_categories X
-#         # num_area_ranges X num_max_detections
-#         self.eval["precision"] = np.array(self.eval["precision"]).reshape(
-#             self.eval["counts"]
-#         )
-#         self.eval["scores"] = np.array(self.eval["scores"]).reshape(self.eval["counts"])
+        _gts_cat_ids = defaultdict(set)  # gt for evaluation on positive split
+        for gt in gts:
+            self._gts[gt["image_id"], gt["category_id"]].append(gt)
+            _gts_cat_ids[gt["image_id"]].add(gt["category_id"])
+        for dt in dts:
+            if (
+                self.dt_only_positive
+                and dt["category_id"] not in _gts_cat_ids[dt["image_id"]]
+            ):
+                continue
+            self._dts[dt["image_id"], dt["category_id"]].append(dt)
+        self.evalImgs = defaultdict(list)  # per-image per-category evaluation results
+        self.eval = {}  # accumulated evaluation results
 
 
 class CocoEvaluatorOffline:
@@ -209,6 +154,7 @@ class CocoEvaluatorOffline:
         iou_type: str = "bbox",
         tide: bool = True,
         gather_pred_via_filesys=False,
+        positive_split=False,
         maxDets: int = 100,
     ):
         self.gt_path = gt_path
@@ -235,6 +181,10 @@ class CocoEvaluatorOffline:
         # Whether to gather predictions through filesystem (instead of torch
         # collective ops; requiring a shared filesystem across all ranks)
         self.gather_pred_via_filesys = gather_pred_via_filesys
+
+        # Whether to evaluate on the positive split
+        self.positive_split = positive_split
+
 
     def set_sync_device(self, device: torch.device) -> Any:
         self._sync_device = device
@@ -373,7 +323,7 @@ class CocoEvaluatorOffline:
 
         # Run the evaluation
         logging.info("Coco evaluator: Running evaluation")
-        coco_eval = COCOeval(self.gt, cocoDt, iouType=self.iou_type)
+        coco_eval = COCOeval_opt(self.gt, cocoDt, iouType=self.iou_type, dt_only_positive=self.positive_split)
         coco_eval.evaluate()
         coco_eval.accumulate()
         coco_eval.summarize()

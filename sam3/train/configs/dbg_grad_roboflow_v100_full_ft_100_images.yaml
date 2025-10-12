@@ -321,7 +321,9 @@ trainer:
         _target_: sam3.train.data.sam3_image_dataset.Sam3ImageDataset
         load_segmentation: ${scratch.enable_segmentation}
         coco_json_loader:
-          _target_: sam3.train.data.coco_json_loaders.COCO_EVAL_API_FROM_JSON_BOX_ONLY
+          _target_: sam3.train.data.coco_json_loaders.COCO_FROM_JSON
+          include_negatives: true
+          category_chunk_size: 2 # Note: You can increase this based on the memory of your GPU.
           _partial_: true
         img_folder: ${paths.roboflow_vl_100_root}/${roboflow_train.supercategory}/test/
         ann_file: ${paths.roboflow_vl_100_root}/${roboflow_train.supercategory}/test/_annotations.coco.json
