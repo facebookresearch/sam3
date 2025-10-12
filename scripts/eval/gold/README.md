@@ -12,7 +12,7 @@ The GT annotations can be downloaded from the following [location](https://drive
 
 There are two image sources for the evaluation dataset: MetaCLIP and SA-1B.
 
-1) The MetaCLIP images are referred in 6 out of 7 subsets and can be downloaded using the below commond. This will download all the images from the urls referred in `gold_metaclip_filename_urls_mapping_release.json`. The script should download 14856 images. (**Note for Roboflow:** The downloaded version with 148510 images i.e. 46 missing images is also fine and the annotations are updated accordingly)
+1) The MetaCLIP images are referred in 6 out of 7 subsets and can be downloaded using the below commond. This will download all the images from the urls referred in `gold_metaclip_filename_urls_mapping_release.json`. The script should download 14856 images. (**Note for Roboflow:** The downloaded version with 14810 images i.e. 46 missing images is also fine and the annotations are updated accordingly)
 
 ```bash
 python download_metaclip_urls.py
