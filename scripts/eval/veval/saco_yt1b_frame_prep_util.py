@@ -288,7 +288,7 @@ class YtVideoPrep:
         else:
             self._rm_incomplete_frames_by_frame_matching_dir()
             logger.warning(
-                f"[frame matching][{self.saco_yt1b_id}] failed, some frames got extracted but not match the number of frames needed extracted {success_count} != expected {total_frames}"
+                f"[frame matching][{self.saco_yt1b_id}] failed, some frames got extracted but not match the number of frames needed extracted {success_count} != expected {total_frames}. The folder has been cleared now."
             )
         return status
 
