@@ -181,3 +181,32 @@ video_np_pair {
 }
 ```
 `veval/saco_veval_example.ipynb` has more examples to show the annotation structure.
+
+## Run Offline Eval
+We provided an example notebook and an eval script for offline evaluation.
+```
+sam3/
+├── examples/
+│   └── saco_veval_eval_example.ipynb this example will load eval res or run the eval to print the paper table
+└── sam3/train/eval/
+    └── saco_veval_eval.py the major file the run the offline evaluator
+```
+`saco_veval_eval.py` supports two modes, `one` and `all`.
+* `one`: will only take one pair of gt and pred files to eval
+* `all`: will eval on all 6 SACo/VEval datasets
+Example usage
+```
+python saco_veval_eval.py one \
+--gt_annot_file /fsx-onevision/tym/sam3_and_data/sam3/assets/veval/toy_gt_and_pred/toy_saco_veval_sav_test_gt.json \
+--pred_file /fsx-onevision/tym/sam3_and_data/sam3/assets/veval/toy_gt_and_pred/toy_saco_veval_sav_test_pred.json \
+--eval_res_file /fsx-onevision/tym/sam3_and_data/sam3/assets/veval/toy_gt_and_pred/toy_saco_veval_sav_test_eval_res.json
+```
+or
+```
+python saco_veval_eval.py all \
+--gt_annot_dir /fsx-onevision/tym/sam3_and_data/data/annotation \
+--pred_dir /fsx-onevision/tym/sam3_and_data/data/pred/haithamkhedr_sam3_dense_sam3_v2_sam3_v2_rc1_eval_saco_veval_hot_recon16_MF_yaml_0_preds \
+--eval_res_dir /fsx-onevision/tym/sam3_and_data/data/pred/haithamkhedr_sam3_dense_sam3_v2_sam3_v2_rc1_eval_saco_veval_hot_recon16_MF_yaml_0_preds
+```
+
+
