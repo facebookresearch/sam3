@@ -2,7 +2,7 @@
 **SA-Co/VEval** is an evaluation dataset comprising of 3 domains, each domain has a val and test split.
 * SA-Co/VEval - SA-V: videos are from the [SA-V dataset](https://ai.meta.com/datasets/segment-anything-video/)
 * SA-Co/VEval - YT-Temporal-1B: videos are from the [YT-Temporal-1B](https://cove.thecvf.com/datasets/704)
-* SA-Co/VEval - SmartGlasses: egocentric videos from smart glasses
+* SA-Co/VEval - SmartGlasses: egocentric videos from [smart glasses](https://huggingface.co/datasets/facebook/SACo-VEval/blob/main/media/saco_sg.tar.gz)
 
 ## Environment
 Install the SA-Co/VEVal required environment
