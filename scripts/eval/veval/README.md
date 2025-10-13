@@ -180,7 +180,7 @@ video_np_pair {
     "num_masklets" int
 }
 ```
-`veval/saco_veval_example.ipynb` has more examples to show the annotation structure.
+[sam3/examples/saco_veval_vis_example.ipynb](https://github.com/facebookresearch/sam3/blob/main/examples/saco_veval_vis_example.ipynb) shows some examples of the data format and data visualization.
 
 ## Run Offline Eval
 An example notebook and an eval script have been provided for offline evaluation.
