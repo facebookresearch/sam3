@@ -238,6 +238,10 @@ class YtVideoPrep:
             self._rm_incomplete_frames_by_frame_matching_dir()
             return False
 
+        print(
+            f"Removing any existing frame in {self.frames_by_frame_matching_dir} to ensure re-copy consistency"
+        )
+        self._rm_incomplete_frames_by_frame_matching_dir()
         print(f"Copying {total_frames} frames based on frame matching")
         success_count = 0
         for dst_frame_num, src_frame_num in tqdm(frame_matching, desc="Copying frames"):
