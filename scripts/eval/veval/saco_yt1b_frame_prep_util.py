@@ -144,13 +144,17 @@ class YtVideoPrep:
             logger.warning(
                 f"[frame extracting][{self.saco_yt1b_id}] Raw video file not found at {self.raw_video_path}"
             )
+            os.rmdir(self.raw_frames_resized_width_1080_dir)
             return False
 
         already_extracted_frame_count = len(
             os.listdir(self.raw_frames_resized_width_1080_dir)
         )
         expected_frame_count = self._get_video_frame_count()
-        if expected_frame_count != 0 and abs(already_extracted_frame_count - expected_frame_count) <= 1:
+        if (
+            expected_frame_count != 0
+            and abs(already_extracted_frame_count - expected_frame_count) <= 1
+        ):
             # soft compare due to sometimes cv2 frame number might be 0 or off a bit
             logger.info(
                 f"[frame extracting][{self.saco_yt1b_id}] all frames already exist in {self.raw_frames_resized_width_1080_dir}, skip the full extract"
@@ -194,6 +198,7 @@ class YtVideoPrep:
             logger.warning(
                 f"[frame extracting][{self.saco_yt1b_id}] Failed to extract raw frames: {result.stderr}"
             )
+            os.rmdir(self.raw_frames_resized_width_1080_dir)
             return False
 
         extracted_frames = glob(
@@ -204,6 +209,15 @@ class YtVideoPrep:
         )
 
         return True
+
+    def _rm_incomplete_frames_by_frame_matching_dir(self):
+        print(
+            f"Removing any existing frame in {self.frames_by_frame_matching_dir} to ensure re-copy consistency"
+        )
+        for old_files in glob(f"{self.frames_by_frame_matching_dir}/*.jpg"):
+            os.remove(old_files)
+        os.rmdir(self.frames_by_frame_matching_dir)
+        print("Existing frames cleared.")
 
     def generate_frames_by_frame_matching(self):
         """
@@ -221,15 +235,13 @@ class YtVideoPrep:
 
         # Extract full fps frames to use the frame matching map later
         if not self._generate_all_raw_frames():
+            self._rm_incomplete_frames_by_frame_matching_dir()
             return False
 
         print(
             f"Removing any existing frame in {self.frames_by_frame_matching_dir} to ensure re-copy consistency"
         )
-        for old_files in glob(f"{self.frames_by_frame_matching_dir}/*.jpg"):
-            os.remove(old_files)
-        print("Existing frames cleared.")
-
+        self._rm_incomplete_frames_by_frame_matching_dir()
         print(f"Copying {total_frames} frames based on frame matching")
         success_count = 0
         for dst_frame_num, src_frame_num in tqdm(frame_matching, desc="Copying frames"):
@@ -259,6 +271,7 @@ class YtVideoPrep:
                 shutil.copy2(src_file, dst_file)
                 success_count += 1
             except Exception as e:
+                self._rm_incomplete_frames_by_frame_matching_dir()
                 raise ValueError(
                     f"Error copying frame {src_frame_num} -> {dst_frame_num}: {e}"
                 )
@@ -273,8 +286,9 @@ class YtVideoPrep:
                 f"[frame matching][{self.saco_yt1b_id}] copy to {self.frames_by_frame_matching_dir} succeeded!"
             )
         else:
+            self._rm_incomplete_frames_by_frame_matching_dir()
             logger.warning(
-                f"[frame matching][{self.saco_yt1b_id}] failed, some frames got extracted but not match the number of frames needed extracted {success_count} != expected {total_frames}"
+                f"[frame matching][{self.saco_yt1b_id}] failed, some frames got extracted but not match the number of frames needed extracted {success_count} != expected {total_frames}. The folder has been cleared now."
             )
         return status
 
