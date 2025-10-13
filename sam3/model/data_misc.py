@@ -11,17 +11,8 @@ from typing import Any, get_args, get_origin, List, Mapping, Optional, Sequence,
 
 import torch
 
-from .model_misc import NestedTensor
 
 MyTensor = Union[torch.Tensor, List[Any]]
-
-
-def clean_pointers(s: str):
-    """Removes pointers of the style <ptr_#N> where N is integer, while leaving the rest of the string intact"""
-
-    pattern = r"<ptr_#\d+>"
-    output_string = re.sub(pattern, "", s).replace("  ", " ").strip()
-    return output_string
 
 
 def interpolate(
@@ -85,25 +76,9 @@ class FindStage:
     input_points_mask: MyTensor
     input_points_mask__type = torch.bool
 
-    ptrs: Optional[BatchedPointer]
-    ptrs_seg: Optional[BatchedPointer]
     # We track the object ids referred to by this query.
     # This is beneficial for tracking in videos without the need for pointers.
     object_ids: Optional[List[List]] = None  # List of objects per query
-
-    input_boxes_before_embed: Optional[MyTensor] = None
-    input_boxes_before_embed__type = torch.float
-
-    input_points_before_embed: Optional[MyTensor] = None
-    input_points_before_embed__type = torch.float
-
-
-@dataclass
-class GetStage:
-    text_inputs: List[str]
-    text_output: List[str]
-    ptrs_x: BatchedPointer
-    ptrs_y: BatchedPointer
 
 
 @dataclass
@@ -175,49 +150,20 @@ class BatchedInferenceMetadata:
     frame_index__type = torch.long
 
     # Adding for relations inference
-    get_text_input: List[Optional[str]]
+    # get_text_input: List[Optional[str]]
 
     # Adding for TA conditional inference
     is_conditioning_only: List[Optional[bool]]
 
 
 @dataclass
-class PointerExtractBehaviour:
-    """This class contains configuration for the pointer extraction mechanism"""
-
-    # If this is true, we will extract embeddings for the objects that match the ground truth
-    # This is the behaviour used in training, and in some cases in evaluation
-    # Note that if this true, the rest of the options are ignored
-    match_to_gt: bool = True
-
-    # --------- All options below are ignored if match_to_gt is true ---------
-
-    # If this is true, the pointers will be sorted by confidence.
-    # This will change the semantics of the object_id in the pointer description:
-    #  - If this is false, then object_id = i will return the i-th object embedding (in the model's internal order)
-    #  - If this is true, then object_id = i will return the i-th most confident object embedding
-    sort_by_confidence: bool = True
-
-    # If this is > 0, then only objects that have a confidence above this threshold will be returned
-    # Note that this means some pointers may be missing.
-    score_threshold: float = 0.0
-
-
-@dataclass
 class BatchedDatapoint:
-    img_batch: NestedTensor
+    img_batch: torch.Tensor
     find_text_batch: List[str]
     find_inputs: List[FindStage]
     find_targets: List[BatchedFindTarget]
     find_metadatas: List[BatchedInferenceMetadata]
-    get_queries: GetStage
-    ptr_behaviour: PointerExtractBehaviour = field_ptr_behaviour(
-        default_factory=lambda: PointerExtractBehaviour()
-    )
     raw_images: Optional[List[Any]] = None
-
-    def pin_memory(self, device=None):
-        return recursive_pin_memory(self, device)
 
 
 def convert_my_tensors(obj):
@@ -241,7 +187,6 @@ def convert_my_tensors(obj):
         ):
             stack_dim = 0
             if field.name in [
-                "input_boxes_before_embed",
                 "input_boxes",
                 "input_boxes_label",
             ]:
@@ -262,65 +207,3 @@ def convert_my_tensors(obj):
                 ),
             )
     return obj
-
-
-def recursive_to(data, *args, **kwargs):
-    if isinstance(data, torch.Tensor):
-        ret = data.to(*args, **kwargs)
-    elif isinstance(data, Mapping):
-        ret = type(data)()
-        for key in data:
-            ret[key] = recursive_to(data[key], *args, **kwargs)
-    elif isinstance(data, tuple):
-        ret = ()
-        for value in data:
-            ret += (recursive_to(value, *args, **kwargs),)
-    elif isinstance(data, Sequence) and not isinstance(data, str):
-        ret = type(data)()
-        for value in data:
-            ret.append(recursive_to(value, *args, **kwargs))
-    elif is_dataclass(data):
-        ret_cls = type(data)
-        ret_fields = {
-            field.name: recursive_to(getattr(data, field.name), *args, **kwargs)
-            for field in fields(data)
-        }
-        ret = ret_cls(**ret_fields)
-    else:
-        ret = data
-    return ret
-
-
-def recursive_pin_memory(data, device=None):
-    """Pinning function that also supports dataclasses."""
-
-    if isinstance(data, torch.Tensor):
-        return data.pin_memory(device)
-    elif isinstance(data, (str, bytes)):
-        return data
-    elif isinstance(data, collections.abc.Mapping):
-        pinned_data = {
-            k: recursive_pin_memory(sample, device) for k, sample in data.items()
-        }
-        try:
-            return type(data)(pinned_data)  # type: ignore[call-arg]
-        except TypeError:
-            # The mapping type may not support `__init__(iterable)`.
-            return pinned_data
-    elif isinstance(data, collections.abc.Sequence):
-        pinned_data = [recursive_pin_memory(sample, device) for sample in data]  # type: ignore[assignment]
-        try:
-            return type(data)(pinned_data)  # type: ignore[call-arg]
-        except TypeError:
-            # The sequence type may not support `__init__(iterable)` (e.g., `range`).
-            return pinned_data
-    elif is_dataclass(data):
-        pinned_data = {
-            field.name: recursive_pin_memory(getattr(data, field.name), device)
-            for field in fields(data)
-        }
-        return type(data)(**pinned_data)
-    elif hasattr(data, "pin_memory"):
-        return data.pin_memory(device)
-
-    return data

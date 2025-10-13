@@ -49,6 +49,8 @@ examples = [
     "jupyter",
     "notebook",
     "ipywidgets",
+    "ipycanvas",
+    "ipympl",
 ]
 train = [
     "hydra-core",
@@ -65,8 +67,8 @@ train = [
     "fairscale",
     "scikit-image",
     "scikit-learn",
-    "cc_torch @ git+https://github.com/ronghanghu/cc_torch.git",
-    "torch_generic_nms @ git+https://github.com/ronghanghu/torch_generic_nms.git",
+    #"cc_torch @ git+https://github.com/ronghanghu/cc_torch.git",
+    #"torch_generic_nms @ git+https://github.com/ronghanghu/torch_generic_nms.git",
 ]
 veval = [
     "yt-dlp",

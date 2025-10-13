@@ -1,8 +1,7 @@
 # Copyright (c) Meta, Inc. and its affiliates. All Rights Reserved
 
 from dataclasses import dataclass, field as field_ptr_behaviour, fields, is_dataclass
-from enum import Enum
-from typing import Any, get_args, get_origin, List, Mapping, Optional, Sequence, Union
+from typing import Any, get_args, get_origin, List, Union
 
 import torch
 
@@ -10,30 +9,10 @@ from sam3.model.data_misc import (
     BatchedDatapoint,
     BatchedFindTarget,
     BatchedInferenceMetadata,
-    BatchedPointer,
     FindStage,
-    GetStage,
-    PointerExtractBehaviour,
 )
 
-from sam3.model.model_misc import NestedTensor
-
-from .sam3_image_dataset import Datapoint, QueryType
-
-
-class PtrType(Enum):
-    """Enum representing the various possible pointer types"""
-
-    # - 0=a "x" pointer for a "find/get" query
-    FindGetX = 0
-    # - 1=a "x" pointer for a "find again close" query
-    FindAgainCloseX = 1
-    # - 2=a "x" pointer for a "find again far" query
-    FindAgainFarX = 2
-    # - 3=a "y" pointer for a "find/get" query
-    FindGetY = 3
-    # - 4=a "x" pointer to memory for TA
-    FindAgainMemory = 4
+from .sam3_image_dataset import Datapoint
 
 
 MyTensor = Union[torch.Tensor, List[Any]]
@@ -60,7 +39,6 @@ def convert_my_tensors(obj):
         ):
             stack_dim = 0
             if field.name in [
-                "input_boxes_before_embed",
                 "input_boxes",
                 "input_boxes_label",
             ]:
@@ -125,70 +103,13 @@ def pad_tensor_list_to_longest(
     return tensors
 
 
-def get_max_ptrs_per_stage(batch, ptr_class="ptr_mem"):
-    """Get the maximum number of ptrs of a certain class per stage"""
-    res = {}
-    for data in batch:
-        for q in data.find_queries:
-            stage_id = q.query_processing_order
-            if stage_id not in res:
-                res[stage_id] = 0
-
-            # Get the list of pointers in the query
-            if ptr_class == "ptr_mem":
-                ptrs = q.ptr_mem
-            elif ptr_class == "ptrs_seg":
-                ptrs = q.ptrs_seg
-            else:
-                raise NotImplementedError(ptr_class)
-
-            if ptrs is not None:
-                num_ptrs = len(ptrs)
-            else:
-                num_ptrs = 0
-            if num_ptrs > res[stage_id]:
-                res[stage_id] = num_ptrs
-    return res
-
-
-def add_ptrs_to_stage(
-    query_ptrs,
-    stage_ptrs,
-    data,
-    max_ptrs,
-    datapoint_query_id_2_stage_query_id,
-    ptr_type=PtrType.FindAgainMemory,
-):
-    if query_ptrs is not None:
-        for ptr_mem in query_ptrs:
-            target_stage = data.find_queries[ptr_mem.query_id].query_processing_order
-            stage_ptrs.stage_ids.append(target_stage)
-            stage_ptrs.query_ids.append(
-                datapoint_query_id_2_stage_query_id[ptr_mem.query_id]
-            )
-            stage_ptrs.object_ids.append(ptr_mem.object_id)
-            stage_ptrs.ptr_mask.append(0)
-            stage_ptrs.ptr_types.append(ptr_type.value)
-        nb_padding_ptrs = max_ptrs - len(query_ptrs)
-    else:
-        nb_padding_ptrs = max_ptrs
-    for _ in range(nb_padding_ptrs):
-        stage_ptrs.stage_ids.append(0)
-        stage_ptrs.query_ids.append(0)
-        stage_ptrs.object_ids.append(0)
-        stage_ptrs.ptr_mask.append(1)
-        stage_ptrs.ptr_types.append(ptr_type.value)
-
-
 def collate_fn_api_with_chunking(
     batch,
     num_chunks,
     dict_key,
     with_seg_masks=False,
-    input_box_embedding_dim=258,  # Historical default
     input_points_embedding_dim=257,
     repeats: int = 0,
-    ptr_behaviour: PointerExtractBehaviour = PointerExtractBehaviour(),
     load_image_in_fp16: bool = False,
 ):
     assert num_chunks >= 1, "num_chunks must be >= 1"
@@ -202,10 +123,9 @@ def collate_fn_api_with_chunking(
             chunk,
             dict_key,
             with_seg_masks,
-            input_box_embedding_dim,
             input_points_embedding_dim,
             repeats,
-            ptr_behaviour,
+            # ptr_behaviour,
             load_image_in_fp16,
         )
         for chunk in batch_chunks
@@ -217,10 +137,8 @@ def collate_fn_api(
     batch: List[Datapoint],
     dict_key,
     with_seg_masks=False,
-    input_box_embedding_dim=258,  # Historical default
     input_points_embedding_dim=257,
     repeats: int = 0,
-    ptr_behaviour: PointerExtractBehaviour = PointerExtractBehaviour(),
     load_image_in_fp16: bool = False,
 ):
     # img_batch = torch.stack(sum([[img.data for img in v.images] for v in batch], []))
@@ -238,17 +156,9 @@ def collate_fn_api(
             text_ids=[],
             input_boxes=[],
             input_boxes_label=[],
-            input_boxes_before_embed=[],
             input_boxes_mask=[],
             input_points=[],
-            input_points_before_embed=[],
             input_points_mask=[],
-            ptrs=BatchedPointer(
-                stage_ids=[], query_ids=[], object_ids=[], ptr_mask=[], ptr_types=[]
-            ),
-            ptrs_seg=BatchedPointer(
-                stage_ids=[], query_ids=[], object_ids=[], ptr_mask=[], ptr_types=[]
-            ),
             object_ids=[],
         )
         for _ in range(num_stages)
@@ -268,16 +178,6 @@ def collate_fn_api(
         )
         for _ in range(num_stages)
     ]
-    get_stage = GetStage(
-        text_inputs=[],
-        text_output=[],
-        ptrs_x=BatchedPointer(
-            stage_ids=[], query_ids=[], object_ids=[], ptr_mask=[], ptr_types=[]
-        ),
-        ptrs_y=BatchedPointer(
-            stage_ids=[], query_ids=[], object_ids=[], ptr_mask=[], ptr_types=[]
-        ),
-    )
     find_metadatas = [
         BatchedInferenceMetadata(
             coco_image_id=[],
@@ -286,20 +186,14 @@ def collate_fn_api(
             frame_index=[],
             original_image_id=[],
             original_category_id=[],
-            get_text_input=[],
             is_conditioning_only=[],
         )
         for _ in range(num_stages)
     ]
 
-    # Get the maximum number of ptrs of a certain class, for padding purposes
-    max_ptrs_mem = get_max_ptrs_per_stage(batch, ptr_class="ptr_mem")
-    max_ptrs_seg = get_max_ptrs_per_stage(batch, ptr_class="ptrs_seg")
-
     offset_img_id = 0
     offset_query_id = [0 for _ in range(num_stages)]
     for i, data in enumerate(batch):
-        stage2within_stage_order = [[] for _ in range(num_stages)]
         img_batch.extend([img.data for img in data.images])
 
         if data.raw_images is not None:
@@ -314,58 +208,9 @@ def collate_fn_api(
             datapoint_query_id_2_stage_query_id.append(offset_query_id[stage_id])
             offset_query_id[stage_id] += 1
 
-        for j, q in enumerate(data.get_queries):
-            get_stage.text_inputs.append(q.query_text)
-            get_stage.text_output.append(q.text_output)
-            assert (
-                q.query_type == QueryType.GetQuery
-            ), f"get queries must be get queries, got {q.query_type}"
-            assert (
-                q.ptr_x is not None or q.ptr_y is not None
-            ), "get queries must have at least one pointer"
-
-            if q.ptr_x is not None:
-                target_stage = data.find_queries[
-                    q.ptr_x.query_id
-                ].query_processing_order
-                get_stage.ptrs_x.stage_ids.append(target_stage)
-                get_stage.ptrs_x.query_ids.append(
-                    datapoint_query_id_2_stage_query_id[q.ptr_x.query_id]
-                )
-                get_stage.ptrs_x.object_ids.append(q.ptr_x.object_id)
-                get_stage.ptrs_x.ptr_mask.append(0)
-                get_stage.ptrs_x.ptr_types.append(PtrType.FindGetX.value)
-            else:
-                # No pointer, populate with dummy values
-                get_stage.ptrs_x.stage_ids.append(-1)
-                get_stage.ptrs_x.query_ids.append(0)
-                get_stage.ptrs_x.object_ids.append(0)
-                get_stage.ptrs_x.ptr_mask.append(1)
-                get_stage.ptrs_x.ptr_types.append(PtrType.FindGetX.value)
-
-            if q.ptr_y is not None:
-                target_stage = data.find_queries[
-                    q.ptr_y.query_id
-                ].query_processing_order
-                get_stage.ptrs_y.stage_ids.append(target_stage)
-                get_stage.ptrs_y.query_ids.append(
-                    datapoint_query_id_2_stage_query_id[q.ptr_y.query_id]
-                )
-                get_stage.ptrs_y.object_ids.append(q.ptr_y.object_id)
-                get_stage.ptrs_y.ptr_mask.append(0)
-                get_stage.ptrs_y.ptr_types.append(PtrType.FindGetY.value)
-            else:
-                # No pointer, populate with dummy values
-                get_stage.ptrs_y.stage_ids.append(-1)
-                get_stage.ptrs_y.query_ids.append(0)
-                get_stage.ptrs_y.object_ids.append(0)
-                get_stage.ptrs_y.ptr_mask.append(1)
-                get_stage.ptrs_y.ptr_types.append(PtrType.FindGetY.value)
-
         for j, q in enumerate(data.find_queries):
             stage_id = q.query_processing_order
             stages[stage_id].img_ids.append(q.image_id + offset_img_id)
-            stage2within_stage_order[stage_id].append(q.within_stage_order)
             if q.query_text not in text_batch:
                 text_batch.append(q.query_text)
             stages[stage_id].text_ids.append(text_batch.index(q.query_text))
@@ -378,90 +223,12 @@ def collate_fn_api(
                     getattr(q.inference_metadata, f.name)
                 )
 
-            assert (
-                q.ptr_x is None or q.ptr_y is None
-            ), "can't provide both x and y pointers for find"
-
-            assert stages[stage_id].ptrs is not None, "ptrs must be initialized"
-
-            # Add the query conditional segments to the stage segment pointers
-            add_ptrs_to_stage(
-                q.ptrs_seg,
-                stages[stage_id].ptrs_seg,
-                data,
-                max_ptrs_seg[stage_id],
-                datapoint_query_id_2_stage_query_id,
-            )
-
-            # Add the query memory pointers to the stage pointers
-            add_ptrs_to_stage(
-                q.ptr_mem,
-                stages[stage_id].ptrs,
-                data,
-                max_ptrs_mem[stage_id],
-                datapoint_query_id_2_stage_query_id,
-            )
-
-            if q.ptr_x is not None:
-                target_stage = data.find_queries[
-                    q.ptr_x.query_id
-                ].query_processing_order
-                stages[stage_id].ptrs.stage_ids.append(target_stage)
-                stages[stage_id].ptrs.query_ids.append(
-                    datapoint_query_id_2_stage_query_id[q.ptr_x.query_id]
-                )
-                stages[stage_id].ptrs.object_ids.append(q.ptr_x.object_id)
-                stages[stage_id].ptrs.ptr_mask.append(0)
-                ptr_type = None
-                if q.query_type == QueryType.FindQuery:
-                    ptr_type = PtrType.FindGetX
-                elif q.query_type == QueryType.FindAgainClose:
-                    ptr_type = PtrType.FindAgainCloseX
-                elif q.query_type == QueryType.FindAgainFar:
-                    ptr_type = PtrType.FindAgainFarX
-                else:
-                    assert False, "unknown query type"
-                stages[stage_id].ptrs.ptr_types.append(ptr_type.value)
-            elif q.ptr_y is not None:
-                target_stage = data.find_queries[
-                    q.ptr_y.query_id
-                ].query_processing_order
-                stages[stage_id].ptrs.stage_ids.append(target_stage)
-                stages[stage_id].ptrs.query_ids.append(
-                    datapoint_query_id_2_stage_query_id[q.ptr_y.query_id]
-                )
-                stages[stage_id].ptrs.object_ids.append(q.ptr_y.object_id)
-                stages[stage_id].ptrs.ptr_mask.append(0)
-                assert (
-                    q.query_type == QueryType.FindQuery
-                ), "y pointers are only allowed for find queries"
-                stages[stage_id].ptrs.ptr_types.append(PtrType.FindGetY.value)
-            else:
-                # No pointer, populate with dummy values
-                stages[stage_id].ptrs.stage_ids.append(-1)
-                stages[stage_id].ptrs.query_ids.append(0)
-                stages[stage_id].ptrs.object_ids.append(0)
-                stages[stage_id].ptrs.ptr_mask.append(1)
-                stages[stage_id].ptrs.ptr_types.append(0)
-
             if q.input_bbox is not None:
-                assert q.input_bbox.shape[-1] == input_box_embedding_dim, (
-                    "Mismatch between input bbox's embedding dimension from "
-                    "dataset and expected dimension from collator. "
-                    f"Dataset: {q.input_bbox.shape[-1]}, "
-                    f"Collator: {input_box_embedding_dim}."
-                )
-                assert q.input_bbox_before_embed is not None
-                assert q.input_bbox_before_embed.numel() % 4 == 0
+                assert q.input_bbox.numel() % 4 == 0
                 assert q.input_bbox_label is not None
-                nb_boxes = q.input_bbox_before_embed.numel() // 4
+                nb_boxes = q.input_bbox.numel() // 4
                 assert len(q.input_bbox_label) == nb_boxes
-                stages[stage_id].input_boxes.append(
-                    q.input_bbox.view(nb_boxes, input_box_embedding_dim)
-                )
-                stages[stage_id].input_boxes_before_embed.append(
-                    q.input_bbox_before_embed.view(nb_boxes, 4)
-                )
+                stages[stage_id].input_boxes.append(q.input_bbox.view(nb_boxes, 4))
                 stages[stage_id].input_boxes_label.append(
                     q.input_bbox_label.view(nb_boxes)
                 )
@@ -469,10 +236,7 @@ def collate_fn_api(
                     torch.zeros(nb_boxes, dtype=torch.bool)
                 )
             else:
-                stages[stage_id].input_boxes.append(
-                    torch.zeros(0, input_box_embedding_dim)
-                )
-                stages[stage_id].input_boxes_before_embed.append(torch.zeros(0, 4))
+                stages[stage_id].input_boxes.append(torch.zeros(0, 4))
                 stages[stage_id].input_boxes_label.append(
                     torch.zeros(0, dtype=torch.bool)
                 )
@@ -481,17 +245,8 @@ def collate_fn_api(
                 )
 
             if q.input_points is not None:
-                assert q.input_points.shape[-1] == input_points_embedding_dim, (
-                    "Mismatch between input points's embedding dimension from "
-                    "dataset and expected dimension from collator. "
-                    f"Dataset: {q.input_points.shape[-1]}, "
-                    f"Collator: {input_box_embedding_dim}."
-                )
                 stages[stage_id].input_points.append(
                     q.input_points.squeeze(0)  # Strip a trivial batch index
-                )
-                stages[stage_id].input_points_before_embed.append(
-                    q.input_points_before_embed.squeeze(0)
                 )
                 # All masks will be padded up to the longest length
                 # with 1s before final conversion to batchd tensors
@@ -502,7 +257,6 @@ def collate_fn_api(
                 stages[stage_id].input_points.append(
                     torch.empty(0, input_points_embedding_dim)
                 )
-                stages[stage_id].input_points_before_embed.append(torch.empty(0, 3))
                 stages[stage_id].input_points_mask.append(torch.empty(0))
 
             current_out_boxes = []
@@ -548,20 +302,10 @@ def collate_fn_api(
 
         offset_img_id += len(data.images)
 
-        # Sanity check: we should have the same within stage order in all stages
-        for stage_id in range(num_stages):
-            assert stage2within_stage_order[stage_id] == stage2within_stage_order[0], (
-                f"Within stage order mismatch in stage {stage_id} for datapoint {i}: "
-                f"{stage2within_stage_order[stage_id]} vs {stage2within_stage_order[0]}"
-            )
-
     # Pad input points to equal sequence lengths
     for i in range(len(stages)):
         stages[i].input_points = pad_tensor_list_to_longest(
             stages[i].input_points, dim=0, pad_val=0
-        )
-        stages[i].input_points_before_embed = pad_tensor_list_to_longest(
-            stages[i].input_points_before_embed, dim=0, pad_val=0
         )
         # Masked-out regions indicated by 1s.
         stages[i].input_points_mask = pad_tensor_list_to_longest(
@@ -572,9 +316,6 @@ def collate_fn_api(
     for i in range(len(stages)):
         stages[i].input_boxes = pad_tensor_list_to_longest(
             stages[i].input_boxes, dim=0, pad_val=0
-        )
-        stages[i].input_boxes_before_embed = pad_tensor_list_to_longest(
-            stages[i].input_boxes_before_embed, dim=0, pad_val=0
         )
         stages[i].input_boxes_label = pad_tensor_list_to_longest(
             stages[i].input_boxes_label, dim=0, pad_val=0
@@ -597,18 +338,15 @@ def collate_fn_api(
             find_targets[i].object_ids, find_targets[i].num_boxes, fill_value=-1
         )
 
-        # Optimization: If all pointers for the stages are dummy, we can delete them
-        if torch.all(stages[i].ptrs.ptr_mask == 1).item():
-            stages[i].ptrs = None
-
-    get_stage = convert_my_tensors(get_stage)
-
     # Finalize the image batch
-    image_batch = NestedTensor.from_tensor_list(img_batch, rounding=None)
+    # check sizes
+    for img in img_batch[1:]:
+        assert img.shape == img_batch[0].shape, "All images must have the same size"
+    image_batch = torch.stack(img_batch)
     if load_image_in_fp16:
         # Optionally, cast the image tensors to fp16, which helps save GPU memory on
         # long videos with thousands of frames (where image tensors could be several GBs)
-        image_batch.tensors = image_batch.tensors.half()
+        image_batch = image_batch.half()
 
     return {
         dict_key: BatchedDatapoint(
@@ -616,9 +354,7 @@ def collate_fn_api(
             find_text_batch=text_batch,
             find_inputs=stages,
             find_targets=find_targets,
-            get_queries=get_stage,
             find_metadatas=find_metadatas,
-            ptr_behaviour=ptr_behaviour,
             raw_images=raw_images,
         )
     }

@@ -1,5 +1,6 @@
 # Copyright (c) Meta, Inc. and its affiliates. All Rights Reserved
 
+import datetime
 import gc
 import multiprocessing as mp
 import os
@@ -31,11 +32,11 @@ class Sam3VideoPredictor:
         has_presence_token=False,
         geo_encoder_use_img_cross_attn=False,
         strict_state_dict_loading=True,
-        default_output_prob_thresh=0.5,
         async_loading_frames=False,
+        video_loader_type="cv2",
     ):
-        self.default_output_prob_thresh = default_output_prob_thresh
         self.async_loading_frames = async_loading_frames
+        self.video_loader_type = video_loader_type
 
         self.model = (
             build_sam3_video_model(
@@ -65,13 +66,15 @@ class Sam3VideoPredictor:
                 text=request.get("text", None),
                 points=request.get("points", None),
                 point_labels=request.get("point_labels", None),
-                clear_old_points=request.get("clear_old_points", True),
                 bounding_boxes=request.get("bounding_boxes", None),
                 bounding_box_labels=request.get("bounding_box_labels", None),
-                clear_old_boxes=request.get("clear_old_boxes", True),
-                output_prob_thresh=request.get(
-                    "output_prob_thresh", self.default_output_prob_thresh
-                ),
+                obj_id=request.get("obj_id", None),
+            )
+        elif request_type == "remove_object":
+            return self.remove_object(
+                session_id=request["session_id"],
+                obj_id=request["obj_id"],
+                is_user_action=request.get("is_user_action", True),
             )
         elif request_type == "reset_session":
             return self.reset_session(session_id=request["session_id"])
@@ -90,9 +93,6 @@ class Sam3VideoPredictor:
                 propagation_direction=request.get("propagation_direction", "both"),
                 start_frame_idx=request.get("start_frame_index", None),
                 max_frame_num_to_track=request.get("max_frame_num_to_track", None),
-                output_prob_thresh=request.get(
-                    "output_prob_thresh", self.default_output_prob_thresh
-                ),
             )
         else:
             raise RuntimeError(f"invalid request type: {request_type}")
@@ -109,7 +109,9 @@ class Sam3VideoPredictor:
         """
         # get an initial inference_state from the model
         inference_state = self.model.init_state(
-            resource_path=resource_path, async_loading_frames=self.async_loading_frames
+            resource_path=resource_path,
+            async_loading_frames=self.async_loading_frames,
+            video_loader_type=self.video_loader_type,
         )
         if not session_id:
             session_id = str(uuid.uuid4())
@@ -131,17 +133,15 @@ class Sam3VideoPredictor:
         text: Optional[str] = None,
         points: Optional[List[List[float]]] = None,
         point_labels: Optional[List[int]] = None,
-        clear_old_points: bool = True,
         bounding_boxes: Optional[List[List[float]]] = None,
         bounding_box_labels: Optional[List[int]] = None,
-        clear_old_boxes: bool = True,
-        output_prob_thresh: float = 0.5,
+        obj_id: Optional[int] = None,
     ):
         """Add text, box and/or point prompt on a specific video frame."""
         logger.info(
             f"add prompt on frame {frame_idx} in session {session_id}: "
-            f"{text=}, {points=}, {point_labels=}, {clear_old_points=}, "
-            f"{bounding_boxes=}, {bounding_box_labels=}, {clear_old_boxes=}"
+            f"{text=}, {points=}, {point_labels=}, "
+            f"{bounding_boxes=}, {bounding_box_labels=}"
         )
         session = self._get_session(session_id)
         inference_state = session["state"]
@@ -152,13 +152,32 @@ class Sam3VideoPredictor:
             text_str=text,
             points=points,
             point_labels=point_labels,
-            clear_old_points=clear_old_points,
             boxes_xywh=bounding_boxes,
             box_labels=bounding_box_labels,
-            clear_old_boxes=clear_old_boxes,
-            output_prob_thresh=output_prob_thresh,
+            obj_id=obj_id,
         )
         return {"frame_index": frame_idx, "outputs": outputs}
+
+    def remove_object(
+        self,
+        session_id: str,
+        obj_id: int,
+        is_user_action: bool = True,
+    ):
+        """Remove an object from tracking."""
+        logger.info(
+            f"remove object {obj_id} in session {session_id}: "
+            f"{is_user_action=}"
+        )
+        session = self._get_session(session_id)
+        inference_state = session["state"]
+
+        self.model.remove_object(
+            inference_state=inference_state,
+            obj_id=obj_id,
+            is_user_action=is_user_action,
+        )
+        return {"is_success": True}
 
     def propagate_in_video(
         self,
@@ -166,7 +185,6 @@ class Sam3VideoPredictor:
         propagation_direction,
         start_frame_idx,
         max_frame_num_to_track,
-        output_prob_thresh,
     ):
         """Propagate the added prompts to get grounding results on all video frames."""
         logger.info(
@@ -187,7 +205,6 @@ class Sam3VideoPredictor:
                     inference_state=inference_state,
                     start_frame_idx=start_frame_idx,
                     max_frame_num_to_track=max_frame_num_to_track,
-                    output_prob_thresh=output_prob_thresh,
                     reverse=False,
                 ):
                     yield {"frame_index": frame_idx, "outputs": outputs}
@@ -197,7 +214,6 @@ class Sam3VideoPredictor:
                     inference_state=inference_state,
                     start_frame_idx=start_frame_idx,
                     max_frame_num_to_track=max_frame_num_to_track,
-                    output_prob_thresh=output_prob_thresh,
                     reverse=True,
                 ):
                     yield {"frame_index": frame_idx, "outputs": outputs}
@@ -210,7 +226,7 @@ class Sam3VideoPredictor:
 
     def reset_session(self, session_id):
         """Reset the session to its initial state (as when it's initial opened)."""
-        logger.info(f"clear all inputs across the video in session {session_id}")
+        logger.info(f"reset session {session_id}")
         session = self._get_session(session_id)
         inference_state = session["state"]
         self.model.reset_state(inference_state)
@@ -401,9 +417,13 @@ class Sam3VideoPredictorMultiGPU(Sam3VideoPredictor):
         logger.info(f"starting NCCL process group on {rank=} with {world_size=}")
         assert not torch.distributed.is_initialized()
         # use the "env://" init method with environment variables set in start_worker_processes
+        # a short 3-min timeout to quickly detect any synchronization failures
+        timeout_sec = int(os.getenv("SAM3_COLLECTIVE_OP_TIMEOUT_SEC", "180"))
+        timeout = datetime.timedelta(seconds=timeout_sec)
         torch.distributed.init_process_group(
             backend="nccl",
             init_method="env://",
+            timeout=timeout,
             device_id=self.device,
         )
         # warm-up the NCCL process group by running a dummy all-reduce

@@ -1,0 +1,839 @@
+# @package _global_
+defaults:
+  - _self_
+
+# ============================================================================
+# Paths Configuration (Chage this to your own paths)
+# ============================================================================
+#  python sam3/train/train.py -c configs/odinw_text_only.yaml --use-cluster 1 --partition h200 --account sam3 --qos h200_sam3_high
+
+paths:
+  #checkpoint_path: /checkpoint/onevision/kalyanv/sam3_ckpts/shuangrui_checkpoint_presence_0.35_completed.pt
+  checkpoint_path: /checkpoint/sam3/chayryali/omnivision_onevision/config/experiments/chayryali/sam3v1_stage3/final/paper_launch_model_oct/launch_stage3_v2.yaml/0/checkpoints/checkpoint.pt
+  odinw_data_root: /checkpoint/sam3/shared/data/odinw
+  experiment_log_dir: /checkpoint/sam3/kalyanv/odinw_text_only_chunked
+  bpe_path: /home/kalyanv/sam3/assets/bpe_simple_vocab_16e6.txt.gz
+
+
+odinw_train:
+  train_file: fewshot_train_shot10_seed300
+  num_images: null
+  supercategory_tuple: ${all_odinw_supercategories.${string:${submitit.job_array.task_index}}}
+  # supercategory_tuple: ${all_odinw_supercategories.${string:${submitit.task_index}}}
+
+  # Training transforms pipeline
+  train_transforms:
+    - _target_: sam3.train.transforms.basic_for_api.ComposeAPI
+      transforms:
+        - _target_: sam3.train.transforms.filter_query_transforms.FlexibleFilterFindGetQueries
+          query_filter:
+            _target_: sam3.train.transforms.filter_query_transforms.FilterCrowds
+        - _target_: sam3.train.transforms.point_sampling.RandomizeInputBbox
+          box_noise_std: 0.1
+          box_noise_max: 20
+        - _target_: sam3.train.transforms.segmentation.DecodeRle
+        - _target_: sam3.train.transforms.basic_for_api.RandomResizeAPI
+          sizes:
+            _target_: sam3.train.transforms.basic.get_random_resize_scales
+            size: ${scratch.resolution}
+            min_size: 480
+            rounded: false
+          max_size:
+            _target_: sam3.train.transforms.basic.get_random_resize_max_size
+            size: ${scratch.resolution}
+          square: true
+          consistent_transform: ${scratch.consistent_transform}
+        - _target_: sam3.train.transforms.basic_for_api.PadToSizeAPI
+          size: ${scratch.resolution}
+          consistent_transform: ${scratch.consistent_transform}
+        - _target_: sam3.train.transforms.basic_for_api.ToTensorAPI
+        - _target_: sam3.train.transforms.filter_query_transforms.FlexibleFilterFindGetQueries
+          query_filter:
+            _target_: sam3.train.transforms.filter_query_transforms.FilterEmptyTargets
+        - _target_: sam3.train.transforms.basic_for_api.NormalizeAPI
+          mean: ${scratch.train_norm_mean}
+          std: ${scratch.train_norm_std}
+        - _target_: sam3.train.transforms.filter_query_transforms.FlexibleFilterFindGetQueries
+          query_filter:
+            _target_: sam3.train.transforms.filter_query_transforms.FilterEmptyTargets
+    - _target_: sam3.train.transforms.filter_query_transforms.FlexibleFilterFindGetQueries
+      query_filter:
+        _target_: sam3.train.transforms.filter_query_transforms.FilterFindQueriesWithTooManyOut
+        max_num_objects: ${scratch.max_ann_per_img}
+
+  # Validation transforms pipeline
+  val_transforms:
+    - _target_: sam3.train.transforms.basic_for_api.ComposeAPI
+      transforms:
+        - _target_: sam3.train.transforms.basic_for_api.RandomResizeAPI
+          sizes: ${scratch.resolution}
+          max_size:
+            _target_: sam3.train.transforms.basic.get_random_resize_max_size
+            size: ${scratch.resolution}
+          square: true
+          consistent_transform: False
+        - _target_: sam3.train.transforms.basic_for_api.ToTensorAPI
+        - _target_: sam3.train.transforms.basic_for_api.NormalizeAPI
+          # mean: [0.485, 0.456, 0.406]
+          # std: [0.229, 0.224, 0.225]
+          mean: ${scratch.train_norm_mean}
+          std: ${scratch.train_norm_std}
+
+  # loss config (no mask loss)
+  loss:
+    _target_: sam3.train.loss.sam3_loss.Sam3LossWrapper
+    matcher: ${scratch.matcher}
+    o2m_weight: 2.0
+    o2m_matcher:
+      _target_: sam3.train.matcher.BinaryOneToManyMatcher
+      alpha: 0.3
+      threshold: 0.4
+      topk: 4
+    # use one-to-one (instead of one-to-many) matcher on o2m auxiliary outputs (to be consistent with FA 1a_v4.5)
+    use_o2m_matcher_on_o2m_aux: ${scratch.use_o2m_matcher_on_o2m_aux}
+    loss_fns_find:
+      - _target_: sam3.train.loss.loss_fns.Boxes
+        weight_dict:
+          loss_bbox: 5.0
+          loss_giou: 2.0
+      - _target_: sam3.train.loss.loss_fns.IABCEMdetr
+        weak_loss: False
+        weight_dict:
+          loss_ce: ${scratch.loss_ce_weight}  # Change
+          presence_loss: ${scratch.presence_weight}  # Change
+        pos_weight: ${scratch.iabce_pos_weight}
+        alpha: ${scratch.iabce_alpha}
+        gamma: 2
+        use_presence: True  # Change
+        pos_focal: ${scratch.iabce_pos_focal}
+        pad_n_queries: ${scratch.num_queries}
+        pad_scale_pos: ${scratch.instance_query_loss_pad_scale_pos}
+
+    loss_fn_semantic_seg: null
+    scale_by_find_batch_size: ${scratch.scale_by_find_batch_size}
+
+
+# ============================================================================
+# Different helper parameters and functions
+# ============================================================================
+scratch:
+  enable_segmentation: True
+  use_act_checkpoint_geo_encoder: True
+  input_geometry_encoder:
+    _target_: sam3.model.geometry_encoders.SequenceGeometryEncoder
+    pos_enc: ${scratch.pos_embed}
+    encode_boxes_as_points: False
+    points_direct_project: True
+    points_pool: True
+    points_pos_enc: True
+    boxes_direct_project: True
+    boxes_pool: True
+    boxes_pos_enc: True
+    d_model: ${scratch.d_model}
+    num_layers: 3
+    use_act_ckpt: ${scratch.use_act_checkpoint_geo_encoder}
+    layer:
+      _target_: sam3.model.encoder.TransformerEncoderLayer
+      activation: "relu"
+      d_model: ${scratch.d_model}
+      dim_feedforward: 2048
+      dropout: ${scratch.encoder_dropout}
+      pos_enc_at_attn: false
+      pre_norm: True
+      pos_enc_at_cross_attn_queries: false
+      pos_enc_at_cross_attn_keys: true
+      self_attention:
+        _target_: sam3.model.attention.MultiheadAttention
+        attn_type: Vanilla
+        num_heads: 8
+        dropout: ${scratch.encoder_dropout}
+        embed_dim: ${scratch.d_model}
+        batch_first: False
+      cross_attention:
+        _target_: sam3.model.attention.MultiheadAttention
+        attn_type: Vanilla
+        num_heads: 8
+        dropout: ${scratch.encoder_dropout}
+        embed_dim: ${scratch.d_model}
+        batch_first: False
+    add_cls: true
+    add_post_encode_proj: True
+    mask_encoder:
+      _target_: sam3.model.geometry_encoders.FusedMaskEncoder
+      out_dim: ${scratch.d_model}
+      position_encoding:
+        _target_: sam3.model.position_encoding.PositionEmbeddingSine
+        num_pos_feats: ${scratch.d_model}
+        normalize: true
+        scale: null
+        temperature: 10000
+        precompute_resolution: ${scratch.resolution}
+      mask_downsampler:
+        _target_: sam3.model.memory.SimpleMaskDownSampler
+        interpol_size: [288,288]
+        kernel_size: 3
+        stride: 2
+        padding: 1
+        # Mask downsmapling stride (Assuming 256x256 pred_masks)
+        total_stride: 4
+      fuser:
+        _target_: sam3.model.memory.SimpleFuser
+        layer:
+          _target_: sam3.model.memory.CXBlock
+          dim: ${scratch.d_model}
+          kernel_size: 7
+          padding: 3
+          layer_scale_init_value: 1e-6
+          use_dwconv: True  # depth-wise convs
+        num_layers: 2
+
+  boxRPB: "log"
+  dac: True
+  use_early_fusion: true
+  o2m_mask: false
+  num_feature_levels: 1  # > 1 not implemented
+  encoder_dropout: 0.1
+  decoder_dropout: 0.1
+
+  tokenizer_ve:
+    _target_:  sam3.model.tokenizer_ve.SimpleTokenizer
+    bpe_path: ${paths.bpe_path}
+
+
+  freeze_text_tower: False  # True, does NOT freeze the final projection to d_model dim
+  freeze_image_tower: NoFreeze
+  vis_backbone_dp: 0.0 # TODO: As per chay's suggestions changed it from 0.1 to 0.0
+  # Activation checkpointing (Save memory)
+  use_act_checkpoint_vision_backbone: True
+  use_act_checkpoint_text_backbone: True
+  use_act_checkpoint_encoder: True
+  use_act_checkpoint_decoder: True
+
+  loss: null
+  # Loss parameters
+  num_queries: 200
+  presence_weight: 20.0
+  loss_ce_weight: 20.0 # TODO: Sweep 100.0 and 20.0
+  iabce_pos_weight: 10.0 # TODO: Sweep 10.0 and 5.0
+  iabce_pos_focal: false
+  iabce_alpha: 0.25
+  instance_query_loss_pad_scale_pos: 1.0
+  use_o2m_matcher_on_o2m_aux: false
+
+  # Model parameters
+  use_instance_query: true
+  d_model: 256
+  pos_embed:
+    _target_: sam3.model.position_encoding.PositionEmbeddingSine
+    num_pos_feats: ${scratch.d_model}
+    normalize: true
+    scale: null
+    temperature: 10000
+
+  # Box processing
+  use_presence_eval: True
+  original_box_postprocessor:
+    _target_: sam3.train.eval.postprocessors.PostProcessImage
+    max_dets_per_img: -1  # infinite detections
+    use_original_ids: true
+    use_original_sizes: true
+    use_presence: ${scratch.use_presence_eval}
+
+
+  # Matcher configuration
+  matcher:
+    _target_: sam3.train.matcher.BinaryHungarianMatcherV2
+    focal: true  # with `focal: true` it is equivalent to BinaryFocalHungarianMatcher
+    cost_class: 2.0
+    cost_bbox: 5.0
+    cost_giou: 2.0
+    alpha: 0.25
+    gamma: 2
+    stable: False
+  scale_by_find_batch_size: True
+
+  # Image processing parameters
+  resolution: 1008
+  consistent_transform: False
+  max_ann_per_img: 200
+
+  # Normalization parameters
+  train_norm_mean: [0.5, 0.5, 0.5]
+  train_norm_std: [0.5, 0.5, 0.5]
+  val_norm_mean: [0.5, 0.5, 0.5]
+  val_norm_std: [0.5, 0.5, 0.5]
+
+  # Training parameters
+  train_batch_size: 1
+  val_batch_size: 8
+  num_train_workers: 0
+  num_val_workers: 0
+  max_data_epochs: 20
+  target_epoch_size: 1500
+  hybrid_repeats: 1
+  context_length: 2
+  gather_pred_via_filesys: false
+
+  # Learning rate and scheduler parameters
+  lr_scale: 0.1
+  lr_transformer: ${times:8e-4,${scratch.lr_scale}}
+  lr_vision_backbone: ${times:2.5e-4,${scratch.lr_scale}}
+  lr_language_backbone: ${times:5e-5,${scratch.lr_scale}}
+  lrd_vision_backbone: 0.9 # (lower for in-domain adn higher for ood) #TODO: 0.8, 0.9, 1.0
+  wd: 0.1 # TODO: Sweep for 0.0 adn 0.01
+  scheduler_timescale: 20
+  scheduler_warmup: 20
+  scheduler_cooldown: 20
+
+
+
+
+# ============================================================================
+# Trainer Configuration
+# ============================================================================
+
+trainer:
+  _target_: sam3.train.trainer.Trainer
+  skip_saving_ckpts: true
+  # _target_: sam3.train.trainer.Trainer
+  # skip_saving_ckpts: true
+  empty_gpu_mem_cache_after_eval: True
+  skip_first_val: True
+  max_epochs: ${scratch.max_data_epochs}
+  accelerator: cuda
+  seed_value: 123
+  val_epoch_freq: 10
+  mode: val
+
+  distributed:
+    backend: nccl
+    find_unused_parameters: True
+    gradient_as_bucket_view: True
+
+  loss:
+    all: ${odinw_train.loss}
+    default:
+      _target_: sam3.train.loss.sam3_loss.DummyLoss
+
+  data:
+    train:
+      _target_: sam3.train.data.torch_dataset.TorchDataset
+      dataset:
+        _target_: sam3.train.data.sam3_image_dataset.Sam3ImageDataset
+        limit_ids: ${odinw_train.num_images}
+        transforms: ${odinw_train.train_transforms}
+        load_segmentation: false
+        max_ann_per_img: 500000
+        multiplier: 1
+        max_train_queries: 50000
+        max_train_get_queries: 50000
+        max_val_queries: 50000
+        max_val_get_queries: 50000
+        training: true
+        use_caching: False
+        img_folder: ${paths.odinw_data_root}/${odinw_train.supercategory_tuple.train.img_folder}
+        ann_file:
+          _target_: sam3.train.eval.coco_reindex.reindex_coco_to_temp
+          input_json_path: ${paths.odinw_data_root}/${odinw_train.supercategory_tuple.train.json}
+        coco_json_loader:
+          _target_: sam3.train.data.coco_json_loaders.COCO_FROM_JSON
+          prompts: ${odinw35_prompts.${odinw_train.supercategory_tuple.name}} #${odinw_train.supercategory_tuple.name)
+          _partial_: true
+      shuffle: True
+      batch_size: ${scratch.train_batch_size}
+      num_workers: ${scratch.num_train_workers}
+      pin_memory: False
+      drop_last: True
+      collate_fn:
+        _target_: sam3.train.data.collator.collate_fn_api
+        _partial_: true
+        repeats: ${scratch.hybrid_repeats}
+        dict_key: all
+        with_seg_masks: true
+
+    val:
+      _target_: sam3.train.data.torch_dataset.TorchDataset
+      dataset:
+        _target_: sam3.train.data.sam3_image_dataset.Sam3ImageDataset
+        coco_json_loader:
+          _target_: sam3.train.data.coco_json_loaders.COCO_FROM_JSON
+          prompts: ${odinw35_prompts.${odinw_train.supercategory_tuple.name}}
+          include_negatives: True
+          category_chunk_size: 2 # Note: You can increase this based on the memory of your GPU.
+          _partial_: true
+        img_folder: ${paths.odinw_data_root}/${odinw_train.supercategory_tuple.val.img_folder}
+        ann_file:
+          _target_: sam3.train.eval.coco_reindex.reindex_coco_to_temp
+          input_json_path: ${paths.odinw_data_root}/${odinw_train.supercategory_tuple.val.json}
+        transforms: ${odinw_train.val_transforms}
+        max_ann_per_img: 100000
+        multiplier: 1
+        training: false
+
+      shuffle: False
+      batch_size: ${scratch.val_batch_size}
+      num_workers: ${scratch.num_val_workers}
+      pin_memory: False
+      drop_last: False
+      collate_fn:
+        _target_: sam3.train.data.collator.collate_fn_api
+        _partial_: true
+        repeats: ${scratch.hybrid_repeats}
+        dict_key: odinw35
+
+  model:
+    _target_: sam3.model_builder.build_sam3_image_model
+    bpe_path: /home/kalyanv/sam3/assets/bpe_simple_vocab_16e6.txt.gz
+    device: cpus
+    eval_mode: false
+    enable_segmentation: ${scratch.enable_segmentation} # Warning: Enable this if using segmentation.
+    checkpoint_path: ${paths.checkpoint_path}
+
+
+  meters:
+    val:
+      odinw35:
+        detection:
+          _target_: sam3.train.eval.coco_writer.PredictionDumper
+          iou_type: "bbox"
+          dump_dir: ${launcher.experiment_log_dir}/dumps/roboflow/${odinw_train.supercategory_tuple.name}
+          merge_predictions: True
+          postprocessor: ${scratch.original_box_postprocessor}
+          gather_pred_via_filesys: ${scratch.gather_pred_via_filesys}
+          maxdets: 100
+          pred_file_evaluators:
+            - _target_: sam3.train.eval.coco_eval_offline.CocoEvaluatorOfflineWithPredFileEvaluators
+              gt_path:
+                _target_: sam3.train.eval.coco_reindex.reindex_coco_to_temp
+                input_json_path: ${paths.odinw_data_root}/${odinw_train.supercategory_tuple.val.json}
+              tide: False
+              iou_type: "bbox"
+              positive_split: False
+
+  optim:
+    amp:
+      enabled: True
+      amp_dtype: bfloat16
+
+    optimizer:
+      _target_: torch.optim.AdamW
+
+    gradient_clip:
+      _target_: sam3.train.optim.optimizer.GradientClipper
+      max_norm: 0.1
+      norm_type: 2
+
+    param_group_modifiers:
+      - _target_: sam3.train.optim.optimizer.layer_decay_param_modifier
+        _partial_: True
+        layer_decay_value: ${scratch.lrd_vision_backbone}
+        apply_to: 'backbone.vision_backbone.trunk'
+        overrides:
+          - pattern: '*pos_embed*'
+            value: 1.0
+
+    options:
+      lr:
+        - scheduler:  # transformer and class_embed
+            _target_: sam3.train.optim.schedulers.InverseSquareRootParamScheduler
+            base_lr: ${scratch.lr_transformer}
+            timescale: ${scratch.scheduler_timescale}
+            warmup_steps: ${scratch.scheduler_warmup}
+            cooldown_steps: ${scratch.scheduler_cooldown}
+        - scheduler:
+            _target_: sam3.train.optim.schedulers.InverseSquareRootParamScheduler
+            base_lr: ${scratch.lr_vision_backbone}
+            timescale: ${scratch.scheduler_timescale}
+            warmup_steps: ${scratch.scheduler_warmup}
+            cooldown_steps: ${scratch.scheduler_cooldown}
+          param_names:
+            - 'backbone.vision_backbone.*'
+        - scheduler:
+            _target_: sam3.train.optim.schedulers.InverseSquareRootParamScheduler
+            base_lr: ${scratch.lr_language_backbone}
+            timescale: ${scratch.scheduler_timescale}
+            warmup_steps: ${scratch.scheduler_warmup}
+            cooldown_steps: ${scratch.scheduler_cooldown}
+          param_names:
+            - 'backbone.language_backbone.*'
+
+      weight_decay:
+        - scheduler:
+            _target_: fvcore.common.param_scheduler.ConstantParamScheduler
+            value: ${scratch.wd}
+        - scheduler:
+            _target_: fvcore.common.param_scheduler.ConstantParamScheduler
+            value: 0.0
+          param_names:
+            - '*bias*'
+          module_cls_names: ['torch.nn.LayerNorm']
+
+  checkpoint:
+    save_dir: ${launcher.experiment_log_dir}/checkpoints
+    save_freq: 0  # 0 only last checkpoint is saved.
+
+
+  logging:
+    tensorboard_writer:
+      _target_: sam3.train.utils.logger.make_tensorboard_logger
+      log_dir: ${launcher.experiment_log_dir}/tensorboard
+      flush_secs: 120
+      should_log: True
+    wandb_writer: null
+    log_dir: ${launcher.experiment_log_dir}/logs/${odinw_train.supercategory_tuple.name}
+    log_freq: 10
+
+# ============================================================================
+# Launcher and Submitit Configuration
+# ============================================================================
+
+launcher:
+  num_nodes: 1
+  gpus_per_node: 2
+  experiment_log_dir: null #${paths.experiment_log_dir}
+  multiprocessing_context: forkserver
+
+submitit:
+  account: null
+  partition: null
+  qos: null
+  timeout_hour: 72
+  use_cluster: True
+  cpus_per_task: 10
+  port_range: [10000, 65000]
+  constraint: null #"volta32gb"
+
+  # task_index: 2
+  # Uncomment for job array configuration
+  job_array:
+    num_tasks: 35
+    task_index: 0
+
+
+
+# ============================================================================
+# Available Roboflow Supercategories (for reference)
+# ============================================================================
+
+all_odinw_supercategories:
+  - name: AerialMaritimeDrone_large
+    val:
+      img_folder: AerialMaritimeDrone/large/test/
+      json: AerialMaritimeDrone/large/test/annotations_without_background.json
+    train:
+      img_folder: AerialMaritimeDrone/large/train/
+      json: AerialMaritimeDrone/large/train/${odinw_train.train_file}.json
+
+  - name: AerialMaritimeDrone_tiled
+    val:
+      img_folder: AerialMaritimeDrone/tiled/test/
+      json: AerialMaritimeDrone/tiled/test/annotations_without_background.json
+    train:
+      img_folder: AerialMaritimeDrone/tiled/train/
+      json: AerialMaritimeDrone/tiled/train/${odinw_train.train_file}.json
+
+  - name: AmericanSignLanguageLetters
+    val:
+      img_folder:  AmericanSignLanguageLetters/American Sign Language Letters.v1-v1.coco/test/
+      json: AmericanSignLanguageLetters/American Sign Language Letters.v1-v1.coco/test/annotations_without_background.json
+    train:
+      img_folder: AmericanSignLanguageLetters/American Sign Language Letters.v1-v1.coco/train/
+      json: AmericanSignLanguageLetters/American Sign Language Letters.v1-v1.coco/train/${odinw_train.train_file}.json
+  - name: Aquarium
+    val:
+      img_folder: Aquarium/Aquarium Combined.v2-raw-1024.coco/test/
+      json: Aquarium/Aquarium Combined.v2-raw-1024.coco/test/annotations_without_background.json
+    train:
+      img_folder: Aquarium/Aquarium Combined.v2-raw-1024.coco/train/
+      json: Aquarium/Aquarium Combined.v2-raw-1024.coco/train/${odinw_train.train_file}.json
+  - name: BCCD
+    val:
+      img_folder: BCCD/BCCD.v3-raw.coco/test/
+      json: BCCD/BCCD.v3-raw.coco/test/annotations_without_background.json
+    train:
+      img_folder: BCCD/BCCD.v3-raw.coco/train/
+      json: BCCD/BCCD.v3-raw.coco/train/${odinw_train.train_file}.json
+  - name: ChessPieces
+    val:
+      img_folder: ChessPieces/Chess Pieces.v23-raw.coco/test/
+      json: ChessPieces/Chess Pieces.v23-raw.coco/test/annotations_without_background.json
+    train:
+      img_folder: ChessPieces/Chess Pieces.v23-raw.coco/train/
+      json: ChessPieces/Chess Pieces.v23-raw.coco/train/${odinw_train.train_file}.json
+  - name: CottontailRabbits
+    val:
+      img_folder: CottontailRabbits/test/
+      json: CottontailRabbits/test/annotations_without_background.json
+    train:
+      img_folder: CottontailRabbits/train/
+      json: CottontailRabbits/train/${odinw_train.train_file}.json
+  - name: DroneControl
+    val:
+      img_folder: DroneControl/Drone Control.v3-raw.coco/test/
+      json: DroneControl/Drone Control.v3-raw.coco/test/annotations_without_background.json
+    train:
+      img_folder: DroneControl/Drone Control.v3-raw.coco/train/
+      json: DroneControl/Drone Control.v3-raw.coco/train/${odinw_train.train_file}.json
+  - name: EgoHands_generic
+    val:
+      img_folder: EgoHands/generic/test/
+      json: EgoHands/generic/test/annotations_without_background.json
+    train:
+      img_folder: EgoHands/generic/train/
+      json: EgoHands/generic/train/${odinw_train.train_file}.json
+  - name: EgoHands_specific
+    val:
+      img_folder: EgoHands/specific/test/
+      json: EgoHands/specific/test/annotations_without_background.json
+    train:
+      img_folder: EgoHands/specific/train/
+      json: EgoHands/specific/train/${odinw_train.train_file}.json
+  - name: HardHatWorkers
+    val:
+      img_folder: HardHatWorkers/raw/test/
+      json: HardHatWorkers/raw/test/annotations_without_background.json
+    train:
+      img_folder: HardHatWorkers/raw/train/
+      json: HardHatWorkers/raw/train/${odinw_train.train_file}.json
+  - name: MaskWearing
+    val:
+      img_folder: MaskWearing/raw/test/
+      json: MaskWearing/raw/test/annotations_without_background.json
+    train:
+      img_folder: MaskWearing/raw/train/
+      json: MaskWearing/raw/train/${odinw_train.train_file}.json
+  - name: MountainDewCommercial
+    val:
+      img_folder: MountainDewCommercial/test/
+      json: MountainDewCommercial/test/annotations_without_background.json
+    train:
+      img_folder: MountainDewCommercial/train/
+      json: MountainDewCommercial/train/${odinw_train.train_file}.json
+  - name: NorthAmericaMushrooms
+    val:
+      img_folder: NorthAmericaMushrooms/North American Mushrooms.v1-416x416.coco/test/
+      json: NorthAmericaMushrooms/North American Mushrooms.v1-416x416.coco/test/annotations_without_background.json
+    train:
+      img_folder: NorthAmericaMushrooms/North American Mushrooms.v1-416x416.coco/train/
+      json: NorthAmericaMushrooms/North American Mushrooms.v1-416x416.coco/train/${odinw_train.train_file}.json
+  - name: OxfordPets_breed
+    val:
+      img_folder: OxfordPets/by-breed/test/
+      json: OxfordPets/by-breed/test/annotations_without_background.json
+    train:
+      img_folder: OxfordPets/by-breed/train/
+      json: OxfordPets/by-breed/train/${odinw_train.train_file}.json
+  - name: OxfordPets_species
+    val:
+      img_folder: OxfordPets/by-species/test/
+      json: OxfordPets/by-species/test/annotations_without_background.json
+    train:
+      img_folder: OxfordPets/by-species/train/
+      json: OxfordPets/by-species/train/${odinw_train.train_file}.json
+  - name: PKLot
+    val:
+      img_folder: PKLot/640/test/
+      json: PKLot/640/test/annotations_without_background.json
+    train:
+      img_folder: PKLot/640/train/
+      json: PKLot/640/train/${odinw_train.train_file}.json
+  - name: Packages
+    val:
+      img_folder: Packages/Raw/test/
+      json: Packages/Raw/test/annotations_without_background.json
+    train:
+      img_folder: Packages/Raw/train/
+      json: Packages/Raw/train/${odinw_train.train_file}.json
+  - name: PascalVOC
+    val:
+      img_folder: PascalVOC/valid/
+      json: PascalVOC/valid/annotations_without_background.json
+    train:
+      img_folder: PascalVOC/train/
+      json:  PascalVOC/train/${odinw_train.train_file}.json
+  - name: Raccoon
+    val:
+      img_folder: Raccoon/Raccoon.v2-raw.coco/test/
+      json: Raccoon/Raccoon.v2-raw.coco/test/annotations_without_background.json
+    train:
+      img_folder: Raccoon/Raccoon.v2-raw.coco/train/
+      json: Raccoon/Raccoon.v2-raw.coco/train/${odinw_train.train_file}.json
+  - name: ShellfishOpenImages
+    val:
+      img_folder: ShellfishOpenImages/raw/test/
+      json: ShellfishOpenImages/raw/test/annotations_without_background.json
+    train:
+      img_folder: ShellfishOpenImages/raw/train/
+      json: ShellfishOpenImages/raw/train/${odinw_train.train_file}.json
+  - name: ThermalCheetah
+    val:
+      img_folder: ThermalCheetah/test/
+      json: ThermalCheetah/test/annotations_without_background.json
+    train:
+      img_folder: ThermalCheetah/train/
+      json: ThermalCheetah/train/${odinw_train.train_file}.json
+  - name: UnoCards
+    val:
+      img_folder: UnoCards/raw/test/
+      json: UnoCards/raw/test/annotations_without_background.json
+    train:
+      img_folder: UnoCards/raw/train/
+      json: UnoCards/raw/train/${odinw_train.train_file}.json
+  - name: VehiclesOpenImages
+    val:
+      img_folder: VehiclesOpenImages/416x416/test/
+      json: VehiclesOpenImages/416x416/test/annotations_without_background.json
+    train:
+      img_folder: VehiclesOpenImages/416x416/train/
+      json: VehiclesOpenImages/416x416/train/${odinw_train.train_file}.json
+  - name: WildfireSmoke
+    val:
+      img_folder: WildfireSmoke/test/
+      json: WildfireSmoke/test/annotations_without_background.json
+    train:
+      img_folder: WildfireSmoke/train/
+      json: WildfireSmoke/train/${odinw_train.train_file}.json
+  - name: brackishUnderwater
+    val:
+      img_folder: brackishUnderwater/960x540/test/
+      json: brackishUnderwater/960x540/test/annotations_without_background.json
+    train:
+      img_folder: brackishUnderwater/960x540/train/
+      json: brackishUnderwater/960x540/train/${odinw_train.train_file}.json
+  - name: openPoetryVision
+    val:
+      img_folder: openPoetryVision/512x512/test/
+      json: openPoetryVision/512x512/test/annotations_without_background.json
+    train:
+      img_folder: openPoetryVision/512x512/train/
+      json: openPoetryVision/512x512/train/${odinw_train.train_file}.json
+  - name: plantdoc_416
+    val:
+      img_folder: plantdoc/416x416/test/
+      json: plantdoc/416x416/test/annotations_without_background.json
+    train:
+      img_folder: plantdoc/416x416/train/
+      json: plantdoc/416x416/train/${odinw_train.train_file}.json
+  - name: pothole
+    val:
+      img_folder: pothole/test/
+      json: pothole/test/annotations_without_background.json
+    train:
+      img_folder: pothole/train/
+      json: pothole/train/${odinw_train.train_file}.json
+  - name: thermalDogsAndPeople
+    val:
+      img_folder: thermalDogsAndPeople/test/
+      json: thermalDogsAndPeople/test/annotations_without_background.json
+    train:
+      img_folder: thermalDogsAndPeople/train/
+      json: thermalDogsAndPeople/train/${odinw_train.train_file}.json
+  - name: websiteScreenshots
+    val:
+      img_folder: websiteScreenshots/test/
+      json: websiteScreenshots/test/annotations_without_background.json
+    train:
+      img_folder: websiteScreenshots/train/
+      json: websiteScreenshots/train/${odinw_train.train_file}.json
+  - name: boggleBoards
+    val:
+      img_folder: boggleBoards/416x416AutoOrient/export/
+      json: boggleBoards/416x416AutoOrient/export/test_annotations_without_background.json
+    train:
+      img_folder: boggleBoards/416x416AutoOrient/export/
+      json: boggleBoards/416x416AutoOrient/export/${odinw_train.train_file}.json
+  - name: dice
+    val:
+      img_folder: dice/mediumColor/export/
+      json: dice/mediumColor/export/test_annotations_without_background.json
+    train:
+      img_folder: dice/mediumColor/export/
+      json: dice/mediumColor/export/${odinw_train.train_file}.json
+  - name: pistols
+    val:
+      img_folder: pistols/export/
+      json: pistols/export/test_annotations_without_background.json
+    train:
+      img_folder: pistols/export/
+      json: pistols/export/${odinw_train.train_file}.json
+  - name: selfdrivingCar
+    val:
+      img_folder: selfdrivingCar/fixedLarge/export/
+      json: selfdrivingCar/fixedLarge/export/test_annotations_without_background.json
+    train:
+      img_folder: selfdrivingCar/fixedLarge/export/
+      json: selfdrivingCar/fixedLarge/export/${odinw_train.train_file}.json
+
+
+odinw35_prompts:
+  AerialMaritimeDrone_large: '[{"id": 1, "name": "boat", "supercategory": "movable-objects"},
+    {"id": 2, "name": "car", "supercategory": "movable-objects"}, {"id": 3, "name": "dock",
+    "supercategory": "movable-objects"}, {"id": 4, "name": "jet ski", "supercategory": "movable-objects"},
+    {"id": 5, "name": "boat lift", "supercategory": "movable-objects"}]'
+  AerialMaritimeDrone_tiled: null
+  AmericanSignLanguageLetters: null
+  Aquarium: null
+  BCCD: null
+  ChessPieces: null
+  CottontailRabbits: null
+  DroneControl: null
+  EgoHands_specific: null
+  HardHatWorkers: null
+  MaskWearing: null
+  MountainDewCommercial: null
+  NorthAmericaMushrooms: '[{''id'': 1, ''name'':
+    ''chicken of wood'', ''supercategory'': ''mushroom''}, {''id'': 2, ''name'': ''chanterelle'', ''supercategory'': ''mushroom''}]'
+  # NorthAmericaMushrooms: '[{''id'': 1, ''name'':
+  #   ''chicken mushroom'', ''supercategory'': ''mushroom''}, {''id'': 2, ''name'': ''yellow
+  #   mushroom'', ''supercategory'': ''mushroom''}]'
+  OxfordPets_breed: '[{"id": 1, "name": "cat-Abyssinian head", "supercategory": "pets"},
+    {"id": 2, "name": "cat-Bengal head", "supercategory": "pets"}, {"id": 3, "name": "cat-Birman head",
+    "supercategory": "pets"}, {"id": 4, "name": "cat-Bombay head", "supercategory": "pets"},
+    {"id": 5, "name": "cat-British_Shorthair head", "supercategory": "pets"}, {"id": 6, "name":
+    "cat-Egyptian_Mau head", "supercategory": "pets"}, {"id": 7, "name": "cat-Maine_Coon head",
+    "supercategory": "pets"}, {"id": 8, "name": "cat-Persian head", "supercategory": "pets"},
+    {"id": 9, "name": "cat-Ragdoll head", "supercategory": "pets"}, {"id": 10, "name": "cat-Russian_Blue head",
+    "supercategory": "pets"}, {"id": 11, "name": "cat-Siamese head", "supercategory": "pets"},
+    {"id": 12, "name": "cat-Sphynx head", "supercategory": "pets"}, {"id": 13, "name": "dog-american_bulldog head",
+    "supercategory": "pets"}, {"id": 14, "name": "dog-american_pit_bull_terrier head", "supercategory":
+    "pets"}, {"id": 15, "name": "dog-basset_hound head", "supercategory": "pets"}, {"id":
+    16, "name": "dog-beagle head", "supercategory": "pets"}, {"id": 17, "name": "dog-boxer head",
+    "supercategory": "pets"}, {"id": 18, "name": "dog-chihuahua head", "supercategory": "pets"},
+    {"id": 19, "name": "dog-english_cocker_spaniel head", "supercategory": "pets"}, {"id":
+    20, "name": "dog-english_setter head", "supercategory": "pets"}, {"id": 21, "name": "dog-german_shorthaired head",
+    "supercategory": "pets"}, {"id": 22, "name": "dog-great_pyrenees head", "supercategory":
+    "pets"}, {"id": 23, "name": "dog-havanese head", "supercategory": "pets"}, {"id": 24,
+    "name": "dog-japanese_chin head", "supercategory": "pets"}, {"id": 25, "name": "dog-keeshond head",
+    "supercategory": "pets"}, {"id": 26, "name": "dog-leonberger head", "supercategory":
+    "pets"}, {"id": 27, "name": "dog-miniature_pinscher head", "supercategory": "pets"},
+    {"id": 28, "name": "dog-newfoundland head", "supercategory": "pets"}, {"id": 29, "name":
+    "dog-pomeranian head", "supercategory": "pets"}, {"id": 30, "name": "dog-pug head", "supercategory":
+    "pets"}, {"id": 31, "name": "dog-saint_bernard head", "supercategory": "pets"}, {"id":
+    32, "name": "dog-samoyed head", "supercategory": "pets"}, {"id": 33, "name": "dog-scottish_terrier head",
+    "supercategory": "pets"}, {"id": 34, "name": "dog-shiba_inu head", "supercategory": "pets"},
+    {"id": 35, "name": "dog-staffordshire_bull_terrier head", "supercategory": "pets"}, {"id":
+    36, "name": "dog-wheaten_terrier head", "supercategory": "pets"}, {"id": 37, "name":
+    "dog-yorkshire_terrier head", "supercategory": "pets"}]'
+  OxfordPets_species: '[{"id": 1, "name": "cat head", "supercategory": "pets"}, {"id":
+    2, "name": "dog head", "supercategory": "pets"}]'
+  PKLot: null
+  Packages: null
+  PascalVOC: null
+  Raccoon: null
+  ShellfishOpenImages: null
+  ThermalCheetah: null
+  UnoCards: null
+  VehiclesOpenImages: null
+  WildfireSmoke: null
+  boggleBoards: null
+  brackishUnderwater: null
+  dice: null
+  openPoetryVision: null
+  pistols: null
+  plantdoc_100x100: null
+  plantdoc_416: null
+  pothole: null
+  selfdrivingCar: null
+  thermalDogsAndPeople: null
+  websiteScreenshots: null
+  EgoHands_generic: null

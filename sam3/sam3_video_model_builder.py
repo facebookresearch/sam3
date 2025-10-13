@@ -1,9 +1,9 @@
 # Copyright (c) Meta, Inc. and its affiliates. All Rights Reserved
 
 """
-SAM3 Dense Tracking Model Builder.
+SAM3 Video Model Builder.
 
-This module provides builders for SAM3 dense tracking models, combining SAM2 and SAM3
+This module provides builders for SAM3 video, combining Detector and Tracker
 components for video object tracking and segmentation.
 """
 
@@ -41,6 +41,7 @@ from sam3.model.model_misc import (
 from sam3.model.necks import Sam3DualViTDetNeck
 from sam3.model.position_encoding import PositionEmbeddingSine
 from sam3.model.sam3_image import Sam3ImageOnVideoMultiGPU
+from sam3.model.sam3_tracker_base import Sam3TrackerBase
 from sam3.model.sam3_tracking_predictor import Sam3TrackerPredictor
 from sam3.model.sam3_video_inference import Sam3VideoInferenceWithInstanceInteractivity
 from sam3.model.text_encoder_ve import VETextEncoder
@@ -63,40 +64,8 @@ def _setup_tf32() -> None:
 _setup_tf32()
 
 
-class Sam2Predictor(nn.Module):
-    """
-    Wrapper for SAM2 predictor model.
-
-    This class wraps the SAM2 video tracking model to provide a consistent
-    interface for dense tracking applications.
-    """
-
-    def __init__(self, model: nn.Module) -> None:
-        """
-        Initialize SAM2 predictor wrapper.
-
-        Args:
-            model: The underlying SAM2 model
-        """
-        super().__init__()
-        self.model = model
-        self.per_obj_inference = False
-
-    def forward(self, *args, **kwargs):
-        """Forward pass is not implemented - use predictor APIs instead."""
-        raise NotImplementedError(
-            "Use the sam2 predictor APIs instead. Check Sam3TrackerPredictor class for details."
-        )
-
-    def __getattr__(self, name):
-        model = super().__getattr__("model")
-        if name == "model":
-            return model
-        return getattr(model, name)
-
-
-def _create_sam2_components():
-    """Create SAM2 model components."""
+def _create_tracker_maskmem_backbone():
+    """Create the SAM3 Tracker memory encoder."""
     # Position encoding for mask memory backbone
     position_encoding = PositionEmbeddingSine(
         num_pos_feats=64,
@@ -131,8 +100,8 @@ def _create_sam2_components():
     return maskmem_backbone
 
 
-def _create_sam2_transformer():
-    """Create SAM2 transformer components."""
+def _create_tracker_transformer():
+    """Create the SAM3 Tracker transformer components."""
     # Self attention
     self_attention = RoPEAttention(
         embedding_dim=256,
@@ -196,19 +165,19 @@ def _create_sam2_transformer():
     return transformer
 
 
-def build_sam2_model() -> Sam2Predictor:
+def build_tracker() -> Sam3TrackerPredictor:
     """
-    Build SAM2 model for video tracking.
+    Build the SAM3 Tracker module for video tracking.
 
     Returns:
-        Sam2Predictor: Wrapped SAM2 model for video tracking
+        Sam3TrackerPredictor: Wrapped SAM3 Tracker module
     """
 
     # Create model components
-    maskmem_backbone = _create_sam2_components()
-    transformer = _create_sam2_transformer()
+    maskmem_backbone = _create_tracker_maskmem_backbone()
+    transformer = _create_tracker_transformer()
 
-    # Create the main SAM2 model
+    # Create the Tracker module
     model = Sam3TrackerPredictor(
         image_size=1008,
         num_maskmem=7,
@@ -242,7 +211,67 @@ def build_sam2_model() -> Sam2Predictor:
         fill_hole_area=0,
     )
 
-    return Sam2Predictor(model)
+    return model
+
+
+def build_sam3_tracking_predictor(sam3_ckpt=None) -> Sam3TrackerBase:
+    """
+    Build the SAM3 tracker module for video tracking.
+
+    Returns:
+        Sam3TrackerBase: Wrapped SAM3 tracker module for video tracking
+    """
+
+    # Create model components
+    maskmem_backbone = _create_tracker_maskmem_backbone()
+    transformer = _create_tracker_transformer()
+    vision_backbone = _create_sam3_visual_backbone()
+    backbone = SAM3VLBackbone(scalp=1, visual=vision_backbone, text=None)
+    # Create the Tracker module
+    model = Sam3TrackerBase(
+        image_size=1008,
+        num_maskmem=7,
+        backbone=backbone,
+        backbone_stride=14,
+        transformer=transformer,
+        maskmem_backbone=maskmem_backbone,
+        # SAM parameters
+        multimask_output_in_sam=True,
+        # Evaluation
+        forward_backbone_per_frame_for_eval=True,
+        trim_past_non_cond_mem_for_eval=False,
+        # Multimask
+        multimask_output_for_tracking=True,
+        multimask_min_pt_num=0,
+        multimask_max_pt_num=1,
+        # Mask overlap
+        non_overlap_masks_for_mem_enc=False,
+        max_cond_frames_in_attn=4,
+        offload_output_to_cpu_for_eval=False,
+        # SAM decoder settings
+        sam_mask_decoder_extra_args={
+            "dynamic_multimask_via_stability": True,
+            "dynamic_multimask_stability_delta": 0.05,
+            "dynamic_multimask_stability_thresh": 0.98,
+        },
+    )
+
+    if sam3_ckpt is not None:
+        # Keep tracker heads + sam3 backbone
+        state_dict = {
+            k: v
+            for k, v in sam3_ckpt.items()
+            if "sam2_predictor" in k or "backbone.vision_backbone" in k
+        }
+        state_dict = {
+            k.replace("sam2_predictor.model.", ""): v for k, v in state_dict.items()
+        }
+        state_dict = {
+            k.replace("sam3_model.backbone", "backbone"): v
+            for k, v in state_dict.items()
+        }
+        model.load_state_dict(state_dict)
+    return model
 
 
 def _create_sam3_visual_backbone() -> Sam3DualViTDetNeck:
@@ -478,8 +507,8 @@ def _create_sam3_geometry_encoder(
 def build_sam3_video_model(
     checkpoint_path: Optional[str] = None,
     bpe_path: Optional[str] = None,
-    has_presence_token: bool = False,
-    geo_encoder_use_img_cross_attn: bool = False,
+    has_presence_token: bool = True,
+    geo_encoder_use_img_cross_attn: bool = True,
     strict_state_dict_loading: bool = True,
 ) -> Sam3VideoInferenceWithInstanceInteractivity:
     """
@@ -497,10 +526,10 @@ def build_sam3_video_model(
             os.path.dirname(__file__), "..", "assets", "bpe_simple_vocab_16e6.txt.gz"
         )
 
-    # Build SAM2 model
-    sam2_model = build_sam2_model()
+    # Build Tracker module
+    tracker = build_tracker()
 
-    # Create SAM3 components
+    # Build Detector components
     visual_neck = _create_sam3_visual_backbone()
     text_encoder = _create_sam3_text_encoder(bpe_path)
     backbone = SAM3VLBackbone(scalp=1, visual=visual_neck, text=text_encoder)
@@ -526,8 +555,8 @@ def build_sam3_video_model(
         d_model=256, d_proj=256, prompt_mlp=main_dot_prod_mlp
     )
 
-    # Create SAM3 model
-    sam3_model = Sam3ImageOnVideoMultiGPU(
+    # Build Detector module
+    detector = Sam3ImageOnVideoMultiGPU(
         num_feature_levels=1,
         backbone=backbone,
         transformer=transformer,
@@ -539,10 +568,10 @@ def build_sam3_video_model(
         dot_prod_scoring=main_dot_prod_scoring,
     )
 
-    # Create the main dense tracking model
+    # Build the main SAM3 video model
     model = Sam3VideoInferenceWithInstanceInteractivity(
-        sam2_model=sam2_model,
-        sam3_model=sam3_model,
+        detector=detector,
+        tracker=tracker,
         ckpt_path=None,
         score_threshold_detection=0.5,
         assoc_iou_thresh=0.1,
@@ -564,6 +593,16 @@ def build_sam3_video_model(
         ckpt = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
         if "model" in ckpt and isinstance(ckpt["model"], dict):
             ckpt = ckpt["model"]
+
+        # remap keys in old checkpoints for compatibility (TODO remove this when we have the final checkpoints)
+        for key in list(ckpt.keys()):
+            if key.startswith("sam2_predictor.model."):
+                new_key = "tracker." + key[len("sam2_predictor.model.") :]
+                ckpt[new_key] = ckpt.pop(key)
+            elif key.startswith("sam3_model."):
+                new_key = "detector." + key[len("sam3_model.") :]
+                ckpt[new_key] = ckpt.pop(key)
+
         missing_keys, unexpected_keys = model.load_state_dict(
             ckpt, strict=strict_state_dict_loading
         )

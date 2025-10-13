@@ -6,10 +6,9 @@ from collections import OrderedDict
 import torch
 from tqdm.auto import tqdm
 
-from sam3.model.model_misc import NestedTensor
 from sam3.model.sam3_tracker_base import concat_points, NO_OBJ_SCORE, Sam3TrackerBase
-from sam3.model.sam3_tracker_utils import fill_holes_in_mask_scores, load_video_frames
-
+from sam3.model.sam3_tracker_utils import fill_holes_in_mask_scores
+from sam3.model.utils.sam2_utils import load_video_frames
 
 class Sam3TrackerPredictor(Sam3TrackerBase):
     """
@@ -48,21 +47,24 @@ class Sam3TrackerPredictor(Sam3TrackerBase):
 
         self.bf16_context = torch.autocast(device_type="cuda", dtype=torch.bfloat16)
         self.bf16_context.__enter__()  # keep using for the entire model process
-        self.per_obj_inference = False
+
+        self.iter_use_prev_mask_pred = False #TODO
+        self.add_all_frames_to_correct_as_cond = False #TODO
 
     @torch.inference_mode()
     def init_state(
         self,
-        video_height,
-        video_width,
-        num_frames,
+        video_height=None,
+        video_width=None,
+        num_frames=None,
+        video_path=None,
         cached_features=None,
         offload_video_to_cpu=False,
         offload_state_to_cpu=False,
+        async_loading_frames=False,
     ):
         """Initialize a inference state."""
         inference_state = {}
-        inference_state["num_frames"] = num_frames
         # whether to offload the video frames to CPU memory
         # turning on this option saves the GPU memory with only a very small overhead
         inference_state["offload_video_to_cpu"] = offload_video_to_cpu
@@ -71,14 +73,30 @@ class Sam3TrackerPredictor(Sam3TrackerBase):
         # (e.g. in a test case of 768x768 model, fps dropped from 27 to 24 when tracking one object
         # and from 24 to 21 when tracking two objects)
         inference_state["offload_state_to_cpu"] = offload_state_to_cpu
-        # the original video height and width, used for resizing final output scores
-        inference_state["video_height"] = video_height
-        inference_state["video_width"] = video_width
+        # TODO: support arbitrary device and remove all ".cuda()" calls
         inference_state["device"] = torch.device("cuda")
         if offload_state_to_cpu:
             inference_state["storage_device"] = torch.device("cpu")
         else:
             inference_state["storage_device"] = torch.device("cuda")
+
+        if video_path is not None:
+            images, video_height, video_width = load_video_frames(
+                video_path=video_path,
+                image_size=self.image_size,
+                offload_video_to_cpu=offload_video_to_cpu,
+                async_loading_frames=async_loading_frames,
+                compute_device=inference_state["storage_device"],
+            )
+            inference_state["images"] = images
+            inference_state["num_frames"] = len(images)
+            inference_state["video_height"] = video_height
+            inference_state["video_width"] = video_width
+        else:
+            # the original video height and width, used for resizing final output scores
+            inference_state["video_height"] = video_height
+            inference_state["video_width"] = video_width
+            inference_state["num_frames"] = num_frames
         # inputs on each frame
         inference_state["point_inputs_per_obj"] = {}
         inference_state["mask_inputs_per_obj"] = {}
@@ -290,7 +308,6 @@ class Sam3TrackerPredictor(Sam3TrackerBase):
         frame_idx,
         obj_id,
         mask,
-        # for compatibility with per_obj_inference class, not used here
         add_mask_to_memory=False,
     ):
         """Add new mask to a frame."""
@@ -586,7 +603,6 @@ class Sam3TrackerPredictor(Sam3TrackerBase):
             _,
             current_vision_feats,
             current_vision_pos_embeds,
-            current_vision_masks,
             feat_sizes,
         ) = self._get_image_feature(inference_state, frame_idx, batch_size)
 
@@ -595,7 +611,6 @@ class Sam3TrackerPredictor(Sam3TrackerBase):
             frame_idx=frame_idx,
             is_init_cond_frame=True,
             current_vision_feats=current_vision_feats,
-            current_vision_masks=current_vision_masks,
             current_vision_pos_embeds=current_vision_pos_embeds,
             feat_sizes=feat_sizes,
             image=image,
@@ -603,7 +618,10 @@ class Sam3TrackerPredictor(Sam3TrackerBase):
             mask_inputs=mask_inputs,
             gt_masks=None,
             frames_to_add_correction_pt=[],
-            output_dict={},
+            output_dict={
+                "cond_frame_outputs": {},
+                "non_cond_frame_outputs": {},
+            },
             num_frames=inference_state["num_frames"],
             track_in_reverse=False,
             run_mem_encoder=False,
@@ -740,8 +758,12 @@ class Sam3TrackerPredictor(Sam3TrackerBase):
         tqdm_disable=False,
         obj_ids=None,
         run_mem_encoder=True,
+        propagate_preflight=False,
     ):
         """Propagate the input points across frames to track in the entire video."""
+        # TODO:
+        if propagate_preflight:
+            self.propagate_in_video_preflight(inference_state)
         # NOTE: This is a copy from the parent class, except that we return object scores as well.
         output_dict = inference_state["output_dict"]
         consolidated_frame_inds = inference_state["consolidated_frame_inds"]
@@ -956,11 +978,21 @@ class Sam3TrackerPredictor(Sam3TrackerBase):
             frame_idx, (None, None)
         )
         if backbone_out is None:
-            raise RuntimeError(
-                f"Image features for frame {frame_idx} are not cached. "
-                "Please run inference on this frame first."
-            )
-        backbone_out = backbone_out["sam2_backbone_out"]  # Extract SAM2 backbone output
+            if self.backbone is None:
+                raise RuntimeError(
+                    f"Image features for frame {frame_idx} are not cached. "
+                    "Please run inference on this frame first."
+                )
+            else:
+                # Cache miss -- we will run inference on a single image
+                image = inference_state["images"][frame_idx].cuda().float().unsqueeze(0)
+                backbone_out = self.forward_image(image)
+                # Cache the most recent frame's feature (for repeated interactions with
+                # a frame; we can use an LRU cache for more frames in the future).
+                inference_state["cached_features"] = {frame_idx: (image, backbone_out)}
+
+        # TODO:
+        # backbone_out = backbone_out["tracker_backbone_out"]  # Extract SAM2 backbone output
 
         # expand the features to have the same dimension as the number of objects
         expanded_image = image.expand(batch_size, -1, -1, -1)
@@ -969,14 +1001,7 @@ class Sam3TrackerPredictor(Sam3TrackerBase):
             "vision_pos_enc": backbone_out["vision_pos_enc"].copy(),
         }
         for i, feat in enumerate(expanded_backbone_out["backbone_fpn"]):
-            feat = NestedTensor(
-                tensors=feat.tensors.expand(batch_size, -1, -1, -1),
-                mask=(
-                    feat.mask.expand(batch_size, -1, -1, -1)
-                    if feat.mask is not None
-                    else None
-                ),
-            )
+            feat = feat.expand(batch_size, -1, -1, -1)
             expanded_backbone_out["backbone_fpn"][i] = feat
         for i, pos in enumerate(expanded_backbone_out["vision_pos_enc"]):
             pos = pos.expand(batch_size, -1, -1, -1)
@@ -1007,7 +1032,6 @@ class Sam3TrackerPredictor(Sam3TrackerBase):
             _,
             current_vision_feats,
             current_vision_pos_embeds,
-            current_vision_masks,
             feat_sizes,
         ) = self._get_image_feature(inference_state, frame_idx, batch_size)
 
@@ -1074,7 +1098,7 @@ class Sam3TrackerPredictor(Sam3TrackerBase):
         memory also need to be computed again with the memory encoder.
         """
         # Retrieve correct image features
-        image, _, current_vision_feats, _, _, feat_sizes = self._get_image_feature(
+        image, _, current_vision_feats, _, feat_sizes = self._get_image_feature(
             inference_state, frame_idx, batch_size
         )
         maskmem_features, maskmem_pos_enc = self._encode_new_memory(

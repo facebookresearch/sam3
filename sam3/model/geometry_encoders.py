@@ -12,7 +12,7 @@ from .box_ops import box_cxcywh_to_xyxy
 
 from .encoder import TransformerEncoderLayer, TransformerEncoderLayerSimple
 
-from .model_misc import get_clones, NestedTensor
+from .model_misc import get_clones
 
 
 def is_right_padded(mask):
@@ -402,11 +402,7 @@ class MaskEncoder(nn.Module):
 
     def forward(self, masks, *args, **kwargs) -> Tuple[torch.Tensor, torch.Tensor]:
         masks = self.mask_downsampler(masks)
-        masks_nt = NestedTensor(
-            tensors=masks,
-            mask=None,
-        )
-        masks_pos = self.position_encoding(masks_nt).to(masks_nt.tensors.dtype)
+        masks_pos = self.position_encoding(masks).to(masks.dtype)
 
         return masks, masks_pos
 
@@ -451,11 +447,7 @@ class FusedMaskEncoder(MaskEncoder):
         x = self.fuser(x)
         x = self.out_proj(x)
 
-        x_pos = NestedTensor(
-            tensors=x,
-            mask=None,
-        )
-        pos = self.position_encoding(x_pos).to(x_pos.tensors.dtype)
+        pos = self.position_encoding(x).to(x.dtype)
 
         return x, pos
 

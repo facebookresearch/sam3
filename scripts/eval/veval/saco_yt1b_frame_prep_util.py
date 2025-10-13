@@ -1,4 +1,5 @@
 import argparse
+import logging
 import os
 import re
 import shutil
@@ -6,10 +7,13 @@ import subprocess
 from glob import glob
 
 import cv2
+
 import pandas as pd
 import yt_dlp
 
 from tqdm import tqdm
+
+logger = logging.getLogger(__name__)
 
 
 class YtVideoPrep:
@@ -19,10 +23,12 @@ class YtVideoPrep:
         data_dir: str,
         cookies_file: str,
         id_and_frame_map_path: str,
+        ffmpeg_timeout: int,
     ):
         self.saco_yt1b_id = saco_yt1b_id  # saco_yt1b_id is like saco_yt1b_000000
         self.data_dir = data_dir
         self.cookies_file = cookies_file
+        self.ffmpeg_timeout = ffmpeg_timeout
 
         self.id_and_frame_map_df = pd.read_json(id_and_frame_map_path)
         (
@@ -76,31 +82,6 @@ class YtVideoPrep:
             frame_matching,
         )
 
-    def _get_total_frame_count(self):
-        """Get the total number of frames in the raw video using cv2 for speed and reliability."""
-        if not os.path.exists(self.raw_video_path):
-            return 0
-
-        try:
-            # Use cv2 for fast and reliable frame counting
-            cap = cv2.VideoCapture(self.raw_video_path)
-            if not cap.isOpened():
-                raise ValueError(f"Could not open video: {self.raw_video_path}")
-            
-            # Get frame count from video metadata
-            total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-            cap.release()
-            
-            if total_frames > 0:
-                print(f"cv2 reports {total_frames} frames")
-                return total_frames
-            else:
-                raise ValueError("cv2 could not determine frame count")
-                
-        except Exception as e:
-            print(f"Error getting frame count with cv2: {e}")
-            raise ValueError("cv2 failed to get frame count")
-
     def _parse_timestamp(self, yt_video_id_w_timestamps):
         # In id_and_frame_map_path, we expect the pattern of {video_id}_start_{float}_end_{float} for column yt_video_id_w_timestamps
         pattern = r"^(.+)_start_(\d+(?:\.\d+)?)_end_(\d+(?:\.\d+)?)$"
@@ -131,7 +112,7 @@ class YtVideoPrep:
             return "already exists"
 
         ydl_opts = {
-            "format": "best[height<=720]/best",  # 720p or lower
+            "format": "best[height<=720][ext=mp4][protocol^=https]/best[ext=mp4][protocol^=https]/best[height<=720]/best",  # Prefer https MP4 formats, avoid HLS/m3u8
             "outtmpl": outtmpl,
             "merge_output_format": "mp4",
             "noplaylist": True,
@@ -149,83 +130,40 @@ class YtVideoPrep:
             print(f"Error downloading video {self.yt_video_id}: {e}")
             return f"error {e}"
 
-    def generate_all_raw_frames(self, timeout_seconds=3600):
+    def _get_video_frame_count(self):
+        cap = cv2.VideoCapture(self.raw_video_path)
+        frame_number = cap.get(cv2.CAP_PROP_FRAME_COUNT)
+        return frame_number
+
+    def _generate_all_raw_frames(self):
         """
         Extract all frames from the raw video to raw_frames_resized_width_1080_dir.
         This is the first step before frame matching.
-        
-        Args:
-            timeout_seconds: Timeout for ffmpeg operation in seconds (default: 3600 = 1 hour)
         """
         if not os.path.exists(self.raw_video_path):
-            print(f"Error: Raw video file not found at {self.raw_video_path}")
+            logger.warning(
+                f"[frame extracting][{self.saco_yt1b_id}] Raw video file not found at {self.raw_video_path}"
+            )
+            os.rmdir(self.raw_frames_resized_width_1080_dir)
             return False
 
-        # Check if frames already exist and match video frame count
-        existing_frames = glob(
-            os.path.join(self.raw_frames_resized_width_1080_dir, "*.jpg")
+        already_extracted_frame_count = len(
+            os.listdir(self.raw_frames_resized_width_1080_dir)
         )
-        total_video_frames = self._get_total_frame_count()
-
-        if existing_frames:
-            existing_count = len(existing_frames)
-            print(
-                f"Found {existing_count} existing raw frames in {self.raw_frames_resized_width_1080_dir}"
+        expected_frame_count = self._get_video_frame_count()
+        if (
+            expected_frame_count != 0
+            and abs(already_extracted_frame_count - expected_frame_count) <= 1
+        ):
+            # soft compare due to sometimes cv2 frame number might be 0 or off a bit
+            logger.info(
+                f"[frame extracting][{self.saco_yt1b_id}] all frames already exist in {self.raw_frames_resized_width_1080_dir}, skip the full extract"
             )
-            print(f"Video has {total_video_frames} total frames")
-
-            # Allow 1-frame tolerance buffer for frame count comparison
-            frame_diff = abs(existing_count - total_video_frames)
-            if frame_diff <= 1:
-                print(f"cv2 frame count and the already extracted frame count differ by less than 1 frame. double checking by the precise ffprobe method")
-                
-                # Use ffprobe to get precise frame count
-                try:
-                    cmd = [
-                        "ffprobe",
-                        "-v", "error",
-                        "-select_streams", "v:0",
-                        "-count_frames",
-                        "-show_entries", "stream=nb_read_frames",
-                        "-of", "csv=p=0",
-                        self.raw_video_path
-                    ]
-                    
-                    result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout_seconds)
-                    if result.returncode == 0:
-                        precise_frames = int(result.stdout.strip())
-                        print(f"ffprobe precise count: {precise_frames} frames")
-                        
-                        # Check if existing frames match the precise count
-                        precise_diff = abs(existing_count - precise_frames)
-                        if precise_diff <= 1:
-                            print(f"Existing frames match precise count (within 1-frame tolerance: {existing_count} vs {precise_frames}). Using existing frames.")
-                            return True
-                        else:
-                            print(f"Precise count mismatch ({existing_count} vs {precise_frames}, diff: {precise_diff}). Re-generating frames.")
-                    else:
-                        print("ffprobe precise count failed, can't confirm the frame count matching, re-generating frames")
-                        return False
-                except Exception as e:
-                    print(f"ffprobe precise count error: {e}, can't confirm the frame count matching, re-generating frames")
-                    return False
-            else:
-                print(
-                    f"Frame count mismatch ({existing_count} != {total_video_frames}, diff: {frame_diff}). Re-generating frames."
-                )
-                # Remove existing frames before regenerating
-                print(f"Removing {existing_count} existing frames...")
-                for frame_file in existing_frames:
-                    try:
-                        os.remove(frame_file)
-                    except OSError as e:
-                        print(f"Warning: Could not remove {frame_file}: {e}")
-                print("Existing frames cleared.")
+            return True
 
         print(
             f"Extracting all frames from {self.raw_video_path} to {self.raw_frames_resized_width_1080_dir}"
         )
-        print(f"Video has {total_video_frames} frames. This may take several minutes...")
 
         # Optimize ffmpeg args for large videos
         args = [
@@ -248,46 +186,63 @@ class YtVideoPrep:
             self.raw_frames_resized_width_1080_pattern,
         ]
 
-        print(f"Starting ffmpeg with {timeout_seconds}s timeout...")
+        print(f"Starting ffmpeg with {self.ffmpeg_timeout}s timeout...")
         result = subprocess.run(
             ["ffmpeg"] + args,
-            timeout=timeout_seconds,
+            timeout=self.ffmpeg_timeout,
             capture_output=True,
             text=True,
         )
 
         if result.returncode != 0:
-            print(f"Failed to extract raw frames: {result.stderr}")
-            if "TimeoutExpired" in str(result.stderr):
-                print(f"Operation timed out after {timeout_seconds} seconds. Consider increasing timeout for very large videos.")
+            logger.warning(
+                f"[frame extracting][{self.saco_yt1b_id}] Failed to extract raw frames: {result.stderr}"
+            )
+            os.rmdir(self.raw_frames_resized_width_1080_dir)
             return False
 
         extracted_frames = glob(
             os.path.join(self.raw_frames_resized_width_1080_dir, "*.jpg")
         )
-        print(
-            f"Successfully extracted {len(extracted_frames)} frames to {self.raw_frames_resized_width_1080_dir}"
+        logger.info(
+            f"[frame extracting][{self.saco_yt1b_id}] Successfully extracted {len(extracted_frames)} frames to {self.raw_frames_resized_width_1080_dir}"
         )
-        
-        # Verify we got the expected number of frames
-        assert len(extracted_frames) == total_video_frames, f"Expected {total_video_frames} frames but extracted {len(extracted_frames)}"
-        
+
         return True
+
+    def _rm_incomplete_frames_by_frame_matching_dir(self):
+        print(
+            f"Removing any existing frame in {self.frames_by_frame_matching_dir} to ensure re-copy consistency"
+        )
+        for old_files in glob(f"{self.frames_by_frame_matching_dir}/*.jpg"):
+            os.remove(old_files)
+        os.rmdir(self.frames_by_frame_matching_dir)
+        print("Existing frames cleared.")
 
     def generate_frames_by_frame_matching(self):
         """
         Copy and rename specific frames from raw_frames_resized_width_1080_dir to frames_by_frame_matching_dir
         based on the frame_matching list of [dst_frame_num, src_frame_num] pairs.
         """
-        # First ensure all raw frames are extracted
-        if not self.generate_all_raw_frames():
-            return False
-
         frame_matching = self.frame_matching
         total_frames = len(frame_matching)
 
-        print(f"Copying {total_frames} frames based on frame matching")
+        if len(os.listdir(self.frames_by_frame_matching_dir)) == total_frames:
+            logger.info(
+                f"[frame matching][{self.saco_yt1b_id}] frames already exist in {self.frames_by_frame_matching_dir}, no need to re-copy by frame matching"
+            )
+            return True
 
+        # Extract full fps frames to use the frame matching map later
+        if not self._generate_all_raw_frames():
+            self._rm_incomplete_frames_by_frame_matching_dir()
+            return False
+
+        print(
+            f"Removing any existing frame in {self.frames_by_frame_matching_dir} to ensure re-copy consistency"
+        )
+        self._rm_incomplete_frames_by_frame_matching_dir()
+        print(f"Copying {total_frames} frames based on frame matching")
         success_count = 0
         for dst_frame_num, src_frame_num in tqdm(frame_matching, desc="Copying frames"):
             # Source frame file (from raw frames)
@@ -306,14 +261,17 @@ class YtVideoPrep:
                 continue
 
             # Check if source frame exists
-            assert os.path.exists(
-                src_file
-            ), f"Source frame {src_frame_num:05d}.jpg not found"
+            if not os.path.exists(src_file):
+                logger.warning(
+                    f"[frame_matching][{self.saco_yt1b_id}] Source frame {src_file} not found"
+                )
+                raise ValueError(f"Source frame {src_file} not found")
 
             try:
                 shutil.copy2(src_file, dst_file)
                 success_count += 1
             except Exception as e:
+                self._rm_incomplete_frames_by_frame_matching_dir()
                 raise ValueError(
                     f"Error copying frame {src_frame_num} -> {dst_frame_num}: {e}"
                 )
@@ -321,7 +279,18 @@ class YtVideoPrep:
         print(
             f"Successfully copied {success_count}/{total_frames} frames to {self.frames_by_frame_matching_dir}"
         )
-        return success_count == total_frames
+
+        status = success_count == total_frames
+        if status:
+            logger.info(
+                f"[frame matching][{self.saco_yt1b_id}] copy to {self.frames_by_frame_matching_dir} succeeded!"
+            )
+        else:
+            self._rm_incomplete_frames_by_frame_matching_dir()
+            logger.warning(
+                f"[frame matching][{self.saco_yt1b_id}] failed, some frames got extracted but not match the number of frames needed extracted {success_count} != expected {total_frames}. The folder has been cleared now."
+            )
+        return status
 
 
 def main():
@@ -342,14 +311,36 @@ def main():
         type=str,
         required=True,
     )
+    parser.add_argument(
+        "--yt1b_frame_prep_log_path",
+        type=str,
+        required=True,
+    )
+    parser.add_argument(
+        "--ffmpeg_timeout",
+        type=str,
+        default=7200,  # Use longer timeout in case of large videos processing timeout
+    )
     args = parser.parse_args()
 
-    video_prep = YtVideoPrep(
-        args.saco_yt1b_id, args.data_dir, args.cookies_file, args.id_map_file
+    logging.basicConfig(
+        filename=args.yt1b_frame_prep_log_path,
+        format="%(asctime)s [%(threadName)s] %(levelname)s: %(message)s",
+        level=logging.INFO,
+        filemode="w",
     )
-    video_prep.download_youtube_video()
-    # Use longer timeout for large videos (2 hours)
-    video_prep.generate_all_raw_frames(timeout_seconds=7200)
+
+    video_prep = YtVideoPrep(
+        saco_yt1b_id=args.saco_yt1b_id,
+        data_dir=args.data_dir,
+        cookies_file=args.cookies_file,
+        id_and_frame_map_path=args.id_map_file,
+        ffmpeg_timeout=args.ffmpeg_timeout,
+    )
+
+    status = video_prep.download_youtube_video()
+    logger.info(f"[video download][{args.saco_yt1b_id}] download status {status}")
+
     video_prep.generate_frames_by_frame_matching()
 
 
