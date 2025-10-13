@@ -145,6 +145,63 @@ class COCOeval_opt(COCOeval):
         self.eval = {}  # accumulated evaluation results
 
 
+class CocoEvaluatorOfflineWithPredFileEvaluators:
+    def __init__(
+        self,
+        gt_path,
+        tide: bool = True,
+        iou_type: str = "bbox",
+        positive_split=False,
+    ):
+        self.gt_path = gt_path
+        self.tide_enabled = HAS_TIDE and tide
+        self.positive_split = positive_split
+        self.iou_type = iou_type
+
+    def evaluate(self, dumped_file):
+        if not is_main_process():
+            return {}
+
+        logging.info("OfflineCoco evaluator: Loading groundtruth")
+        self.gt = COCO(self.gt_path)
+
+        # Creating the result file
+        logging.info("Coco evaluator: Creating the result file")
+        cocoDt = self.gt.loadRes(str(dumped_file))
+
+        # Run the evaluation
+        logging.info("Coco evaluator: Running evaluation")
+        coco_eval = COCOeval_opt(
+            self.gt, cocoDt, iouType=self.iou_type, dt_only_positive=self.positive_split
+        )
+        coco_eval.evaluate()
+        coco_eval.accumulate()
+        coco_eval.summarize()
+
+        outs = {}
+        for i, value in enumerate(coco_eval.stats):
+            outs[f"coco_eval_{self.iou_type}_{COCO_METRICS[i]}"] = value
+
+        if self.tide_enabled:
+            logging.info("Coco evaluator: Loading TIDE")
+            self.tide_gt = datasets.COCO(self.gt_path)
+            self.tide = TIDE(mode="mask" if self.iou_type == "segm" else "bbox")
+
+            # Run TIDE
+            logging.info("Coco evaluator: Running TIDE")
+            self.tide.evaluate(
+                self.tide_gt, datasets.COCOResult(str(dumped_file)), name="coco_eval"
+            )
+            self.tide.summarize()
+            for k, v in self.tide.get_main_errors()["coco_eval"].items():
+                outs[f"coco_eval_{self.iou_type}_TIDE_{k}"] = v
+
+            for k, v in self.tide.get_special_errors()["coco_eval"].items():
+                outs[f"coco_eval_{self.iou_type}_TIDE_{k}"] = v
+
+        return outs
+
+
 class CocoEvaluatorOffline:
     def __init__(
         self,
@@ -184,7 +241,6 @@ class CocoEvaluatorOffline:
 
         # Whether to evaluate on the positive split
         self.positive_split = positive_split
-
 
     def set_sync_device(self, device: torch.device) -> Any:
         self._sync_device = device
@@ -323,7 +379,9 @@ class CocoEvaluatorOffline:
 
         # Run the evaluation
         logging.info("Coco evaluator: Running evaluation")
-        coco_eval = COCOeval_opt(self.gt, cocoDt, iouType=self.iou_type, dt_only_positive=self.positive_split)
+        coco_eval = COCOeval_opt(
+            self.gt, cocoDt, iouType=self.iou_type, dt_only_positive=self.positive_split
+        )
         coco_eval.evaluate()
         coco_eval.accumulate()
         coco_eval.summarize()

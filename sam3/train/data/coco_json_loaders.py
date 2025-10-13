@@ -105,7 +105,13 @@ class COCO_FROM_JSON:
     Groups all annotations per image and creates queries per category.
     """
 
-    def __init__(self, annotation_file, prompts=None, include_negatives=True, category_chunk_size=None):
+    def __init__(
+        self,
+        annotation_file,
+        prompts=None,
+        include_negatives=True,
+        category_chunk_size=None,
+    ):
         """
         Initialize the COCO training API.
 
@@ -120,8 +126,15 @@ class COCO_FROM_JSON:
         self._sorted_cat_ids = sorted(list(self._cat_idx_to_text.keys()))
         self.prompts = None
         self.include_negatives = include_negatives
-        self.category_chunk_size = category_chunk_size if category_chunk_size is not None else len(self._sorted_cat_ids)
-        self.category_chunks = [self._sorted_cat_ids[i:i+self.category_chunk_size] for i in range(0, len(self._sorted_cat_ids), self.category_chunk_size)]
+        self.category_chunk_size = (
+            category_chunk_size
+            if category_chunk_size is not None
+            else len(self._sorted_cat_ids)
+        )
+        self.category_chunks = [
+            self._sorted_cat_ids[i : i + self.category_chunk_size]
+            for i in range(0, len(self._sorted_cat_ids), self.category_chunk_size)
+        ]
         if prompts is not None:
             prompts = eval(prompts)
             self.prompts = {}
@@ -258,7 +271,6 @@ class COCO_FROM_JSON:
             }
         ]
         return images
-
 
 
 # ============================================================================
