@@ -534,9 +534,10 @@ class TextQueryToVisual:
     Transform a test query to a visual query (with some proba), using any of the output targets as the prompt
     """
 
-    def __init__(self, probability) -> None:
+    def __init__(self, probability, keep_text_queries=False) -> None:
         self.probability = probability
         assert 0 <= probability <= 1
+        self.keep_text_queries = keep_text_queries
 
     def __call__(self, datapoint: Datapoint, **kwargs):
         for find in datapoint.find_queries:
@@ -560,7 +561,8 @@ class TextQueryToVisual:
 
             find.input_bbox = datapoint.images[img_id].objects[selected_vq_id].bbox
             find.input_bbox_label = torch.ones(1, dtype=torch.bool)
-            find.query_text = "visual"
+            if not self.keep_text_queries:
+                find.query_text = "visual"
 
         return datapoint
 

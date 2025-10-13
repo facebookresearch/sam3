@@ -160,7 +160,6 @@ scratch:
   enable_segmentation: False # NOTE: This is the number of queries used for segmentation
   # Model parameters
   d_model: 256
-  input_box_embedding_dim: ${add:${scratch.d_model},2}
   pos_embed:
     _target_: sam3.model.position_encoding.PositionEmbeddingSine
     num_pos_feats: ${scratch.d_model}
@@ -305,7 +304,9 @@ trainer:
         _target_: sam3.train.data.sam3_image_dataset.Sam3ImageDataset
         load_segmentation: ${scratch.enable_segmentation}
         coco_json_loader:
-          _target_: sam3.train.data.coco_json_loaders.COCO_EVAL_API_FROM_JSON_BOX_ONLY
+          _target_: sam3.train.data.coco_json_loaders.COCO_FROM_JSON
+          include_negatives: true
+          category_chunk_size: 2 # Note: You can increase this based on the memory of your GPU.
           _partial_: true
         img_folder: ${paths.roboflow_vl_100_root}/${roboflow_train.supercategory}/test/
         ann_file: ${paths.roboflow_vl_100_root}/${roboflow_train.supercategory}/test/_annotations.coco.json

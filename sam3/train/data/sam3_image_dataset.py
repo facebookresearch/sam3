@@ -24,7 +24,7 @@ from torchvision.datasets.vision import VisionDataset
 
 from sam3.model.box_ops import box_xywh_to_xyxy
 
-from .coco_json_loaders import COCO_TRAIN_API_FROM_JSON_BOX_ONLY
+from .coco_json_loaders import COCO_FROM_JSON
 
 
 @dataclass
@@ -157,7 +157,7 @@ class CustomCocoDetectionAPI(VisionDataset):
         use_caching: bool = True,
         zstd_dict_path=None,
         filter_query=None,
-        coco_json_loader: Callable = COCO_TRAIN_API_FROM_JSON_BOX_ONLY,
+        coco_json_loader: Callable = COCO_FROM_JSON,
         limit_ids: int = None,
     ) -> None:
         super().__init__(root)
@@ -449,7 +449,7 @@ class Sam3ImageDataset(CustomCocoDetectionAPI):
         use_caching: bool = True,
         zstd_dict_path=None,
         filter_query=None,
-        coco_json_loader: Callable = COCO_TRAIN_API_FROM_JSON_BOX_ONLY,
+        coco_json_loader: Callable = COCO_FROM_JSON,
         limit_ids: int = None,
     ):
         super(Sam3ImageDataset, self).__init__(

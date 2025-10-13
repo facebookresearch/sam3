@@ -14,11 +14,11 @@ import pycocotools.mask as maskUtils
 
 from pycocotools.cocoeval import COCOeval
 
-from sam3.train.eval.coco_eval import CocoEvaluator, RARITY_BUCKETS
+from scipy.optimize import linear_sum_assignment
+
+from sam3.train.eval.coco_eval import CocoEvaluator
 from sam3.train.masks_ops import compute_F_measure
 from sam3.train.utils.distributed import is_main_process
-
-from scipy.optimize import linear_sum_assignment
 
 
 class DemoEval(COCOeval):
@@ -505,7 +505,7 @@ class DemoEvaluator(CocoEvaluator):
             useCats=False,
             dump_dir=dump_dir,
             postprocessor=postprocessor,
-            average_by_rarity=average_by_rarity,
+            # average_by_rarity=average_by_rarity,
             gather_pred_via_filesys=gather_pred_via_filesys,
             exhaustive_only=exhaustive_only,
             metrics_dump_dir=metrics_dump_dir,
@@ -570,60 +570,60 @@ class DemoEvaluator(CocoEvaluator):
             return {}
         outs = {}
         prefix = "oracle_" if len(self.coco_evals) > 1 else ""
-        if self.rarity_buckets is None:
-            self.accumulate(self.eval_img_ids)
-            for iou_type, coco_eval in self.coco_evals[0].items():
-                print("Demo metric, IoU type={}".format(iou_type))
-                coco_eval.summarize()
+        # if self.rarity_buckets is None:
+        self.accumulate(self.eval_img_ids)
+        for iou_type, coco_eval in self.coco_evals[0].items():
+            print("Demo metric, IoU type={}".format(iou_type))
+            coco_eval.summarize()
 
-            if "bbox" in self.coco_evals[0]:
-                for i, value in enumerate(self.coco_evals[0]["bbox"].stats):
-                    outs[f"coco_eval_bbox_{prefix}{DEMO_METRICS[i]}"] = value
-            if "segm" in self.coco_evals[0]:
-                for i, value in enumerate(self.coco_evals[0]["segm"].stats):
-                    outs[f"coco_eval_masks_{prefix}{DEMO_METRICS[i]}"] = value
-        else:
-            total_stats = {}
-            for bucket, img_list in self.rarity_buckets.items():
-                self.accumulate(imgIds=img_list)
-                bucket_name = RARITY_BUCKETS[bucket]
-                for iou_type, coco_eval in self.coco_evals[0].items():
-                    print(
-                        "Demo metric, IoU type={}, Rarity bucket={}".format(
-                            iou_type, bucket_name
-                        )
-                    )
-                    coco_eval.summarize()
+        if "bbox" in self.coco_evals[0]:
+            for i, value in enumerate(self.coco_evals[0]["bbox"].stats):
+                outs[f"coco_eval_bbox_{prefix}{DEMO_METRICS[i]}"] = value
+        if "segm" in self.coco_evals[0]:
+            for i, value in enumerate(self.coco_evals[0]["segm"].stats):
+                outs[f"coco_eval_masks_{prefix}{DEMO_METRICS[i]}"] = value
+        # else:
+        #     total_stats = {}
+        #     for bucket, img_list in self.rarity_buckets.items():
+        #         self.accumulate(imgIds=img_list)
+        #         bucket_name = RARITY_BUCKETS[bucket]
+        #         for iou_type, coco_eval in self.coco_evals[0].items():
+        #             print(
+        #                 "Demo metric, IoU type={}, Rarity bucket={}".format(
+        #                     iou_type, bucket_name
+        #                 )
+        #             )
+        #             coco_eval.summarize()
 
-                if "bbox" in self.coco_evals[0]:
-                    if "bbox" not in total_stats:
-                        total_stats["bbox"] = np.zeros_like(
-                            self.coco_evals[0]["bbox"].stats
-                        )
-                    total_stats["bbox"] += self.coco_evals[0]["bbox"].stats
-                    for i, value in enumerate(self.coco_evals[0]["bbox"].stats):
-                        outs[
-                            f"coco_eval_bbox_{bucket_name}_{prefix}{DEMO_METRICS[i]}"
-                        ] = value
-                if "segm" in self.coco_evals[0]:
-                    if "segm" not in total_stats:
-                        total_stats["segm"] = np.zeros_like(
-                            self.coco_evals[0]["segm"].stats
-                        )
-                    total_stats["segm"] += self.coco_evals[0]["segm"].stats
-                    for i, value in enumerate(self.coco_evals[0]["segm"].stats):
-                        outs[
-                            f"coco_eval_masks_{bucket_name}_{prefix}{DEMO_METRICS[i]}"
-                        ] = value
+        #         if "bbox" in self.coco_evals[0]:
+        #             if "bbox" not in total_stats:
+        #                 total_stats["bbox"] = np.zeros_like(
+        #                     self.coco_evals[0]["bbox"].stats
+        #                 )
+        #             total_stats["bbox"] += self.coco_evals[0]["bbox"].stats
+        #             for i, value in enumerate(self.coco_evals[0]["bbox"].stats):
+        #                 outs[
+        #                     f"coco_eval_bbox_{bucket_name}_{prefix}{DEMO_METRICS[i]}"
+        #                 ] = value
+        #         if "segm" in self.coco_evals[0]:
+        #             if "segm" not in total_stats:
+        #                 total_stats["segm"] = np.zeros_like(
+        #                     self.coco_evals[0]["segm"].stats
+        #                 )
+        #             total_stats["segm"] += self.coco_evals[0]["segm"].stats
+        #             for i, value in enumerate(self.coco_evals[0]["segm"].stats):
+        #                 outs[
+        #                     f"coco_eval_masks_{bucket_name}_{prefix}{DEMO_METRICS[i]}"
+        #                 ] = value
 
-            if "bbox" in total_stats:
-                total_stats["bbox"] /= len(self.rarity_buckets)
-                for i, value in enumerate(total_stats["bbox"]):
-                    outs[f"coco_eval_bbox_{prefix}{DEMO_METRICS[i]}"] = value
-            if "segm" in total_stats:
-                total_stats["segm"] /= len(self.rarity_buckets)
-                for i, value in enumerate(total_stats["segm"]):
-                    outs[f"coco_eval_masks_{prefix}{DEMO_METRICS[i]}"] = value
+        #     if "bbox" in total_stats:
+        #         total_stats["bbox"] /= len(self.rarity_buckets)
+        #         for i, value in enumerate(total_stats["bbox"]):
+        #             outs[f"coco_eval_bbox_{prefix}{DEMO_METRICS[i]}"] = value
+        #     if "segm" in total_stats:
+        #         total_stats["segm"] /= len(self.rarity_buckets)
+        #         for i, value in enumerate(total_stats["segm"]):
+        #             outs[f"coco_eval_masks_{prefix}{DEMO_METRICS[i]}"] = value
 
         return outs
 

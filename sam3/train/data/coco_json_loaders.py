@@ -99,13 +99,19 @@ def ann_to_rle(segm, im_info: Dict) -> Dict:
 # ============================================================================
 
 
-class COCO_TRAIN_API_FROM_JSON_BOX_ONLY:
+class COCO_FROM_JSON:
     """
     COCO training API for loading box-only annotations from JSON.
     Groups all annotations per image and creates queries per category.
     """
 
-    def __init__(self, annotation_file, prompts=None, include_negatives=True):
+    def __init__(
+        self,
+        annotation_file,
+        prompts=None,
+        include_negatives=True,
+        category_chunk_size=None,
+    ):
         """
         Initialize the COCO training API.
 
@@ -120,7 +126,15 @@ class COCO_TRAIN_API_FROM_JSON_BOX_ONLY:
         self._sorted_cat_ids = sorted(list(self._cat_idx_to_text.keys()))
         self.prompts = None
         self.include_negatives = include_negatives
-
+        self.category_chunk_size = (
+            category_chunk_size
+            if category_chunk_size is not None
+            else len(self._sorted_cat_ids)
+        )
+        self.category_chunks = [
+            self._sorted_cat_ids[i : i + self.category_chunk_size]
+            for i in range(0, len(self._sorted_cat_ids), self.category_chunk_size)
+        ]
         if prompts is not None:
             prompts = eval(prompts)
             self.prompts = {}
@@ -132,7 +146,7 @@ class COCO_TRAIN_API_FROM_JSON_BOX_ONLY:
 
     def getDatapointIds(self):
         """Return all datapoint indices for training."""
-        return list(range(len(self._raw_data)))
+        return list(range(len(self._raw_data) * len(self.category_chunks)))
 
     def loadQueriesAndAnnotationsFromDatapoint(self, idx):
         """
@@ -144,6 +158,10 @@ class COCO_TRAIN_API_FROM_JSON_BOX_ONLY:
         Returns:
             Tuple of (queries, annotations) lists
         """
+        img_idx = idx // len(self.category_chunks)
+        chunk_idx = idx % len(self.category_chunks)
+        cat_chunk = self.category_chunks[chunk_idx]
+
         queries = []
         annotations = []
 
@@ -172,8 +190,8 @@ class COCO_TRAIN_API_FROM_JSON_BOX_ONLY:
             "id": None,
         }
 
-        raw_annotations = self._raw_data[idx]["annotations"]
-        image_info = self._raw_data[idx]["image"]
+        raw_annotations = self._raw_data[img_idx]["annotations"]
+        image_info = self._raw_data[img_idx]["image"]
         width, height = image_info["width"], image_info["height"]
 
         # Group annotations by category
@@ -182,7 +200,7 @@ class COCO_TRAIN_API_FROM_JSON_BOX_ONLY:
             cat_id_to_anns[ann["category_id"]].append(ann)
 
         annotations_by_cat_sorted = [
-            (cat_id, cat_id_to_anns[cat_id]) for cat_id in self._sorted_cat_ids
+            (cat_id, cat_id_to_anns[cat_id]) for cat_id in cat_chunk
         ]
 
         for cat_id, anns in annotations_by_cat_sorted:
@@ -242,161 +260,7 @@ class COCO_TRAIN_API_FROM_JSON_BOX_ONLY:
         Returns:
             List containing image info dict
         """
-        img_data = self._raw_data[idx]["image"]
-        images = [
-            {
-                "id": 0,
-                "file_name": img_data["file_name"],
-                "original_img_id": img_data["id"],
-                "coco_img_id": img_data["id"],
-            }
-        ]
-        return images
-
-
-# ============================================================================
-# COCO Evaluation API
-# ============================================================================
-
-
-class COCO_EVAL_API_FROM_JSON_BOX_ONLY:
-    """
-    COCO evaluation API for loading box-only annotations from JSON.
-    Creates one datapoint per image-category pair.
-    """
-
-    def __init__(self, annotation_file, prompts=None):
-        """
-        Initialize the COCO evaluation API.
-
-        Args:
-            annotation_file (str): Path to COCO JSON annotation file
-            prompts: Optional custom prompts for categories
-        """
-        self._raw_data, self._cat_idx_to_text = load_coco_and_group_by_image(
-            annotation_file
-        )
-        self._sorted_cat_ids = sorted(list(self._cat_idx_to_text.keys()))
-        self.prompts = None
-
-        if prompts is not None:
-            prompts = eval(prompts)
-            self.prompts = {}
-            for loc_dict in prompts:
-                self.prompts[int(loc_dict["id"])] = loc_dict["name"]
-            assert len(self.prompts) == len(
-                self._sorted_cat_ids
-            ), "Number of prompts must match number of categories"
-
-    def getDatapointIds(self):
-        """Return all datapoint indices (image x category combinations)."""
-        return list(range(len(self._raw_data) * len(self._sorted_cat_ids)))
-
-    def loadQueriesAndAnnotationsFromDatapoint(self, idx):
-        """
-        Load queries and annotations for a specific image-category pair.
-
-        Args:
-            idx (int): Datapoint index
-
-        Returns:
-            Tuple of (queries, annotations) lists
-        """
-        img_idx = idx // len(self._sorted_cat_ids)
-        cat_idx = idx % len(self._sorted_cat_ids)
-        cat_id = self._sorted_cat_ids[cat_idx]
-
-        queries = []
-        annotations = []
-
-        query_template = {
-            "id": None,
-            "original_cat_id": None,
-            "object_ids_output": None,
-            "query_text": None,
-            "query_processing_order": 0,
-            "ptr_x_query_id": None,
-            "ptr_y_query_id": None,
-            "image_id": 0,
-            "input_box": None,
-            "input_box_label": None,
-            "input_points": None,
-            "is_exhaustive": True,
-        }
-
-        annot_template = {
-            "image_id": 0,
-            "bbox": None,  # Normalized bbox in xywh
-            "area": None,  # Unnormalized area
-            "segmentation": None,  # RLE encoded
-            "object_id": None,
-            "is_crowd": None,
-            "id": None,
-        }
-
-        raw_annotations = self._raw_data[img_idx]["annotations"]
-        image_info = self._raw_data[img_idx]["image"]
-        width, height = image_info["width"], image_info["height"]
-
-        # Filter annotations for current category
-        current_cat_anns = [
-            ann for ann in raw_annotations if ann["category_id"] == cat_id
-        ]
-
-        cur_ann_ids = []
-
-        # Create annotations for this category
-        for ann in current_cat_anns:
-            annotation = annot_template.copy()
-            annotation["id"] = len(annotations)
-            annotation["object_id"] = annotation["id"]
-            annotation["is_crowd"] = ann["iscrowd"]
-
-            normalized_boxes = convert_boxlist_to_normalized_tensor(
-                [ann["bbox"]], width, height
-            )
-            bbox = normalized_boxes[0]
-
-            annotation["area"] = (bbox[2] * bbox[3]).item()
-            annotation["bbox"] = bbox
-
-            if (
-                "segmentation" in ann
-                and ann["segmentation"] is not None
-                and ann["segmentation"] != []
-            ):
-                annotation["segmentation"] = ann_to_rle(
-                    ann["segmentation"], im_info=image_info
-                )
-
-            annotations.append(annotation)
-            cur_ann_ids.append(annotation["id"])
-
-        # Create query for this category
-        query = query_template.copy()
-        query["id"] = len(queries)
-        query["original_cat_id"] = cat_id
-        query["query_text"] = (
-            self._cat_idx_to_text[cat_id]
-            if self.prompts is None
-            else self.prompts[cat_id]
-        )
-        query["object_ids_output"] = cur_ann_ids
-        queries.append(query)
-
-        return queries, annotations
-
-    def loadImagesFromDatapoint(self, idx):
-        """
-        Load image information for a specific datapoint.
-
-        Args:
-            idx (int): Datapoint index
-
-        Returns:
-            List containing image info dict
-        """
-        img_idx = idx // len(self._sorted_cat_ids)
+        img_idx = idx // len(self.category_chunks)
         img_data = self._raw_data[img_idx]["image"]
         images = [
             {
