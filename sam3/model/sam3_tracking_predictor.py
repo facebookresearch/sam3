@@ -176,29 +176,66 @@ class Sam3TrackerPredictor(Sam3TrackerBase):
         return len(inference_state["obj_idx_to_id"])
 
     @torch.inference_mode()
-    def add_new_points(
+    def add_new_points_or_box(
         self,
         inference_state,
         frame_idx,
         obj_id,
-        points,
-        labels,
-        clear_old_points,
+        points=None,
+        labels=None,
+        clear_old_points=True,
         rel_coordinates=True,
         use_prev_mem_frame=False,
+        normalize_coords=True,
+        box=None,
     ):
         """Add new points to a frame."""
         obj_idx = self._obj_id_to_idx(inference_state, obj_id)
         point_inputs_per_frame = inference_state["point_inputs_per_obj"][obj_idx]
         mask_inputs_per_frame = inference_state["mask_inputs_per_obj"][obj_idx]
 
+        if (points is not None) != (labels is not None):
+            raise ValueError("points and labels must be provided together")
+        if points is None and box is None:
+            raise ValueError("at least one of points or box must be provided as input")
+
+        if points is None:
+            points = torch.zeros(0, 2, dtype=torch.float32)
+        elif not isinstance(points, torch.Tensor):
+            points = torch.tensor(points, dtype=torch.float32)
+        if labels is None:
+            labels = torch.zeros(0, dtype=torch.int32)
+        elif not isinstance(labels, torch.Tensor):
+            labels = torch.tensor(labels, dtype=torch.int32)
         if points.dim() == 2:
             points = points.unsqueeze(0)  # add batch dimension
         if labels.dim() == 1:
             labels = labels.unsqueeze(0)  # add batch dimension
+
         if rel_coordinates:
             # convert the points from relative coordinates to absolute coordinates
-            points = points * self.image_size
+            if points is not None:
+                points = points * self.image_size
+            if box is not None:
+                box = box * self.image_size
+
+        # If `box` is provided, we add it as the first two points with labels 2 and 3
+        # along with the user-provided points (consistent with how SAM 2 is trained).
+        if box is not None:
+            if not clear_old_points:
+                raise ValueError(
+                    "cannot add box without clearing old points, since "
+                    "box prompt must be provided before any point prompt "
+                    "(please use clear_old_points=True instead)"
+                )
+            if not isinstance(box, torch.Tensor):
+                box = torch.tensor(box, dtype=torch.float32, device=points.device)
+            box_coords = box.reshape(1, 2, 2)
+            box_labels = torch.tensor([2, 3], dtype=torch.int32, device=labels.device)
+            box_labels = box_labels.reshape(1, 2)
+            points = torch.cat([box_coords, points], dim=1)
+            labels = torch.cat([box_labels, labels], dim=1)
+
         points = points.to(inference_state["device"])
         labels = labels.to(inference_state["device"])
 
@@ -419,6 +456,10 @@ class Sam3TrackerPredictor(Sam3TrackerBase):
         )
         low_res_masks = None  # not needed by the demo
         return frame_idx, obj_ids, low_res_masks, video_res_masks
+
+    def add_new_points(self, *args, **kwargs):
+        """Deprecated method. Please use `add_new_points_or_box` instead."""
+        return self.add_new_points_or_box(*args, **kwargs)
 
     def _get_orig_video_res_output(self, inference_state, any_res_masks):
         """
@@ -1270,18 +1311,18 @@ class Sam3TrackerPredictor(Sam3TrackerBase):
         correction clicks, the surrounding frames' non-conditioning memories can still
         contain outdated object appearance information and could confuse the model.
 
-        This function clears those non-conditioning memories surrounding the interacted
+        This method clears those non-conditioning memories surrounding the interacted
         frame to avoid giving the model both old and new information about the object.
         """
         r = self.memory_temporal_stride_for_eval
         frame_idx_begin = frame_idx - r * self.num_maskmem
         frame_idx_end = frame_idx + r * self.num_maskmem
-        output_dict = inference_state["output_dict"]
-        non_cond_frame_outputs = output_dict["non_cond_frame_outputs"]
-        for t in range(frame_idx_begin, frame_idx_end + 1):
-            non_cond_frame_outputs.pop(t, None)
-            for obj_output_dict in inference_state["output_dict_per_obj"].values():
-                obj_output_dict["non_cond_frame_outputs"].pop(t, None)
+        batch_size = self._get_obj_num(inference_state)
+        for obj_idx in range(batch_size):
+            obj_output_dict = inference_state["output_dict_per_obj"][obj_idx]
+            non_cond_frame_outputs = obj_output_dict["non_cond_frame_outputs"]
+            for t in range(frame_idx_begin, frame_idx_end + 1):
+                non_cond_frame_outputs.pop(t, None)
 
     def _suppress_shrinked_masks(
         self, pred_masks, new_pred_masks, shrink_threshold=0.3
