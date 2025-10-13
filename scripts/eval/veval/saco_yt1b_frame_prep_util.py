@@ -151,7 +151,10 @@ class YtVideoPrep:
             os.listdir(self.raw_frames_resized_width_1080_dir)
         )
         expected_frame_count = self._get_video_frame_count()
-        if expected_frame_count != 0 and abs(already_extracted_frame_count - expected_frame_count) <= 1:
+        if (
+            expected_frame_count != 0
+            and abs(already_extracted_frame_count - expected_frame_count) <= 1
+        ):
             # soft compare due to sometimes cv2 frame number might be 0 or off a bit
             logger.info(
                 f"[frame extracting][{self.saco_yt1b_id}] all frames already exist in {self.raw_frames_resized_width_1080_dir}, skip the full extract"
@@ -279,9 +282,8 @@ class YtVideoPrep:
                 f"[frame matching][{self.saco_yt1b_id}] copy to {self.frames_by_frame_matching_dir} succeeded!"
             )
         else:
-            self._rm_incomplete_frames_by_frame_matching_dir()
             logger.warning(
-                f"[frame matching][{self.saco_yt1b_id}] failed, some frames got extracted but not match the number of frames needed extracted {success_count} != expected {total_frames}"
+                f"[frame matching][{self.saco_yt1b_id}] failed, some frames got extracted but not match the number of frames needed extracted {success_count} != expected {total_frames}. However this might be acceptable since in the later frame matching maybe the frames need to be copied have already be extracted, so just a warning"
             )
         return status
 
