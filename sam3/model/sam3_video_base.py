@@ -161,6 +161,7 @@ class Sam3VideoBase(nn.Module):
         orig_vid_height: int,
         orig_vid_width: int,
         is_image_only: bool = False,
+        allow_new_detections: bool = True,
     ):
         """
         This function handles one-step inference for the DenseTracking model in an SPMD manner.
@@ -186,6 +187,7 @@ class Sam3VideoBase(nn.Module):
             input_batch=input_batch,
             geometric_prompt=geometric_prompt,
             feature_cache=feature_cache,
+            allow_new_detections=allow_new_detections,
         )
 
         # Step 2: each GPU propagates its local SAM2 states to get the SAM2 prediction masks.
@@ -315,6 +317,7 @@ class Sam3VideoBase(nn.Module):
         geometric_prompt: Any,
         feature_cache: Dict,
         reverse: bool,
+        allow_new_detections: bool,
     ):
         # Step 1: if text feature is not cached in `feature_cache`, compute and cache it
         text_batch_key = tuple(input_batch.find_text_batch)
@@ -361,6 +364,8 @@ class Sam3VideoBase(nn.Module):
         )
         # note: detections in `sam3_image_out` has already gone through NMS
         pred_probs = sam3_image_out["pred_logits"].squeeze(-1).sigmoid()
+        if not allow_new_detections:
+            pred_probs = pred_probs - 1e8  # make sure no detections are kept
         pred_boxes_xyxy = sam3_image_out["pred_boxes_xyxy"]
         pred_masks = sam3_image_out["pred_masks"]
         # get the positive detection outputs above threshold
@@ -377,7 +382,7 @@ class Sam3VideoBase(nn.Module):
         tracker_backbone_fpn = [
             sam_mask_decoder.conv_s0(sam3_image_out["tracker_backbone_fpn_0"]),
             sam_mask_decoder.conv_s1(sam3_image_out["tracker_backbone_fpn_1"]),
-            sam3_image_out[ "tracker_backbone_fpn_2"],  # fpn_2 doesn't need conv
+            sam3_image_out["tracker_backbone_fpn_2"],  # fpn_2 doesn't need conv
         ]
         tracker_backbone_out = {
             "vision_features": tracker_backbone_fpn[-1],  # top-level feature

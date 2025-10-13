@@ -8,7 +8,7 @@ from tqdm.auto import tqdm
 
 from sam3.model.sam3_tracker_base import concat_points, NO_OBJ_SCORE, Sam3TrackerBase
 from sam3.model.sam3_tracker_utils import fill_holes_in_mask_scores
-
+from sam3.model.utils.sam2_utils import load_video_frames
 
 class Sam3TrackerPredictor(Sam3TrackerBase):
     """
@@ -54,16 +54,17 @@ class Sam3TrackerPredictor(Sam3TrackerBase):
     @torch.inference_mode()
     def init_state(
         self,
-        video_height,
-        video_width,
-        num_frames,
+        video_height=None,
+        video_width=None,
+        num_frames=None,
+        video_path=None,
         cached_features=None,
         offload_video_to_cpu=False,
         offload_state_to_cpu=False,
+        async_loading_frames=False,
     ):
         """Initialize a inference state."""
         inference_state = {}
-        inference_state["num_frames"] = num_frames
         # whether to offload the video frames to CPU memory
         # turning on this option saves the GPU memory with only a very small overhead
         inference_state["offload_video_to_cpu"] = offload_video_to_cpu
@@ -72,15 +73,30 @@ class Sam3TrackerPredictor(Sam3TrackerBase):
         # (e.g. in a test case of 768x768 model, fps dropped from 27 to 24 when tracking one object
         # and from 24 to 21 when tracking two objects)
         inference_state["offload_state_to_cpu"] = offload_state_to_cpu
-        # the original video height and width, used for resizing final output scores
-        inference_state["video_height"] = video_height
-        inference_state["video_width"] = video_width
         # TODO: support arbitrary device and remove all ".cuda()" calls
         inference_state["device"] = torch.device("cuda")
         if offload_state_to_cpu:
             inference_state["storage_device"] = torch.device("cpu")
         else:
             inference_state["storage_device"] = torch.device("cuda")
+
+        if video_path is not None:
+            images, video_height, video_width = load_video_frames(
+                video_path=video_path,
+                image_size=self.image_size,
+                offload_video_to_cpu=offload_video_to_cpu,
+                async_loading_frames=async_loading_frames,
+                compute_device=inference_state["storage_device"],
+            )
+            inference_state["images"] = images
+            inference_state["num_frames"] = len(images)
+            inference_state["video_height"] = video_height
+            inference_state["video_width"] = video_width
+        else:
+            # the original video height and width, used for resizing final output scores
+            inference_state["video_height"] = video_height
+            inference_state["video_width"] = video_width
+            inference_state["num_frames"] = num_frames
         # inputs on each frame
         inference_state["point_inputs_per_obj"] = {}
         inference_state["mask_inputs_per_obj"] = {}
@@ -742,8 +758,12 @@ class Sam3TrackerPredictor(Sam3TrackerBase):
         tqdm_disable=False,
         obj_ids=None,
         run_mem_encoder=True,
+        propagate_preflight=False,
     ):
         """Propagate the input points across frames to track in the entire video."""
+        # TODO:
+        if propagate_preflight:
+            self.propagate_in_video_preflight(inference_state)
         # NOTE: This is a copy from the parent class, except that we return object scores as well.
         output_dict = inference_state["output_dict"]
         consolidated_frame_inds = inference_state["consolidated_frame_inds"]
@@ -971,7 +991,8 @@ class Sam3TrackerPredictor(Sam3TrackerBase):
                 # a frame; we can use an LRU cache for more frames in the future).
                 inference_state["cached_features"] = {frame_idx: (image, backbone_out)}
 
-        backbone_out = backbone_out["tracker_backbone_out"]  # Extract SAM2 backbone output
+        # TODO:
+        # backbone_out = backbone_out["tracker_backbone_out"]  # Extract SAM2 backbone output
 
         # expand the features to have the same dimension as the number of objects
         expanded_image = image.expand(batch_size, -1, -1, -1)
