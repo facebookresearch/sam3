@@ -11,9 +11,9 @@ from sam3.model.nms_utils import nms_masks
 
 from sam3.model.vl_combiner import SAM3VLBackbone
 
-from sam3.train.data.collator import BatchedDatapoint, FindStage
+from sam3.train.data.collator import BatchedDatapoint
 
-from .act_ckpt_utils import activation_ckpt_wrapper, clone_output_wrapper
+from .act_ckpt_utils import activation_ckpt_wrapper
 
 from .box_ops import box_cxcywh_to_xyxy
 
@@ -38,7 +38,7 @@ class Sam3Image(torch.nn.Module):
 
     def __init__(
         self,
-        backbone,
+        backbone: SAM3VLBackbone,
         transformer,
         input_geometry_encoder,
         segmentation_head=None,

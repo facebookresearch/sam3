@@ -21,7 +21,7 @@ from .model.sam3_image import Sam3Image
 from .model.text_encoder_ve import VETextEncoder
 from .model.tokenizer_ve import SimpleTokenizer
 from .model.vitdet import ViT
-from .model.vl_combiner import NonFusionVLBackbone
+from .model.vl_combiner import SAM3VLBackbone
 
 
 def _create_position_encoding(precompute_resolution=None):
@@ -91,7 +91,7 @@ def _create_text_components(bpe_path):
 
 def _create_vl_backbone(vit_neck, text_encoder):
     """Create visual-language backbone."""
-    return NonFusionVLBackbone(visual=vit_neck, text=text_encoder, scalp=1)
+    return SAM3VLBackbone(visual=vit_neck, text=text_encoder, scalp=1)
 
 
 def _create_transformer_encoder():
