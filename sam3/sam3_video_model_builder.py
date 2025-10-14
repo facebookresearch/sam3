@@ -566,6 +566,7 @@ def build_sam3_video_model(
         use_early_fusion=True,
         use_dot_prod_scoring=True,
         dot_prod_scoring=main_dot_prod_scoring,
+        supervise_joint_box_scores=has_presence_token,
     )
 
     # Build the main SAM3 video model
