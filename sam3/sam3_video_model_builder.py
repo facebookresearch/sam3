@@ -318,8 +318,8 @@ def _create_sam3_visual_backbone() -> Sam3DualViTDetNeck:
         trunk=vit_backbone,
         position_encoding=position_encoding,
         d_model=256,
-        neck_norm=None,
         scale_factors=[4.0, 2.0, 1.0, 0.5],
+        add_sam2_neck=True,
     )
 
 

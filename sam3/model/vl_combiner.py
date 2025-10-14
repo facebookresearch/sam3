@@ -76,7 +76,7 @@ class NonFusionVLBackbone(nn.Module):
 
     def _forward_image_no_act_ckpt(self, samples):
         # Forward through backbone
-        features, pos = self.vision_backbone(samples)
+        features, pos, _, _ = self.vision_backbone(samples)
         if self.scalp > 0:
             # Discard the lowest resolution features
             features, pos = features[: -self.scalp], pos[: -self.scalp]

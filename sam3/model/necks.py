@@ -10,23 +10,23 @@ import torch
 import torch.nn as nn
 
 
-class OriginalViTDetNeck(nn.Module):
+class Sam3DualViTDetNeck(nn.Module):
     def __init__(
         self,
         trunk: nn.Module,
         position_encoding: nn.Module,
         d_model: int,
-        neck_norm=None,
         scale_factors=(4.0, 2.0, 1.0, 0.5),
+        add_sam2_neck: bool = False,
     ):
         """
         SimpleFPN neck a la ViTDet
         (From detectron2, very lightly adapted)
+        It supports a "dual neck" setting, where we have two identical necks (for SAM3 and SAM2), with different weights
 
         :param trunk: the backbone
         :param position_encoding: the positional encoding to use
         :param d_model: the dimension of the model
-        :param neck_norm: the normalization to use
         """
         super().__init__()
         self.trunk = trunk
@@ -34,8 +34,8 @@ class OriginalViTDetNeck(nn.Module):
         self.convs = nn.ModuleList()
 
         self.scale_factors = scale_factors
-        use_bias = neck_norm is None
-        dim = self.trunk.channel_list[-1]
+        use_bias = True
+        dim: int = self.trunk.channel_list[-1]
 
         for _, scale in enumerate(scale_factors):
             current = nn.Sequential()
@@ -45,11 +45,6 @@ class OriginalViTDetNeck(nn.Module):
                     "dconv_2x2_0",
                     nn.ConvTranspose2d(dim, dim // 2, kernel_size=2, stride=2),
                 )
-                if neck_norm is not None:
-                    current.add_module(
-                        "norm",
-                        norm_type_to_cls(neck_norm)(dim // 2),
-                    )
                 current.add_module(
                     "gelu",
                     nn.GELU(),
@@ -85,8 +80,6 @@ class OriginalViTDetNeck(nn.Module):
                     bias=use_bias,
                 ),
             )
-            if neck_norm is not None:
-                current.add_module("norm_0", norm_type_to_cls(neck_norm)(d_model))
             current.add_module(
                 "conv_3x3",
                 nn.Conv2d(
@@ -97,63 +90,29 @@ class OriginalViTDetNeck(nn.Module):
                     bias=use_bias,
                 ),
             )
-            if neck_norm is not None:
-                current.add_module("norm_1", norm_type_to_cls(neck_norm)(d_model))
             self.convs.append(current)
 
-    def forward(self, tensor_list: List[torch.Tensor]):
-        xs = self.trunk(tensor_list)
-        out = []
-        pos = []
-        x = xs[-1]  # simpleFPN
-        for _, conv in enumerate(self.convs):
-            x_out = conv(x)
-            out.append(x_out)
-            pos.append(self.position_encoding(x_out).to(x_out.dtype))
-        return out, pos
-
-
-class Sam3DualViTDetNeck(OriginalViTDetNeck):
-    def __init__(
-        self,
-        trunk: nn.Module,
-        position_encoding: nn.Module,
-        d_model: int,
-        neck_norm=None,
-        scale_factors=(4.0, 2.0, 1.0, 0.5),
-    ):
-        """
-        SimpleFPN neck a la ViTDet
-        (From detectron2, very lightly adapted)
-
-        :param trunk: the backbone
-        :param position_encoding: the positional encoding to use
-        :param d_model: the dimension of the model
-        :param neck_norm: the normalization to use
-        """
-        super().__init__(
-            trunk=trunk,
-            position_encoding=position_encoding,
-            d_model=d_model,
-            neck_norm=neck_norm,
-            scale_factors=scale_factors,
-        )
-        # Assumes sam2 neck is just a clone of the original neck
-        self.sam2_convs = deepcopy(self.convs)
+        self.sam2_convs = None
+        if add_sam2_neck:
+            # Assumes sam2 neck is just a clone of the original neck
+            self.sam2_convs = deepcopy(self.convs)
 
     def forward(self, tensor_list: List[torch.Tensor]):
         xs = self.trunk(tensor_list)
-        sam3_out = []
-        sam2_out = []
-        sam3_pos = []
-        sam2_pos = []
+        sam3_out, sam3_pos = [], []
+        sam2_out, sam2_pos = None, None
+        if self.sam2_convs is not None:
+            sam2_out, sam2_pos = [], []
         x = xs[-1]  # simpleFPN
-        for _, (conv, sam2_conv) in enumerate(zip(self.convs, self.sam2_convs)):
-            sam3_x_out = conv(x)
-            sam2_x_out = sam2_conv(x)
+        for i in range(len(self.convs)):
+            sam3_x_out = self.convs[i](x)
+            sam3_pos_out = self.position_encoding(sam3_x_out).to(sam3_x_out.dtype)
             sam3_out.append(sam3_x_out)
-            sam2_out.append(sam2_x_out)
+            sam3_pos.append(sam3_pos_out)
 
-            sam3_pos.append(self.position_encoding(sam3_x_out).to(sam3_x_out.dtype))
-            sam2_pos.append(self.position_encoding(sam2_x_out).to(sam2_x_out.dtype))
+            if self.sam2_convs is not None:
+                sam2_x_out = self.sam2_convs[i](x)
+                sam2_pos_out = self.position_encoding(sam2_x_out).to(sam2_x_out.dtype)
+                sam2_out.append(sam2_x_out)
+                sam2_pos.append(sam2_pos_out)
         return sam3_out, sam3_pos, sam2_out, sam2_pos

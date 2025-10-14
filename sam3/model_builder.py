@@ -1,7 +1,5 @@
 # Copyright (c) Meta, Inc. and its affiliates. All Rights Reserved
 
-from re import match
-
 import torch
 import torch.nn as nn
 
@@ -16,7 +14,7 @@ from .model.model_misc import (
     MultiheadAttentionWrapper as MultiheadAttention,
     TransformerWrapper,
 )
-from .model.necks import OriginalViTDetNeck
+from .model.necks import Sam3DualViTDetNeck
 from .model.position_encoding import PositionEmbeddingSine
 
 from .model.sam3_image import Sam3Image
@@ -69,11 +67,12 @@ def _create_vit_backbone():
 
 def _create_vit_neck(position_encoding, vit_backbone):
     """Create ViT neck for feature pyramid."""
-    return OriginalViTDetNeck(
+    return Sam3DualViTDetNeck(
         position_encoding=position_encoding,
         d_model=256,
         scale_factors=[4.0, 2.0, 1.0, 0.5],
         trunk=vit_backbone,
+        add_sam2_neck=False,
     )
 
 
