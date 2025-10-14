@@ -77,7 +77,6 @@ class Sam3VideoBase(nn.Module):
         # bbox heuristic parameters
         reconstruction_bbox_iou_thresh=0.0,
         reconstruction_bbox_det_score=0.0,
-        **kwargs,
     ):
         super().__init__()
         self.detector = detector

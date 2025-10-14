@@ -566,23 +566,31 @@ def build_sam3_video_model(
         use_early_fusion=True,
         use_dot_prod_scoring=True,
         dot_prod_scoring=main_dot_prod_scoring,
+        supervise_joint_box_scores=has_presence_token,
     )
 
     # Build the main SAM3 video model
     model = Sam3VideoInferenceWithInstanceInteractivity(
         detector=detector,
         tracker=tracker,
-        ckpt_path=None,
         score_threshold_detection=0.5,
         assoc_iou_thresh=0.1,
         det_nms_thresh=0.1,
         new_det_thresh=0.7,
-        num_interactive_steps_val=0,
+        compile_model=False,  # Set to True for faster inference with torch.compile
         hotstart_delay=15,
         hotstart_unmatch_thresh=8,
         hotstart_dup_thresh=8,
-        compile_model=False,  # Set to True for faster inference with torch.compile
-        sam3_ckpt_path=None,
+        suppress_unmatched_only_within_hotstart=False,
+        min_trk_keep_alive=-1,
+        max_trk_keep_alive=30,
+        init_trk_keep_alive=30,
+        suppress_overlapping_based_on_recent_occlusion_threshold=0.7,
+        suppress_det_close_to_boundary=False,
+        fill_hole_area=16,
+        recondition_every_nth_frame=16,
+        masklet_confirmation_enable=False,
+        decrease_trk_keep_alive_for_empty_masklets=False,
         image_size=1008,
         image_mean=(0.5, 0.5, 0.5),
         image_std=(0.5, 0.5, 0.5),
