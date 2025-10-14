@@ -11,14 +11,19 @@ import torch.nn as nn
 from torch.nn.attention import sdpa_kernel, SDPBackend
 
 from .act_ckpt_utils import activation_ckpt_wrapper
+from .necks import Sam3DualViTDetNeck
 
 
-class NonFusionVLBackbone(nn.Module):
-    """A vision-language backbone that does not fuse the vision and language"""
+class SAM3VLBackbone(nn.Module):
+    """This backbone combines a vision backbone and a language backbone without fusion.
+    As such it is more of a convenience wrapper to handle the two backbones together.
+
+    It adds support for activation checkpointing and compilation.
+    """
 
     def __init__(
         self,
-        visual,
+        visual: Sam3DualViTDetNeck,
         text,
         compile_visual: bool = False,
         act_ckpt_whole_vision_backbone: bool = False,
@@ -31,7 +36,9 @@ class NonFusionVLBackbone(nn.Module):
         :param text: The text encoder to use
         """
         super().__init__()
-        self.vision_backbone = torch.compile(visual) if compile_visual else visual
+        self.vision_backbone: Sam3DualViTDetNeck = (
+            torch.compile(visual) if compile_visual else visual
+        )
         self.language_backbone = text
         self.scalp = scalp
         # allow running activation checkpointing on the entire vision and language backbones
@@ -76,17 +83,39 @@ class NonFusionVLBackbone(nn.Module):
 
     def _forward_image_no_act_ckpt(self, samples):
         # Forward through backbone
-        features, pos = self.vision_backbone(samples)
+        sam3_features, sam3_pos, sam2_features, sam2_pos = self.vision_backbone.forward(
+            samples
+        )
         if self.scalp > 0:
             # Discard the lowest resolution features
-            features, pos = features[: -self.scalp], pos[: -self.scalp]
-        src = features[-1]
+            sam3_features, sam3_pos = (
+                sam3_features[: -self.scalp],
+                sam3_pos[: -self.scalp],
+            )
+            if sam2_features is not None and sam2_pos is not None:
+                sam2_features, sam2_pos = (
+                    sam2_features[: -self.scalp],
+                    sam2_pos[: -self.scalp],
+                )
 
+        sam2_output = None
+
+        if sam2_features is not None and sam2_pos is not None:
+            sam2_src = sam2_features[-1]
+            sam2_output = {
+                "vision_features": sam2_src,
+                "vision_pos_enc": sam2_pos,
+                "backbone_fpn": sam2_features,
+            }
+
+        sam3_src = sam3_features[-1]
         output = {
-            "vision_features": src,
-            "vision_pos_enc": pos,
-            "backbone_fpn": features,  # Temporary, to not break anything else
+            "vision_features": sam3_src,
+            "vision_pos_enc": sam3_pos,
+            "backbone_fpn": sam3_features,
+            "sam2_backbone_out": sam2_output,
         }
+
         return output
 
     def forward_text(
@@ -144,58 +173,4 @@ class NonFusionVLBackbone(nn.Module):
             text_embeds  # Text embeddings before forward to the encoder
         )
 
-        return output
-
-
-class SAM3VLBackbone(NonFusionVLBackbone):
-    """A vision-language backbone that does not fuse the vision and language. It assumes two necks, one for SAM2 heads and another for SAM3 heads"""
-
-    def __init__(
-        self,
-        visual,
-        text,
-        compile_visual: bool = False,
-        scalp=0,
-    ):
-        """Initialize the backbone combiner.
-
-        :param visual: The vision backbone to use
-        :param text: The text encoder to use
-        """
-        super().__init__(
-            visual=visual, text=text, compile_visual=compile_visual, scalp=scalp
-        )
-        # assert isinstance(
-        #     self.vision_backbone, Sam3DualViTDetNeck
-        # ), f"Expected vision backbone to be of type Sam3DualViTDetNeck, got {type(self.vision_backbone)}"
-
-    def forward_image(self, samples):
-        # Forward through backbone
-        sam3_features, sam3_pos, sam2_features, sam2_pos = self.vision_backbone(samples)
-        if self.scalp > 0:
-            # Discard the lowest resolution features
-            sam3_features, sam3_pos = (
-                sam3_features[: -self.scalp],
-                sam3_pos[: -self.scalp],
-            )
-            sam2_features, sam2_pos = (
-                sam2_features[: -self.scalp],
-                sam2_pos[: -self.scalp],
-            )
-
-        sam3_src = sam3_features[-1]
-        sam2_src = sam2_features[-1]
-
-        sam2_output = {
-            "vision_features": sam2_src,
-            "vision_pos_enc": sam2_pos,
-            "backbone_fpn": sam2_features,
-        }
-
-        output = {
-            "vision_features": sam3_src,
-            "vision_pos_enc": sam3_pos,
-            "backbone_fpn": sam3_features,
-            "sam2_backbone_out": sam2_output,
-        }
         return output
