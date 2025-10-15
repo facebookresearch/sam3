@@ -1031,9 +1031,8 @@ class Sam3TrackerPredictor(Sam3TrackerBase):
                 # Cache the most recent frame's feature (for repeated interactions with
                 # a frame; we can use an LRU cache for more frames in the future).
                 inference_state["cached_features"] = {frame_idx: (image, backbone_out)}
-
-        # TODO:
-        # backbone_out = backbone_out["tracker_backbone_out"]  # Extract SAM2 backbone output
+        if "tracker_backbone_out" in backbone_out:
+            backbone_out = backbone_out["tracker_backbone_out"]  # get backbone output
 
         # expand the features to have the same dimension as the number of objects
         expanded_image = image.expand(batch_size, -1, -1, -1)
