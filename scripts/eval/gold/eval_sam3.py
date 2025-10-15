@@ -93,8 +93,6 @@ class PostProcessorMerged:
             "scores": np.array([]),
             "labels": np.array([], dtype=int),
             "masks_rle": [],
-            "boundaries": [],
-            "dilated_boundaries": [],
         }
         imgToAnns = {img_id: copy.deepcopy(d) for img_id in self.img_ids}
         for ann in self.data_anns:
@@ -107,10 +105,6 @@ class PostProcessorMerged:
                 imgToAnns[ann["image_id"]]["labels"], ann["category_id"]
             )
             imgToAnns[ann["image_id"]]["masks_rle"].append(ann["segmentation"])
-            imgToAnns[ann["image_id"]]["boundaries"].append(ann["boundary"])
-            imgToAnns[ann["image_id"]]["dilated_boundaries"].append(
-                ann["dilated_boundary"]
-            )
 
         return imgToAnns
 
@@ -127,13 +121,13 @@ def main():
         "-g",
         "--gt-folder",
         type=str,
-        default="/fsx-onevision/shoubhikdn/release/gold_test_set/release_updated/",
+        default="/fsx-onevision/shoubhikdn/release/saco_gold/annotations_cleaned_v2/",
     )
     parser.add_argument(
         "-p",
         "--pred-folder",
         type=str,
-        default="/fsx-onevision/shoubhikdn/release/sam3_predictions/",
+        default="/fsx-onevision/shoubhikdn/release/sam3_predictions/arxiv/",
     )
     args = parser.parse_args()
 
@@ -170,21 +164,20 @@ def main():
             average_by_rarity=False,
             gather_pred_via_filesys=False,
             exhaustive_only=True,
-            compute_JnF=True,
         )
         evaluator.update()
         summary = evaluator.compute_synced()
 
         cgf1 = str(round(summary["coco_eval_masks_oracle_CGF1"] * 100, 2))
+        cgf1m = str(round(summary["coco_eval_masks_oracle_CGF1_micro"] * 100, 2))
         il_mcc = str(round(summary["coco_eval_masks_oracle_IL_MCC"], 2))
         pmf1 = str(round(summary["coco_eval_masks_oracle_Macro_F1"] * 100, 2))
+        pmf1m = str(round(summary["coco_eval_masks_oracle_positive_micro_F1"] * 100, 2))
         demof1 = str(round(summary["coco_eval_masks_oracle_F1"] * 100, 2))
-        jf = str(round(summary["coco_eval_masks_oracle_J&F"] * 100, 2))
-        final_str = f"{cgf1},{il_mcc},{pmf1},{demof1},{jf}"
-        # print("CG_F1, IL_MCC, pmF1, demoF1, J&F: ", final_str)
+        final_str = f"{cgf1},{cgf1m},{il_mcc},{pmf1},{pmf1m},{demof1}"
         results += subset_name + ": " + final_str + "\n"
 
-    print("Subset name, CG_F1, IL_MCC, pmF1, demoF1, J&F")
+    print("Subset name, CG_F1, CG_F1_m, IL_MCC, pmF1, pmF1_m, demoF1")
     print(results)
 
 
