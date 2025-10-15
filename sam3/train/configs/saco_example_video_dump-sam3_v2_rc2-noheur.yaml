@@ -1,0 +1,193 @@
+# @package _global_
+defaults:
+  - _self_
+
+# ============================================================================
+# Paths Configuration (Chage this to your own paths)
+# ============================================================================
+paths:
+  checkpoint_path: /checkpoint/sam3/haithamkhedr/checkpoints/sam3_dense/sam3_v2_rc2.pt
+  experiment_log_dir: /checkpoint/sam3/ronghanghu/video_prediction_dump_dir-sam3_v2_rc2-noheur/
+  dump_file_name: saco_veval_sav_test
+  ytvis_json : /checkpoint/sam3/shared/data/sam3_and_data/data/annotation/${paths.dump_file_name}.json
+  ytvis_dir : /checkpoint/sam3/shared/data/sam3_and_data/data/media/saco_sav/JPEGImages_24fps
+  bpe_path: /checkpoint/sam3/kalyanv/models/bpe_simple_vocab_16e6.txt.gz
+  num_videos: null #  default should null but setting it to 2 for testing
+
+# ============================================================================
+# Different helper parameters and functions
+# ============================================================================
+scratch:
+  vid_mask_postprocessor:
+    _target_: sam3.train.eval.postprocessors.PostProcessNullOp
+
+  use_presence_eval: True
+
+  video_transforms_val:
+    - _target_: sam3.train.transforms.basic_for_api.ComposeAPI
+      transforms:
+        - _target_: sam3.train.transforms.segmentation.DecodeRle
+        # resize the image to 1024x1024 resolution
+        - _target_: sam3.train.transforms.basic_for_api.RandomResizeAPI
+          sizes: ${scratch.resolution}  # originally `resolution: 1024`
+          square: true
+          consistent_transform: true
+        - _target_: sam3.train.transforms.basic_for_api.ToTensorAPI
+        - _target_: sam3.train.transforms.basic_for_api.NormalizeAPI
+          mean: ${scratch.val_norm_mean}
+          std: ${scratch.val_norm_std}
+
+  # Model parameters
+  d_model: 256
+
+  # Image processing parameters
+  resolution: 1008
+
+  # Normalization parameters
+  train_norm_mean: [0.5, 0.5, 0.5]
+  train_norm_std: [0.5, 0.5, 0.5]
+  val_norm_mean: [0.5, 0.5, 0.5]
+  val_norm_std: [0.5, 0.5, 0.5]
+
+  val_batch_size: 1
+  num_val_workers: 0
+  max_data_epochs: 20
+  hybrid_repeats: 1
+  gather_pred_via_filesys: false
+
+
+# ============================================================================
+# Trainer Configuration
+# ============================================================================
+
+trainer:
+  _target_: sam3.train.trainer.Trainer
+  skip_saving_ckpts: true
+  empty_gpu_mem_cache_after_eval: True
+  skip_first_val: True
+  max_epochs: ${scratch.max_data_epochs}
+  accelerator: cuda
+  seed_value: 123
+  val_epoch_freq: 10
+  mode: val
+
+  distributed:
+    backend: nccl
+    find_unused_parameters: True
+    gradient_as_bucket_view: True
+
+  loss:
+    all:
+      _target_: sam3.train.loss.sam3_loss.DummyLoss
+    default:
+      _target_: sam3.train.loss.sam3_loss.DummyLoss
+
+  data:
+    train: null
+    val:
+      _target_: sam3.train.data.torch_dataset.TorchDataset
+      dataset:
+        _target_: sam3.train.data.sam3_video_dataset.VideoGroundingDataset
+        limit_ids: ${paths.num_videos}
+        img_folder: ${paths.ytvis_dir}
+        ann_file: ${paths.ytvis_json}
+        coco_json_loader:
+          _target_: sam3.train.data.coco_json_loaders.SAM3_VEVAL_API_FROM_JSON_NP
+          _partial_: true
+
+        transforms: ${scratch.video_transforms_val}
+        max_ann_per_img: 100000  # filtered in transforms
+        max_val_queries: 100000
+        multiplier: 1
+        load_segmentation: true
+        training: false
+
+
+      shuffle: False
+      batch_size: ${scratch.val_batch_size}
+      num_workers: ${scratch.num_val_workers}
+      pin_memory: True
+      drop_last: False
+      collate_fn:
+        _target_: sam3.train.data.collator.collate_fn_api
+        _partial_: true
+        repeats: ${scratch.hybrid_repeats}
+        dict_key: ytvis_val
+        with_seg_masks: true
+
+
+  model:
+    _target_: sam3.sam3_video_model_builder.build_sam3_video_model
+    bpe_path: ${paths.bpe_path}
+    checkpoint_path: ${paths.checkpoint_path}
+    has_presence_token: True
+    geo_encoder_use_img_cross_attn: True
+
+
+    # TODO: Check if these are correctly set in model builder cc Ronghang
+    # score_threshold_detection: 0.5
+    # assoc_iou_thresh: 0.1
+    # det_nms_thresh: 0.1
+    # new_det_thresh: 0.7
+    # compile_model: False
+    # hotstart_delay: 15
+    # hotstart_unmatch_thresh: 8
+    # fill_hole_area: 16
+    # hotstart_dup_thresh: 8
+    # suppress_unmatched_only_within_hotstart: false
+    # suppress_overlapping_based_on_recent_occlusion_threshold: 0.7
+    # suppress_det_close_to_boundary: true
+    # recondition_every_nth_frame: 16
+    # masklet_confirmation_enable: true
+    # decrease_trk_keep_alive_for_empty_masklets: true
+
+
+  meters:
+    val:
+      ytvis_val:
+        pred_file: # key
+          _target_: sam3.train.eval.ytvis_eval.YTVISResultsWriter
+          dump_file: ${launcher.experiment_log_dir}/preds/${paths.dump_file_name}.json
+          postprocessor: ${scratch.vid_mask_postprocessor}
+          gather_pred_via_filesys: ${scratch.gather_pred_via_filesys}
+
+  optim:
+    amp:
+      enabled: True
+      amp_dtype: bfloat16
+
+
+  checkpoint:
+    save_dir: ${launcher.experiment_log_dir}/checkpoints
+    save_freq: 0  # 0 only last checkpoint is saved.
+
+
+  logging:
+    tensorboard_writer:
+      _target_: sam3.train.utils.logger.make_tensorboard_logger
+      log_dir: ${launcher.experiment_log_dir}/tensorboard
+      flush_secs: 120
+      should_log: True
+    wandb_writer: null
+    log_dir: ${launcher.experiment_log_dir}/logs/
+    log_freq: 10
+
+# ============================================================================
+# Launcher and Submitit Configuration
+# ============================================================================
+
+launcher:
+  num_nodes: 16
+  gpus_per_node: 8
+  experiment_log_dir: ${paths.experiment_log_dir}
+  multiprocessing_context: forkserver
+
+submitit:
+  account: null
+  partition: null
+  qos: null
+  timeout_hour: 72
+  use_cluster: True
+  cpus_per_task: 10
+  port_range: [10000, 65000]
+  constraint: null #"volta32gb"
