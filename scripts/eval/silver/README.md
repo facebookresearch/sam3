@@ -170,6 +170,10 @@ See the [official CLI](https://ego4d-data.org/docs/CLI/) and the [explanation ab
     python extract_frames.py yt1b
     ```
 
+## Visualization
+
+- Visualize GT annotations: [saco_gold_silver_vis_example.ipynb](https://github.com/facebookresearch/sam3/blob/main/examples/saco_gold_silver_vis_example.ipynb)
+
 ## Run online evaluation
 
 Update the path for GT annotation and images and run the below command for online evaluation.
@@ -177,3 +181,7 @@ Update the path for GT annotation and images and run the below command for onlin
 ```bash
 python sam3/train/train.py -c configs/silver_image_evals/sam3_silver_image_bdd100k.yaml --use-cluster 1
 ```
+
+## Annotation format
+
+Details on the annotation format can be found on [Hugging Face](https://huggingface.co/datasets/facebook/SACo-Silver#annotation-format).

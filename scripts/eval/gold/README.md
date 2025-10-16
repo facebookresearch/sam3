@@ -1,25 +1,38 @@
 # Evaluation dataset
 
-SA-Co/Gold is an evaluation dataset comprising of 7 subsets, each targeting a different scenario. For each subset, the annotations are multi-reviewed and agreed by 3 human annotators resulting in a high quality test set.
+SA-Co/Gold is a benchmark for promptable concept segmentation (PCS) in images. The benchmark contains images paired with text labels (also referred as Noun Phrases aka NPs), each annotated exhaustively with masks on all object instances that match the label. SA-Co/Gold comprises 7 subsets, each targeting a different annotation domain. For each subset, the annotations are multi-reviewed and agreed by 3 human annotators resulting in a high-quality benchmark.
+
+This dataset covers 2 image sources and 7 annotation domains. The image sources are: MetaCLIP and SA-1B. The annotation domains are: MetaCLIP captioner NPs, SA-1B captioner NPs, Attributes, Crowded Scenes, Wiki-Common1K, Wiki-Food/Drink, Wiki-Sports Equipment.
 
 ## Usage
 
 ### Download annotations
 
-The GT annotations can be downloaded from the following [location](https://drive.google.com/drive/folders/1ANXZwPH_k_ILOj5IB1Uih2dJaiQdSrdN?usp=sharing)
+The GT annotations can be downloaded from [Hugging Face](https://huggingface.co/datasets/facebook/SACo-Gold) or [Roboflow](https://sa-co-gold.roboflow.com/gt-annotations.zip)
 
 ### Download images
 
 There are two image sources for the evaluation dataset: MetaCLIP and SA-1B.
 
-1) The MetaCLIP images are referred in 6 out of 7 subsets and can be downloaded using the below commond. This will download all the images from the urls referred in `gold_metaclip_filename_urls_mapping_release.json`. The script should download 14856 images. (**Note for Roboflow:** The downloaded version with 14810 images i.e. 46 missing images is also fine and the annotations are updated accordingly)
+1) The MetaCLIP images are referred in 6 out of 7 subsets (MetaCLIP captioner NPs, Attributes, Crowded Scenes, Wiki-Common1K, Wiki-Food/Drink, Wiki-Sports Equipment) and can be downloaded from [Roboflow](https://sa-co-gold.roboflow.com/metaclip-images.zip).
+
+2) The SA-1B images are referred in 1 out of 7 subsets (SA-1B captioner NPs) and can be downloaded from the publicly released [version](https://ai.meta.com/datasets/segment-anything-downloads/). Please access the link for `sa_co_gold.tar` from dynamic links available under `Download text file` to download the SA-1B images referred in SA-Co/Gold.
+
+### Visualization
+
+- Visualize GT annotations: [saco_gold_silver_vis_example.ipynb](https://github.com/facebookresearch/sam3/blob/main/examples/saco_gold_silver_vis_example.ipynb)
+- Visualize GT annotations and sample predictions side-by-side: [sam3_data_and_predictions_visualization.ipynb](https://github.com/facebookresearch/sam3/blob/main/examples/sam3_data_and_predictions_visualization.ipynb)
+
+
+### Run offline evaluation
+
+Update the path for GT annotation and run the below command for offline evaluation of 7 subsets.
 
 ```bash
-python download_metaclip_urls.py
+python eval_sam3.py
 ```
 
-2) The SA-1B images referred in `sa1b_filenames.txt` (997 images) can be downloaded from the publicly released version. Please access the link for `sa_co_gold.tar` from dynamic links available under `Download text file` option in the publicly released [version](https://ai.meta.com/datasets/segment-anything-downloads/) to download and extract the SA-1B images.
-
+You can also run the following notebook: [saco_gold_silver_eval_example.ipynb](https://github.com/facebookresearch/sam3/blob/main/examples/saco_gold_silver_eval_example.ipynb)
 
 ### Run online evaluation
 
@@ -66,11 +79,4 @@ python sam3/train/train.py -c configs/gold_image_evals/sam3_gold_image_fg_sports
 
 ## Annotation format
 
-The annotation format is derived from [COCO format](https://cocodataset.org/#format-data). 
-
-Here are few additional details about GT annotations in each subset of SA-Co/Gold.
-1) "images" contain list of all image-noun phrase pairs. Each entry has a unique "id", the noun phrase is within key "text_input" and the image path (relative to root folder) is within key "file_name".
-2) "annotations" contain list of all annotations including bbox, segmentation mask, area etc. The "image_id" here maps to the "id" in "images". <br> For "id" in "images" that don't have any annotations (i.e. they do not exist in any of the "image_id" in "annotations"), we refer to them as <b> negative </b> image-noun phrase pair. And, for "id" in "images" that have corresponding annotations (i.e. exist as  "image_id" in "annotations"), we refer to them as <b> positive </b> image-noun phrase pair.
-3) "category" contains only 1 category since we evaluate instance segmentation.
-
-For predictions, the json file should contain list of all predicted annotations. The keys are similar to the GT annotations and in addition, it should have "score" that stores the confidence of model prediction.
+Details on the annotation format can be found on [Hugging Face](https://huggingface.co/datasets/facebook/SACo-Gold#annotation-format).
