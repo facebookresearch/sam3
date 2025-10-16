@@ -1,4 +1,4 @@
-# SA-CO/Silver benchmark
+# SA-Co/Silver benchmark
 
 SA-Co/Silver is a benchmark for promptable concept segmentation (PCS) in images. The benchmark contains images paired with text labels (also referred as Noun Phrases aka NPs), each annotated exhaustively with masks on all object instances that match the label.
 
@@ -15,11 +15,11 @@ SA-Co/Silver comprises 10 subsets, covering a diverse array of domains including
 - YT-Temporal-1B
 - Fathomnet
 
-The README contains instructions on how to download and setup the annotations, image data to prepare them for evaluation on SA-CO/Silver.
+The README contains instructions on how to download and setup the annotations, image data to prepare them for evaluation on SA-Co/Silver.
 
 ## Download annotations
 
-The GT annotations can be downloaded from [huggingface](https://huggingface.co/datasets/facebook/SACo-Silver)
+The GT annotations can be downloaded from [Hugging Face](https://huggingface.co/datasets/facebook/SACo-Silver)
 
 ## Download images and video frames
 
