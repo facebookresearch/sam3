@@ -209,6 +209,7 @@ def build_tracker() -> Sam3TrackerPredictor:
         },
         clear_non_cond_mem_around_input=True,
         fill_hole_area=0,
+        use_memory_selection=True,
     )
 
     return model
