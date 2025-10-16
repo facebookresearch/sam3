@@ -1,4 +1,4 @@
-# SA-CO/Gold benchmark
+# SA-Co/Gold benchmark
 
 SA-Co/Gold is a benchmark for promptable concept segmentation (PCS) in images. The benchmark contains images paired with text labels (also referred as Noun Phrases aka NPs), each annotated exhaustively with masks on all object instances that match the label. SA-Co/Gold comprises 7 subsets, each targeting a different annotation domain. For each subset, the annotations are multi-reviewed and agreed by 3 human annotators resulting in a high-quality benchmark.
 
