@@ -4,7 +4,6 @@ import logging
 
 import torch
 import torch.nn.functional as F
-
 from timm.layers import trunc_normal_
 
 from sam3.model.memory import SimpleMaskEncoder
@@ -67,6 +66,8 @@ class Sam3TrackerBase(torch.nn.Module):
         compile_all_components=False,
         # select the frame with object existence
         use_memory_selection=False,
+        # when using memory selection, the threshold to determine if the frame is good
+        mf_threshold=0.01,
     ):
         super().__init__()
 
@@ -143,6 +144,7 @@ class Sam3TrackerBase(torch.nn.Module):
 
         # Use frame filtering according to SAM2Long
         self.use_memory_selection = use_memory_selection
+        self.mf_threshold = mf_threshold
 
         # Compile all components of the model
         self.compile_all_components = compile_all_components
@@ -391,7 +393,10 @@ class Sam3TrackerBase(torch.nn.Module):
         high_res_masks = mask_inputs_float * out_scale + out_bias
         low_res_masks = F.interpolate(
             high_res_masks,
-            size=(high_res_masks.size(-2) // 4, high_res_masks.size(-1) // 4),
+            size=(
+                high_res_masks.size(-2) // self.backbone_stride * 4,
+                high_res_masks.size(-1) // self.backbone_stride * 4,
+            ),
             align_corners=False,
             mode="bilinear",
             antialias=True,  # use antialias for downsampling
@@ -529,12 +534,15 @@ class Sam3TrackerBase(torch.nn.Module):
 
         valid_indices = []
         for i in range(start, end, step):
-            if i not in output_dict["non_cond_frame_outputs"]:
+            if (
+                i not in output_dict["non_cond_frame_outputs"]
+                or "eff_iou_score" not in output_dict["non_cond_frame_outputs"][i]
+            ):
                 continue
 
             score_per_frame = output_dict["non_cond_frame_outputs"][i]["eff_iou_score"]
 
-            if score_per_frame > 0.1:  # threshold
+            if score_per_frame > self.mf_threshold:  # threshold
                 valid_indices.insert(0, i)
 
             if len(valid_indices) >= max_num - 1:
@@ -878,7 +886,6 @@ class Sam3TrackerBase(torch.nn.Module):
                     current_vision_pos_embeds,
                     feat_sizes,
                 ) = self._prepare_backbone_features_per_frame(input.img_batch, img_ids)
-
             # Get output masks based on this frame's prompts and previous memory
             current_out = self.track_step(
                 frame_idx=stage_id,
@@ -1002,7 +1009,7 @@ class Sam3TrackerBase(torch.nn.Module):
         current_out["obj_ptr"] = obj_ptr
         if self.use_memory_selection:
             current_out["object_score_logits"] = object_score_logits
-            iou_score = current_out["multistep_pred_ious"][0].max(-1)[0]
+            iou_score = ious.max(-1)[0]
             current_out["iou_score"] = iou_score
             current_out["eff_iou_score"] = self.cal_mem_score(
                 object_score_logits, iou_score
@@ -1044,37 +1051,53 @@ class Sam3TrackerBase(torch.nn.Module):
                 # other items for evaluation (these are small tensors so we keep them on GPU)
                 "obj_ptr": current_out["obj_ptr"],
                 "object_score_logits": current_out["object_score_logits"],
-                "multistep_point_inputs": current_out["multistep_point_inputs"],
             }
             if run_mem_encoder and self.num_maskmem > 0:
                 trimmed_out["maskmem_features"] = maskmem_features.cpu()
                 trimmed_out["maskmem_pos_enc"] = [x.cpu() for x in maskmem_pos_enc]
             if self.use_memory_selection:
-                trimmed_out["iou_score"] = current_out["iou_score"]
-                trimmed_out["eff_iou_score"] = current_out["eff_iou_score"]
+                trimmed_out["iou_score"] = current_out["iou_score"].cpu()
+                trimmed_out["eff_iou_score"] = current_out["eff_iou_score"].cpu()
             current_out = trimmed_out
 
         # Optionally, trim the output of past non-conditioning frame (r * num_maskmem frames
         # before the current frame) during evaluation. This is intended to save GPU or CPU
         # memory for semi-supervised VOS eval, where only the first frame receives prompts.
-        if (
-            self.trim_past_non_cond_mem_for_eval
-            and not self.training
-            and not self.use_memory_selection
-        ):
+        def _trim_past_out(past_out, current_out):
+            if past_out is None:
+                return None
+            return {
+                "pred_masks": past_out["pred_masks"],
+                "obj_ptr": past_out["obj_ptr"],
+                "object_score_logits": past_out["object_score_logits"],
+            }
+
+        if self.trim_past_non_cond_mem_for_eval and not self.training:
             r = self.memory_temporal_stride_for_eval
             past_frame_idx = frame_idx - r * self.num_maskmem
             past_out = output_dict["non_cond_frame_outputs"].get(past_frame_idx, None)
+
             if past_out is not None:
-                # We only keep "pred_mask" and "obj_ptr" here (all what the evaluator needs).
-                # We also keep "multistep_point_inputs" for interactive offline/online eval.
-                trimmed_past_out = {
-                    "pred_masks": past_out["pred_masks"],
-                    "obj_ptr": past_out["obj_ptr"],
-                    "object_score_logits": past_out["object_score_logits"],
-                    "multistep_point_inputs": current_out["multistep_point_inputs"],
-                }
-                output_dict["non_cond_frame_outputs"][past_frame_idx] = trimmed_past_out
+                print(past_out.get("eff_iou_score", 0))
+                if (
+                    self.use_memory_selection
+                    and past_out.get("eff_iou_score", 0) < self.mf_threshold
+                ) or not self.use_memory_selection:
+                    output_dict["non_cond_frame_outputs"][past_frame_idx] = (
+                        _trim_past_out(past_out, current_out)
+                    )
+
+            if (
+                self.use_memory_selection and not self.offload_output_to_cpu_for_eval
+            ):  ## design for memory selection, trim too old frames to save memory
+                far_old_frame_idx = frame_idx - 20 * self.max_obj_ptrs_in_encoder
+                past_out = output_dict["non_cond_frame_outputs"].get(
+                    far_old_frame_idx, None
+                )
+                if past_out is not None:
+                    output_dict["non_cond_frame_outputs"][far_old_frame_idx] = (
+                        _trim_past_out(past_out, current_out)
+                    )
 
         return current_out
 

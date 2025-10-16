@@ -1031,9 +1031,8 @@ class Sam3TrackerPredictor(Sam3TrackerBase):
                 # Cache the most recent frame's feature (for repeated interactions with
                 # a frame; we can use an LRU cache for more frames in the future).
                 inference_state["cached_features"] = {frame_idx: (image, backbone_out)}
-
-        # TODO:
-        # backbone_out = backbone_out["tracker_backbone_out"]  # Extract SAM2 backbone output
+        if "tracker_backbone_out" in backbone_out:
+            backbone_out = backbone_out["tracker_backbone_out"]  # get backbone output
 
         # expand the features to have the same dimension as the number of objects
         expanded_image = image.expand(batch_size, -1, -1, -1)
@@ -1117,11 +1116,8 @@ class Sam3TrackerPredictor(Sam3TrackerBase):
             "object_score_logits": object_score_logits,
         }
         if self.use_memory_selection:
-            iou_score = current_out["multistep_pred_ious"][0].max(-1)[0]
-            compact_current_out["iou_score"] = iou_score
-            compact_current_out["eff_iou_score"] = self.cal_mem_score(
-                object_score_logits, iou_score
-            )
+            compact_current_out["iou_score"] = current_out["iou_score"]
+            compact_current_out["eff_iou_score"] = current_out["eff_iou_score"]
         return compact_current_out, pred_masks_gpu
 
     def _run_memory_encoder(
