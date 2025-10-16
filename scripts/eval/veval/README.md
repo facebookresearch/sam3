@@ -88,6 +88,7 @@ Two files needed to download the SA-Co/VEval - YT-Temporal-1B Youtube videos.
 * Go to [SACo-VEval](https://huggingface.co/datasets/facebook/SACo-VEval/tree/main) download `media/yt1b_id_frame_map.json`, which contains which Youtube videos and which frames are used for the SA-Co/VEval - YT-Temporal-1B.
 * Prepare the `cookies.txt` file. Follow instruction in yt-dlp [exporting-youtube-cookies](https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies) and [pass-cookies-to-yt-dlp](https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp) to prepare the cookies_file.
     * Please see the full WARNINGS in yt-dlp regarding the risk of Youtube account ban!!
+* Go to [SACo-VEval](https://huggingface.co/datasets/facebook/SACo-VEval/tree/main) download `media/saco_yt1b_video_spec.csv`, which can be used for the downloaded videos sanity check.
 
 Then run `scripts/eval/veval/saco_yt1b_downloader.py` e.g.
 ```
@@ -103,9 +104,18 @@ python saco_yt1b_downloader.py \
 * yt1b_frame_prep_log_path: a log file to track the downloader status, including the stages of video download, frame extracting, and frame matching, for each video.
 
 Note: not all Youtube videos might be available since some videos might be deleted or moved from public to private.
+
+After downloading, run `scripts/eval/veval/saco_yt1b_video_spec.py` for a sanity check e.g.
+```
+python saco_yt1b_video_spec.py \
+--videos_path ../data/media/saco_yt1b/raw_videos \
+--res_file ../data/media/saco_yt1b/saco_yt1b_video_spec.csv
+```
+Check if the results matching to the `saco_yt1b_video_spec.csv` downloaded above. Due to the Youtube videos downloading uncertainities, it could be possible that the newly downloaded videos do not exactly match the provided video specs, which will affect the eval reproducibility.
+
   
 #### SA-Co/VEval - SmartGlasses
-Go to [SACo-VEval](https://huggingface.co/datasets/facebook/SACo-VEval/tree/main) download `media/saco_sg.tar.gz` (HF repo is private now. Another temp [GDrive]([https://drive.google.com/drive/folders/1p26lWYxW1p0ElNBLe6KiVQiv4_fyp6hO](https://drive.google.com/drive/folders/1aitfOfBfelJZNQGbRHgw00bxNiZlyVSM)) location `saco_sg.tag` for sharing.)
+Go to [SACo-VEval](https://huggingface.co/datasets/facebook/SACo-VEval/tree/main) download `media/saco_sg.tar.gz` (HF repo is private now. Another temp [GDrive](https://drive.google.com/drive/folders/1aitfOfBfelJZNQGbRHgw00bxNiZlyVSM) location `saco_sg.tag` for sharing.)
 ```
 cd ../data
 hf download facebook/SACo-VEval media/saco_sg.tar.gz --repo-type dataset --local-dir .
