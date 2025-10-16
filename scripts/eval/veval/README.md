@@ -115,7 +115,7 @@ Check if the results matching to the `saco_yt1b_video_spec.csv` downloaded above
 
   
 #### SA-Co/VEval - SmartGlasses
-Go to [SACo-VEval](https://huggingface.co/datasets/facebook/SACo-VEval/tree/main) download `media/saco_sg.tar.gz` (HF repo is private now. Another temp [GDrive](https://drive.google.com/drive/folders/1aitfOfBfelJZNQGbRHgw00bxNiZlyVSM) location `saco_sg.tag` for sharing.)
+Go to [SACo-VEval](https://huggingface.co/datasets/facebook/SACo-VEval/tree/main) download `media/saco_sg.tar.gz` (HF repo is private now. Another temp [GDrive](https://drive.google.com/drive/folders/1aitfOfBfelJZNQGbRHgw00bxNiZlyVSM) location `saco_sg.tgz` for sharing.)
 ```
 cd ../data
 hf download facebook/SACo-VEval media/saco_sg.tar.gz --repo-type dataset --local-dir .
