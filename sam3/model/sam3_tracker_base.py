@@ -1009,7 +1009,7 @@ class Sam3TrackerBase(torch.nn.Module):
         current_out["obj_ptr"] = obj_ptr
         if self.use_memory_selection:
             current_out["object_score_logits"] = object_score_logits
-            iou_score = current_out["multistep_pred_ious"][0].max(-1)[0]
+            iou_score = ious.max(-1)[0]
             current_out["iou_score"] = iou_score
             current_out["eff_iou_score"] = self.cal_mem_score(
                 object_score_logits, iou_score
@@ -1051,7 +1051,6 @@ class Sam3TrackerBase(torch.nn.Module):
                 # other items for evaluation (these are small tensors so we keep them on GPU)
                 "obj_ptr": current_out["obj_ptr"],
                 "object_score_logits": current_out["object_score_logits"],
-                "multistep_point_inputs": current_out["multistep_point_inputs"],
             }
             if run_mem_encoder and self.num_maskmem > 0:
                 trimmed_out["maskmem_features"] = maskmem_features.cpu()
@@ -1071,7 +1070,6 @@ class Sam3TrackerBase(torch.nn.Module):
                 "pred_masks": past_out["pred_masks"],
                 "obj_ptr": past_out["obj_ptr"],
                 "object_score_logits": past_out["object_score_logits"],
-                "multistep_point_inputs": current_out["multistep_point_inputs"],
             }
 
         if self.trim_past_non_cond_mem_for_eval and not self.training:

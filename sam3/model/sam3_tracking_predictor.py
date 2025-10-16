@@ -1116,11 +1116,8 @@ class Sam3TrackerPredictor(Sam3TrackerBase):
             "object_score_logits": object_score_logits,
         }
         if self.use_memory_selection:
-            iou_score = current_out["multistep_pred_ious"][0].max(-1)[0]
-            compact_current_out["iou_score"] = iou_score
-            compact_current_out["eff_iou_score"] = self.cal_mem_score(
-                object_score_logits, iou_score
-            )
+            compact_current_out["iou_score"] = current_out["iou_score"]
+            compact_current_out["eff_iou_score"] = current_out["eff_iou_score"]
         return compact_current_out, pred_masks_gpu
 
     def _run_memory_encoder(
