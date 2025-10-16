@@ -331,13 +331,11 @@ def main():
         "--sleep_interval",
         type=int,
         default=10,
-        help="Sleep interval in seconds before each video download to avoid rate limiting",
     )
     parser.add_argument(
         "--max_sleep_interval",
         type=int,
         default=30,
-        help="Maximum random sleep interval in seconds for more human-like behavior",
     )
     args = parser.parse_args()
 
