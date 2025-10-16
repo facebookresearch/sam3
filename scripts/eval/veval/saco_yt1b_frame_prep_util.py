@@ -24,11 +24,15 @@ class YtVideoPrep:
         cookies_file: str,
         id_and_frame_map_path: str,
         ffmpeg_timeout: int,
+        sleep_interval: int = 10,
+        max_sleep_interval: int = 30,
     ):
         self.saco_yt1b_id = saco_yt1b_id  # saco_yt1b_id is like saco_yt1b_000000
         self.data_dir = data_dir
         self.cookies_file = cookies_file
         self.ffmpeg_timeout = ffmpeg_timeout
+        self.sleep_interval = sleep_interval
+        self.max_sleep_interval = max_sleep_interval
 
         self.id_and_frame_map_df = pd.read_json(id_and_frame_map_path)
         (
@@ -112,12 +116,14 @@ class YtVideoPrep:
             return "already exists"
 
         ydl_opts = {
-            "format": "best[height<=720][ext=mp4][protocol^=https]/best[ext=mp4][protocol^=https]/best[height<=720]/best",  # Prefer https MP4 formats, avoid HLS/m3u8
+            "format": "best[height<=720]/best",  # 720p or lower
             "outtmpl": outtmpl,
             "merge_output_format": "mp4",
             "noplaylist": True,
             "quiet": True,
             "cookiefile": self.cookies_file,
+            "sleep_interval": self.sleep_interval,  # Sleep before each download to avoid rate limiting
+            "max_sleep_interval": self.max_sleep_interval,  # Random sleep for more human-like behavior
         }
 
         try:
@@ -321,6 +327,18 @@ def main():
         type=str,
         default=7200,  # Use longer timeout in case of large videos processing timeout
     )
+    parser.add_argument(
+        "--sleep_interval",
+        type=int,
+        default=10,
+        help="Sleep interval in seconds before each video download to avoid rate limiting",
+    )
+    parser.add_argument(
+        "--max_sleep_interval",
+        type=int,
+        default=30,
+        help="Maximum random sleep interval in seconds for more human-like behavior",
+    )
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -336,6 +354,8 @@ def main():
         cookies_file=args.cookies_file,
         id_and_frame_map_path=args.id_map_file,
         ffmpeg_timeout=args.ffmpeg_timeout,
+        sleep_interval=args.sleep_interval,
+        max_sleep_interval=args.max_sleep_interval,
     )
 
     status = video_prep.download_youtube_video()
