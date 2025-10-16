@@ -165,7 +165,7 @@ def _create_tracker_transformer():
     return transformer
 
 
-def build_tracker() -> Sam3TrackerPredictor:
+def build_tracker(apply_temporal_disambiguation: bool) -> Sam3TrackerPredictor:
     """
     Build the SAM3 Tracker module for video tracking.
 
@@ -209,7 +209,7 @@ def build_tracker() -> Sam3TrackerPredictor:
         },
         clear_non_cond_mem_around_input=True,
         fill_hole_area=0,
-        use_memory_selection=True,
+        use_memory_selection=apply_temporal_disambiguation,
     )
 
     return model
@@ -511,6 +511,7 @@ def build_sam3_video_model(
     has_presence_token: bool = True,
     geo_encoder_use_img_cross_attn: bool = True,
     strict_state_dict_loading: bool = True,
+    apply_temporal_disambiguation: bool = True,
 ) -> Sam3VideoInferenceWithInstanceInteractivity:
     """
     Build SAM3 dense tracking model.
@@ -528,7 +529,7 @@ def build_sam3_video_model(
         )
 
     # Build Tracker module
-    tracker = build_tracker()
+    tracker = build_tracker(apply_temporal_disambiguation=apply_temporal_disambiguation)
 
     # Build Detector components
     visual_neck = _create_sam3_visual_backbone()
@@ -571,58 +572,59 @@ def build_sam3_video_model(
     )
 
     # Build the main SAM3 video model
-    model = Sam3VideoInferenceWithInstanceInteractivity(
-        detector=detector,
-        tracker=tracker,
-        score_threshold_detection=0.5,
-        assoc_iou_thresh=0.1,
-        det_nms_thresh=0.1,
-        new_det_thresh=0.7,
-        compile_model=False,  # Set to True for faster inference with torch.compile
-        hotstart_delay=15,
-        hotstart_unmatch_thresh=8,
-        hotstart_dup_thresh=8,
-        suppress_unmatched_only_within_hotstart=False,
-        min_trk_keep_alive=-1,
-        max_trk_keep_alive=30,
-        init_trk_keep_alive=30,
-        suppress_overlapping_based_on_recent_occlusion_threshold=0.7,
-        suppress_det_close_to_boundary=False,
-        fill_hole_area=16,
-        recondition_every_nth_frame=16,
-        masklet_confirmation_enable=False,
-        decrease_trk_keep_alive_for_empty_masklets=False,
-        image_size=1008,
-        image_mean=(0.5, 0.5, 0.5),
-        image_std=(0.5, 0.5, 0.5),
-    )
-
-    # # a version without any heuristics for ablation studies
-    # model = Sam3VideoInferenceWithInstanceInteractivity(
-    #     detector=detector,
-    #     tracker=tracker,
-    #     score_threshold_detection=0.5,
-    #     assoc_iou_thresh=0.1,
-    #     det_nms_thresh=0.1,
-    #     new_det_thresh=0.7,
-    #     compile_model=False,  # Set to True for faster inference with torch.compile
-    #     hotstart_delay=0,
-    #     hotstart_unmatch_thresh=0,
-    #     hotstart_dup_thresh=0,
-    #     suppress_unmatched_only_within_hotstart=False,
-    #     min_trk_keep_alive=-1,
-    #     max_trk_keep_alive=30,
-    #     init_trk_keep_alive=30,
-    #     suppress_overlapping_based_on_recent_occlusion_threshold=0.7,
-    #     suppress_det_close_to_boundary=False,
-    #     fill_hole_area=16,
-    #     recondition_every_nth_frame=0,
-    #     masklet_confirmation_enable=False,
-    #     decrease_trk_keep_alive_for_empty_masklets=False,
-    #     image_size=1008,
-    #     image_mean=(0.5, 0.5, 0.5),
-    #     image_std=(0.5, 0.5, 0.5),
-    # )
+    if apply_temporal_disambiguation:
+        model = Sam3VideoInferenceWithInstanceInteractivity(
+            detector=detector,
+            tracker=tracker,
+            score_threshold_detection=0.5,
+            assoc_iou_thresh=0.1,
+            det_nms_thresh=0.1,
+            new_det_thresh=0.7,
+            compile_model=False,  # Set to True for faster inference with torch.compile
+            hotstart_delay=15,
+            hotstart_unmatch_thresh=8,
+            hotstart_dup_thresh=8,
+            suppress_unmatched_only_within_hotstart=False,
+            min_trk_keep_alive=-1,
+            max_trk_keep_alive=30,
+            init_trk_keep_alive=30,
+            suppress_overlapping_based_on_recent_occlusion_threshold=0.7,
+            suppress_det_close_to_boundary=False,
+            fill_hole_area=16,
+            recondition_every_nth_frame=16,
+            masklet_confirmation_enable=False,
+            decrease_trk_keep_alive_for_empty_masklets=False,
+            image_size=1008,
+            image_mean=(0.5, 0.5, 0.5),
+            image_std=(0.5, 0.5, 0.5),
+        )
+    else:
+        # a version without any heuristics for ablation studies
+        model = Sam3VideoInferenceWithInstanceInteractivity(
+            detector=detector,
+            tracker=tracker,
+            score_threshold_detection=0.5,
+            assoc_iou_thresh=0.1,
+            det_nms_thresh=0.1,
+            new_det_thresh=0.7,
+            compile_model=False,  # Set to True for faster inference with torch.compile
+            hotstart_delay=0,
+            hotstart_unmatch_thresh=0,
+            hotstart_dup_thresh=0,
+            suppress_unmatched_only_within_hotstart=False,
+            min_trk_keep_alive=-1,
+            max_trk_keep_alive=30,
+            init_trk_keep_alive=30,
+            suppress_overlapping_based_on_recent_occlusion_threshold=0.7,
+            suppress_det_close_to_boundary=False,
+            fill_hole_area=16,
+            recondition_every_nth_frame=0,
+            masklet_confirmation_enable=False,
+            decrease_trk_keep_alive_for_empty_masklets=False,
+            image_size=1008,
+            image_mean=(0.5, 0.5, 0.5),
+            image_std=(0.5, 0.5, 0.5),
+        )
 
     # Load checkpoint if provided
     if checkpoint_path is not None:
