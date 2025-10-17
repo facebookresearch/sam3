@@ -166,8 +166,7 @@ class Sam3VideoPredictor:
     ):
         """Remove an object from tracking."""
         logger.info(
-            f"remove object {obj_id} in session {session_id}: "
-            f"{is_user_action=}"
+            f"remove object {obj_id} in session {session_id}: " f"{is_user_action=}"
         )
         session = self._get_session(session_id)
         inference_state = session["state"]
