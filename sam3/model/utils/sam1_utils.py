@@ -82,12 +82,12 @@ class SAM2Transforms(nn.Module):
         input_masks = masks
         mask_flat = masks.flatten(0, 1).unsqueeze(1)  # flatten as 1-channel image
         try:
-            from cc_torch import get_connected_components
+            from sam3.perflib.connected_components import connected_components
 
             if self.max_hole_area > 0:
                 # Holes are those connected components in background with area <= self.fill_hole_area
                 # (background regions are those with mask scores <= self.mask_threshold)
-                labels, areas = get_connected_components(
+                labels, areas = connected_components(
                     (mask_flat <= self.mask_threshold).to(torch.uint8)
                 )
                 is_hole = (labels > 0) & (areas <= self.max_hole_area)
@@ -96,7 +96,7 @@ class SAM2Transforms(nn.Module):
                 masks = torch.where(is_hole, self.mask_threshold + 10.0, masks)
 
             if self.max_sprinkle_area > 0:
-                labels, areas = get_connected_components(
+                labels, areas = connected_components(
                     (mask_flat > self.mask_threshold).to(torch.uint8)
                 )
                 is_hole = (labels > 0) & (areas <= self.max_sprinkle_area)
@@ -105,7 +105,6 @@ class SAM2Transforms(nn.Module):
                 masks = torch.where(is_hole, self.mask_threshold - 10.0, masks)
         except Exception as e:
             # Skip the post-processing step if the CUDA kernel fails
-            # TODO: Finalize this warning after figuring out the installation of cc_torch
             warnings.warn(
                 f"{e}\n\nSkipping the post-processing step due to the error above. You can "
                 "still use SAM 3 and it's OK to ignore the error above, although some post-processing "

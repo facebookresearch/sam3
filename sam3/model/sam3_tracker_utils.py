@@ -371,11 +371,12 @@ def fill_holes_in_mask_scores(mask, max_area, fill_holes=True, remove_sprinkles=
     A post processor to fill small holes in mask scores with area under `max_area`.
     Holes are those small connected components in either background or foreground.
 
-    Note that it relies on the "cc_torch" package to find connected components. You can
+    Note that it relies on the "cc_torch" package to find connected components fast. You can
     install it via the following command (`TORCH_CUDA_ARCH_LIST=8.0` is for A100 GPUs):
     ```
     pip uninstall -y cc_torch; TORCH_CUDA_ARCH_LIST=8.0 9.0 pip install git+https://github.com/ronghanghu/cc_torch
     ```
+    Otherwise, it will fallback to a slightly slower triton implementation, or skimage if the tensor is on cpu
     """
 
     if max_area <= 0:
@@ -406,7 +407,7 @@ def fill_holes_in_mask_scores(mask, max_area, fill_holes=True, remove_sprinkles=
 
 def _get_connected_components_with_padding(mask, get_counts=True):
     """Get connected components from masks (possibly padding them to an even size)."""
-    from cc_torch import get_connected_components
+    from sam3.perflib.connected_components import connected_components
 
     mask = mask.to(torch.uint8)
     _, _, H, W = mask.shape
@@ -414,12 +415,12 @@ def _get_connected_components_with_padding(mask, get_counts=True):
     pad_h = H % 2
     pad_w = W % 2
     if pad_h == 0 and pad_w == 0:
-        labels, counts = get_connected_components(mask, get_counts)
+        labels, counts = connected_components(mask)
     else:
         # pad the mask to make its height and width even
         # padding format is (padding_left,padding_right,padding_top,padding_bottom)
         mask_pad = F.pad(mask, (0, pad_w, 0, pad_h), mode="constant", value=0)
-        labels, counts = get_connected_components(mask_pad, get_counts)
+        labels, counts = connected_components(mask_pad)
         labels = labels[:, :, :H, :W]
         counts = counts[:, :, :H, :W]
 
