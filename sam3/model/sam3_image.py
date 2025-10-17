@@ -7,9 +7,9 @@ from typing import Dict, Optional
 import torch
 
 from sam3.model.model_misc import SAM3Output
-from sam3.model.nms_utils import nms_masks
 
 from sam3.model.vl_combiner import SAM3VLBackbone
+from sam3.perflib.nms import nms_masks
 
 from sam3.train.data.collator import BatchedDatapoint
 

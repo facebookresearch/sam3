@@ -4,8 +4,9 @@ from collections import defaultdict
 
 import torch
 import torch.nn.functional as F
-from onevision.perflib.iou import pairwise_iou
 from scipy.optimize import linear_sum_assignment
+
+from sam3.perflib.masks_ops import mask_iou
 
 
 def associate_det_trk(
@@ -60,7 +61,7 @@ def associate_det_trk(
         det_masks = det_masks > 0
         track_masks = track_masks > 0
 
-        iou = pairwise_iou(det_masks, track_masks)  # (N, M)
+        iou = mask_iou(det_masks, track_masks)  # (N, M)
         igeit = iou >= iou_threshold
         igeit_any_dim_1 = igeit.any(dim=1)
         igeit_trk = iou >= iou_threshold_trk
