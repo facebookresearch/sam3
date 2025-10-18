@@ -166,10 +166,11 @@ def main(args) -> None:
     submitit_conf = cfg.get("submitit", None)
     assert submitit_conf is not None, "Missing submitit config"
 
-    submitit_dir = cfg.launcher.experiment_log_dir
-    submitit_dir = os.path.join(submitit_dir, "submitit_logs")
+    experiment_log_dir = cfg.launcher.experiment_log_dir
+    print("Experiment Log Directory:", experiment_log_dir)
+    submitit_dir = os.path.join(experiment_log_dir, "submitit_logs")
 
-    # Priotrize cmd line args
+    # Prioritize cmd line args
     cfg.launcher.gpus_per_node = (
         args.num_gpus if args.num_gpus is not None else cfg.launcher.gpus_per_node
     )
