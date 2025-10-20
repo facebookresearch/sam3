@@ -113,7 +113,7 @@ python saco_yt1b_annot_update.py \
 
 **NOTE**:
 * Not all Youtube videos might be available as Youtube videos can be deleted or become private. The script `saco_yt1b_annot_update.py` is used to remove the annotations of the unavailable videos.
-* **Frame Shifting Alert!!** Even when the videos are still available, their specifications, such as fps and duration, may differ from those used during annotation. Additionally, sometimes `ffmpeg` seems to find it hard to guarantee consistent frame extraction from the same video across different environments. This may cause the re-downloaded and re-extracted frames to have alignment issues with our annotations due to frame shifting. Please be aware of this caveat when evaluating on SA-Co/VEval - YT-Temporal-1B.
+* **Frame Shifting Alert!!** Even when the videos are still available, their specifications, such as fps and duration, may differ from those used during annotation when re-downloaded from YouTube. Additionally, sometimes `ffmpeg` seems to find it hard to guarantee consistent frame extraction from the same video across different environments. This may cause the re-downloaded and re-extracted frames to have alignment issues with our annotations due to frame shifting. Please be aware of this caveat when evaluating on SA-Co/VEval - YT-Temporal-1B.
   
 #### SA-Co/VEval - SmartGlasses
 Go to [SACo-VEval](https://huggingface.co/datasets/facebook/SACo-VEval/tree/main) download `media/saco_sg.tar.gz`
