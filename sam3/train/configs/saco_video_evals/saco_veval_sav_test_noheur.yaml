@@ -8,7 +8,7 @@ defaults:
 paths:
   checkpoint_path: /checkpoint/sam3/haithamkhedr/checkpoints/sam3_dense/sam3_v2_rc2.pt
   dump_file_name: saco_veval_sav_test
-  experiment_log_dir: /checkpoint/sam3/${oc.env:USER}/saco_video_evals/${paths.dump_file_name}/
+  experiment_log_dir: /checkpoint/sam3/${oc.env:USER}/saco_video_evals/${paths.dump_file_name}_noheur/
   ytvis_json : /checkpoint/sam3/shared/data/sam3_and_data/data/annotation/${paths.dump_file_name}.json
   ytvis_dir : /checkpoint/sam3/shared/data/sam3_and_data/data/media/saco_sav/JPEGImages_24fps
   bpe_path: /checkpoint/sam3/kalyanv/models/bpe_simple_vocab_16e6.txt.gz
@@ -159,7 +159,7 @@ trainer:
 # ============================================================================
 
 launcher:
-  num_nodes: 16
+  num_nodes: 8
   gpus_per_node: 8
   experiment_log_dir: ${paths.experiment_log_dir}
   multiprocessing_context: forkserver

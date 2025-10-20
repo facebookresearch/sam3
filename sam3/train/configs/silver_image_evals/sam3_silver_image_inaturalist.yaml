@@ -284,7 +284,7 @@ trainer:
 # ============================================================================
 
 launcher:
-  num_nodes: 16
+  num_nodes: 8
   gpus_per_node: 8
   experiment_log_dir: ${paths.experiment_log_dir}
   multiprocessing_context: forkserver

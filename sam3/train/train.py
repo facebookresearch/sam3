@@ -167,7 +167,7 @@ def main(args) -> None:
     assert submitit_conf is not None, "Missing submitit config"
 
     experiment_log_dir = cfg.launcher.experiment_log_dir
-    print("Experiment Log Directory:", experiment_log_dir)
+    print(f"Experiment Log Dir:\n{experiment_log_dir}")
     submitit_dir = os.path.join(experiment_log_dir, "submitit_logs")
 
     # Prioritize cmd line args
