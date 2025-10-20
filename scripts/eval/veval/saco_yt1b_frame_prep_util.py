@@ -103,14 +103,18 @@ class YtVideoPrep:
         if self.yt_video_id in ["euohdDLEMRg", "nzfAn7n4d-0"]:
             # For "euohdDLEMRg", we have to specify the https protocol or the video sometimes can't be downloaded completely
             # For "nzfAn7n4d-0", without the https protocol, the video will be downloaded as 654×480, however we need 490×360 to match the frame matching after the 1080 width resizing
-            ydl_opts["format"] = "best[height<=720][ext=mp4][protocol^=https]/best[ext=mp4][protocol^=https]/best[height<=720]/best"
+            ydl_opts["format"] = (
+                "best[height<=720][ext=mp4][protocol^=https]/best[ext=mp4][protocol^=https]/best[height<=720]/best"
+            )
 
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.download([video_url])
                 return "success"
         except Exception as e:
-            logger.warning(f"[video download][{self.saco_yt1b_id}] Error downloading video {self.yt_video_id}: {e}")
+            logger.warning(
+                f"[video download][{self.saco_yt1b_id}] Error downloading video {self.yt_video_id}: {e}"
+            )
             return f"error {e}"
 
     def extract_frames_in_6fps_and_width_1080(self):
@@ -124,12 +128,15 @@ class YtVideoPrep:
             os.rmdir(self.JPEGImages_6fps_dir)
             return False
 
-        if os.path.exists(self.JPEGImages_6fps_dir) and len(os.listdir(self.JPEGImages_6fps_dir)) == self.expected_num_frames:
+        if (
+            os.path.exists(self.JPEGImages_6fps_dir)
+            and len(os.listdir(self.JPEGImages_6fps_dir)) == self.expected_num_frames
+        ):
             logger.info(
                 f"[frame extracting][{self.saco_yt1b_id}] JPEGImages_6fps directory already exists at {self.JPEGImages_6fps_dir} and expected number of frames {self.expected_num_frames} matches"
             )
             return True
-        
+
         # Clear the directory before extracting new frames
         for file in os.listdir(self.JPEGImages_6fps_dir):
             os.remove(os.path.join(self.JPEGImages_6fps_dir, file))
@@ -248,7 +255,9 @@ def main():
     logger.info(f"[video download][{args.saco_yt1b_id}] download status {status}")
 
     status = video_prep.extract_frames_in_6fps_and_width_1080()
-    logger.info(f"[frame extracting][{args.saco_yt1b_id}] frame extracting status {status}")
+    logger.info(
+        f"[frame extracting][{args.saco_yt1b_id}] frame extracting status {status}"
+    )
 
 
 if __name__ == "__main__":

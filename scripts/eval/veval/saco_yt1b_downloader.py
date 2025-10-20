@@ -1,8 +1,8 @@
 import argparse
 import logging
-import os
 
 import multiprocessing as mp
+import os
 from functools import partial
 
 import pandas as pd
@@ -27,7 +27,9 @@ def download_and_extract_frames(saco_yt1b_id, args):
     logger.info(f"[video download][{saco_yt1b_id}] download status {status}")
 
     if status not in ["already exists", "success"]:
-        logger.warning(f"Video download failed for {saco_yt1b_id}, skipping frame generation")
+        logger.warning(
+            f"Video download failed for {saco_yt1b_id}, skipping frame generation"
+        )
         return False
 
     status = video_prep.extract_frames_in_6fps_and_width_1080()
@@ -90,9 +92,9 @@ def main():
         format="%(asctime)s [%(processName)s/%(threadName)s] %(name)s - %(levelname)s: %(message)s",
         handlers=[
             logging.FileHandler(args.yt1b_frame_prep_log_path, mode="w"),
-            logging.StreamHandler()
+            logging.StreamHandler(),
         ],
-        force=True  # Override any existing configuration
+        force=True,  # Override any existing configuration
     )
 
     YT_DLP_WARNING_STR = """ ==========
@@ -111,7 +113,9 @@ def main():
 
     saco_yt1b_ids = id_map_df.saco_yt1b_id.unique()
     num_workers = args.num_workers
-    logger.info(f"Starting with {num_workers} parallel worker(s) (sleep_interval={args.sleep_interval}-{args.max_sleep_interval}s)")
+    logger.info(
+        f"Starting with {num_workers} parallel worker(s) (sleep_interval={args.sleep_interval}-{args.max_sleep_interval}s)"
+    )
 
     with mp.Pool(num_workers) as p:
         download_func = partial(download_and_extract_frames, args=args)
