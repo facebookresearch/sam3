@@ -11,8 +11,8 @@ pip install -e ".[veval]"
 ```
 This will allow us to run:
 * `scripts/eval/veval/saco_yt1b_downloader.py` preparing frames for SA-Co/VEval - YT-Temporal-1B
-* `scripts/eval/veval/saco_veval_eval.py` example of running an offline evaluator
-* `examples/saco_veavl_example.ipynb` example of loading and visualizing the data
+* `examples/saco_veval_eval_example.ipynb` example of running an offline evaluator
+* `examples/saco_veval_vis_example.ipynb` example of loading and visualizing the data
 
 ## Download
 ### The expected folder structure
