@@ -139,9 +139,9 @@ class YtVideoPrep:
             "-y",
             # select video segment
             "-ss",
-            str(self.start_time - 0.5),
+            str(self.start_time),
             "-to",
-            str(self.end_time + 0.5),
+            str(self.end_time),
             "-i",
             self.raw_video_path,
             # set output video resolution to be 6fps and at most 1080p
