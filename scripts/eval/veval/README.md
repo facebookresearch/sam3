@@ -85,9 +85,9 @@ mv sav_val/JPEGImages_24fps/* JPEGImages_24fps/
 
 #### SA-Co/VEval - YT-Temporal-1B
 Two files are needed to download the SA-Co/VEval - YT-Temporal-1B Youtube videos.
-* Download `media/yt1b_start_end_time.json` from [SA-Co/VEval Dataset Hugging Face](https://huggingface.co/datasets/facebook/SACo-VEval/tree/main), which contains the Youtube video ids and the start and end time used in SA-Co/VEval - YT-Temporal-1B.
+* Download `media/yt1b_start_end_time.json` from [SA-Co/VEval](https://huggingface.co/datasets/facebook/SACo-VEval/tree/main), which contains the Youtube video ids and the start and end time used in SA-Co/VEval - YT-Temporal-1B.
 * Prepare the `cookies.txt` file. Follow instruction in yt-dlp [exporting-youtube-cookies](https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies) and [pass-cookies-to-yt-dlp](https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp) to prepare the cookies_file.
-    * Please see the full WARNINGS in yt-dlp regarding the risk of Youtube account ban!!
+    * Please see the full **WARNINGS** in yt-dlp regarding the risk of Youtube account ban!!
 
 Then run `scripts/eval/veval/saco_yt1b_downloader.py` to download the videos and prepare the frames e.g.
 ```
@@ -112,11 +112,11 @@ python saco_yt1b_annot_update.py \
 ```
 
 **NOTE**:
-* Not all Youtube videos might be available as Youtube videos can be deleted or become private.
-* **Frame Shifting Alert!!** Even when the videos are still available, their specifications, such as fps and duration, may differ from those used during annotation. Additionally, `ffmpeg` cannot guarantee consistent frame extraction from the same video across different environments. This may cause the re-downloaded and re-extracted frames to have alignment issues with our annotations due to frame shifting. Please be aware of this caveat when evaluating on SA-Co/VEval - YT-Temporal-1B.
+* Not all Youtube videos might be available as Youtube videos can be deleted or become private. The script `saco_yt1b_annot_update.py` is used to remove the annotations of the unavailable videos.
+* **Frame Shifting Alert!!** Even when the videos are still available, their specifications, such as fps and duration, may differ from those used during annotation. Additionally, sometimes `ffmpeg` seems to find it hard to guarantee consistent frame extraction from the same video across different environments. This may cause the re-downloaded and re-extracted frames to have alignment issues with our annotations due to frame shifting. Please be aware of this caveat when evaluating on SA-Co/VEval - YT-Temporal-1B.
   
 #### SA-Co/VEval - SmartGlasses
-Go to [SACo-VEval](https://huggingface.co/datasets/facebook/SACo-VEval/tree/main) download `media/saco_sg.tar.gz` (HF repo is private now. Another temp [GDrive](https://drive.google.com/drive/folders/1aitfOfBfelJZNQGbRHgw00bxNiZlyVSM) location `saco_sg.tgz` for sharing.)
+Go to [SACo-VEval](https://huggingface.co/datasets/facebook/SACo-VEval/tree/main) download `media/saco_sg.tar.gz`
 ```
 cd ../data
 hf download facebook/SACo-VEval media/saco_sg.tar.gz --repo-type dataset --local-dir .
