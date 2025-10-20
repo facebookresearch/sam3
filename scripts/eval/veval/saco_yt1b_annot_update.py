@@ -3,15 +3,22 @@ import json
 import logging
 import os
 
+import pandas as pd
+
 
 logger = logging.getLogger(__name__)
 
 
-def get_available_saco_yt1b_ids(yt1b_meida_dir):
+def get_available_saco_yt1b_ids(yt1b_meida_dir, data):
+    vdf = pd.DataFrame(data["videos"])
+    expected_saco_yt1b_ids = vdf.video_name.tolist()
+
     yt1b_media_folders = os.listdir(yt1b_meida_dir)
 
     available_saco_yt1b_ids = []
     for yt1b_media_folder in yt1b_media_folders:
+        if yt1b_media_folder not in expected_saco_yt1b_ids:
+            continue
         jpeg_folder_dir = os.path.join(yt1b_meida_dir, yt1b_media_folder)
         jpeg_count = len(os.listdir(jpeg_folder_dir))
         if jpeg_count > 0:
@@ -22,10 +29,7 @@ def get_available_saco_yt1b_ids(yt1b_meida_dir):
             )
 
     logger.info(
-        f"Expected {len(yt1b_media_folders)} videos, but only {len(available_saco_yt1b_ids)} videos are available."
-    )
-    logger.info(
-        f"Removed {len(yt1b_media_folders) - len(available_saco_yt1b_ids)} videos from the annotation."
+        f"Expected {len(expected_saco_yt1b_ids)} videos for {data['info']}. Found {len(available_saco_yt1b_ids)} videos available in {yt1b_meida_dir}."
     )
     return available_saco_yt1b_ids
 
@@ -35,6 +39,9 @@ def update_yt1b_annot_per_field(data, field, id_col, available_ids):
     new_field_data = []
     for data_entry in field_data:
         if data_entry[id_col] not in available_ids:
+            logger.info(
+                f"{field}: Removing {data_entry} due to the video being unavailable."
+            )
             continue
         new_field_data.append(data_entry)
 
@@ -46,10 +53,10 @@ def update_yt1b_annot_per_field(data, field, id_col, available_ids):
 
 
 def update_yt1b_annot(yt1b_input_annot_path, yt1b_media_dir, yt1b_output_annot_path):
-    available_saco_yt1b_ids = get_available_saco_yt1b_ids(yt1b_media_dir)
-
     with open(yt1b_input_annot_path, "r") as f:
         data = json.load(f)
+
+    available_saco_yt1b_ids = get_available_saco_yt1b_ids(yt1b_media_dir, data)
 
     data = update_yt1b_annot_per_field(
         data=data,
