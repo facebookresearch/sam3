@@ -1,4 +1,9 @@
 # SA-Co/VEval Dataset
+**License** each domain has its own License
+* SA-Co/VEval - SA-V: CC-BY-NC 4.0
+* SA-Co/VEval - YT-Temporal-1B: CC-BY-NC 4.0
+* SA-Co/VEval - SmartGlasses: CC-by-4.0
+  
 **SA-Co/VEval** is an evaluation dataset comprising of 3 domains, each domain has a val and test split.
 * SA-Co/VEval - SA-V: videos are from the [SA-V dataset](https://ai.meta.com/datasets/segment-anything-video/)
 * SA-Co/VEval - YT-Temporal-1B: videos are from the [YT-Temporal-1B](https://cove.thecvf.com/datasets/704)
