@@ -10,7 +10,7 @@ Install the SA-Co/VEVal required environment
 pip install -e ".[veval]"
 ```
 This will allow us to run:
-* `scripts/eval/veval/saco_yt1b_downloader.py` preparing frames for SA-Co/VEval - YT1B
+* `scripts/eval/veval/saco_yt1b_downloader.py` preparing frames for SA-Co/VEval - YT-Temporal-1B
 * `scripts/eval/veval/saco_veval_eval.py` example of running an offline evaluator
 * `examples/saco_veavl_example.ipynb` example of loading and visualizing the data
 
@@ -37,7 +37,7 @@ data/
 
 ### Download annotations
 The GT annotations are available at Hugging Face:
-* [SACo-VEval](https://huggingface.co/datasets/facebook/SACo-VEval/tree/main) (HF repo is private now. Another temp [GDrive](https://drive.google.com/drive/folders/1p26lWYxW1p0ElNBLe6KiVQiv4_fyp6hO) location for sharing.)
+* [SA-Co/VEval](https://huggingface.co/datasets/facebook/SACo-VEval/tree/main)
     * SA-Co/VEval SA-V
         * Test: `annotation/saco_veval_sav_test.json`
         * Val: `annotation/saco_veval_sav_val.json`
@@ -84,35 +84,36 @@ mv sav_val/JPEGImages_24fps/* JPEGImages_24fps/
 ```
 
 #### SA-Co/VEval - YT-Temporal-1B
-Two files needed to download the SA-Co/VEval - YT-Temporal-1B Youtube videos.
-* Go to [SACo-VEval](https://huggingface.co/datasets/facebook/SACo-VEval/tree/main) download `media/yt1b_id_frame_map.json`, which contains which Youtube videos and which frames are used for the SA-Co/VEval - YT-Temporal-1B.
+Two files are needed to download the SA-Co/VEval - YT-Temporal-1B Youtube videos.
+* Download `media/yt1b_start_end_time.json` from [SA-Co/VEval Dataset Hugging Face](https://huggingface.co/datasets/facebook/SACo-VEval/tree/main), which contains the Youtube video ids and the start and end time used in SA-Co/VEval - YT-Temporal-1B.
 * Prepare the `cookies.txt` file. Follow instruction in yt-dlp [exporting-youtube-cookies](https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies) and [pass-cookies-to-yt-dlp](https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp) to prepare the cookies_file.
     * Please see the full WARNINGS in yt-dlp regarding the risk of Youtube account ban!!
-* Go to [SACo-VEval](https://huggingface.co/datasets/facebook/SACo-VEval/tree/main) download `media/saco_yt1b_video_spec.csv`, which can be used for the downloaded videos sanity check.
 
-Then run `scripts/eval/veval/saco_yt1b_downloader.py` e.g.
+Then run `scripts/eval/veval/saco_yt1b_downloader.py` to download the videos and prepare the frames e.g.
 ```
 python saco_yt1b_downloader.py \
 --data_dir ../data/media/saco_yt1b \
 --cookies_file ../data/media/saco_yt1b/cookies.txt \
---id_map_file ../data/media/saco_yt1b/yt1b_id_frame_map.json \
---yt1b_frame_prep_log_path ../data/media/saco_yt1b/yt1b_frame_prep_log.log
+--yt1b_start_end_time_file ../data/media/saco_yt1b/yt1b_start_end_time.json \
+--yt1b_frame_prep_log_file ../data/media/saco_yt1b/yt1b_frame_prep.log
 ```
 * data_dir: The directoy to download the Youtube videos and store the extraced frames
 * cookies_file: the `cookies.txt` downloaded above
-* id_map_file: the `yt1b_id_frame_map.json` downloaded above
-* yt1b_frame_prep_log_path: a log file to track the downloader status, including the stages of video download, frame extracting, and frame matching, for each video.
+* yt1b_start_end_time_file: the `yt1b_start_end_time.json` downloaded above
+* yt1b_frame_prep_log_file: a log file to track the video downloading and frame extracting status
 
-Note: not all Youtube videos might be available since some videos might be deleted or moved from public to private.
-
-After downloading, run `scripts/eval/veval/saco_yt1b_video_spec.py` for a sanity check e.g.
+Then run `scripts/eval/veval/saco_yt1b_annot_update.py` to update the annotation based on the video availability e.g.
 ```
-python saco_yt1b_video_spec.py \
---videos_path ../data/media/saco_yt1b/raw_videos \
---res_file ../data/media/saco_yt1b/saco_yt1b_video_spec.csv
+python saco_yt1b_annot_update.py \
+--yt1b_media_dir ../data/media/saco_yt1b/JPEGImages_6fps \
+--yt1b_input_annot_path ../data/annotation/saco_veval_yt1b_val.json \
+--yt1b_output_annot_path ../data/annotation/saco_veval_yt1b_val_updated.json \
+--yt1b_annot_update_log_path ../data/annotation/saco_veval_yt1b_val_updated.log
 ```
-Check if the results matching to the `saco_yt1b_video_spec.csv` downloaded above. Due to the Youtube videos downloading uncertainities, it could be possible that the newly downloaded videos do not exactly match the provided video specs, which will affect the eval reproducibility.
 
+**NOTE**:
+* Not all Youtube videos might be available as Youtube videos can be deleted or become private.
+* **Frame Shifting Alert!!** Even when the videos are still available, their specifications, such as fps and duration, may differ from those used during annotation. Additionally, `ffmpeg` cannot guarantee consistent frame extraction from the same video across different environments. This may cause the re-downloaded and re-extracted frames to have alignment issues with our annotations due to frame shifting. Please be aware of this caveat when evaluating on SA-Co/VEval - YT-Temporal-1B.
   
 #### SA-Co/VEval - SmartGlasses
 Go to [SACo-VEval](https://huggingface.co/datasets/facebook/SACo-VEval/tree/main) download `media/saco_sg.tar.gz` (HF repo is private now. Another temp [GDrive](https://drive.google.com/drive/folders/1aitfOfBfelJZNQGbRHgw00bxNiZlyVSM) location `saco_sg.tgz` for sharing.)
