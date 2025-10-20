@@ -30,7 +30,8 @@ def download_and_extract_frames(saco_yt1b_id, args):
         logger.warning(f"Video download failed for {saco_yt1b_id}, skipping frame generation")
         return False
 
-    # video_prep.generate_frames_by_frame_matching()
+    status = video_prep.extract_frames_in_6fps_and_width_1080()
+    logger.info(f"[frame extracting][{saco_yt1b_id}] frame extracting status {status}")
     return True
 
 
@@ -64,17 +65,17 @@ def main():
     parser.add_argument(
         "--sleep_interval",
         type=int,
-        default=30,
+        default=10,
     )
     parser.add_argument(
         "--max_sleep_interval",
         type=int,
-        default=60,
+        default=30,
     )
     parser.add_argument(
         "--num_workers",
         type=int,
-        default=1,
+        default=4,
     )
     args = parser.parse_args()
 
@@ -83,18 +84,16 @@ def main():
         os.makedirs(log_dir, exist_ok=True)
 
     # Set up logging to both file and console
-    logger.setLevel(logging.INFO)
-    formatter = logging.Formatter("%(asctime)s [%(threadName)s] %(levelname)s: %(message)s")
-
-    # File handler
-    file_handler = logging.FileHandler(args.yt1b_frame_prep_log_path, mode="w")
-    file_handler.setFormatter(formatter)
-    logger.addHandler(file_handler)
-
-    # Console handler
-    console_handler = logging.StreamHandler()
-    console_handler.setFormatter(formatter)
-    logger.addHandler(console_handler)
+    # Configure the ROOT logger so all child loggers inherit the configuration
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(processName)s/%(threadName)s] %(name)s - %(levelname)s: %(message)s",
+        handlers=[
+            logging.FileHandler(args.yt1b_frame_prep_log_path, mode="w"),
+            logging.StreamHandler()
+        ],
+        force=True  # Override any existing configuration
+    )
 
     YT_DLP_WARNING_STR = """ ==========
         NOTICE!!
