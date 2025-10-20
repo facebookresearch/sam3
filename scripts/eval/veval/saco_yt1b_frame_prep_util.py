@@ -15,7 +15,7 @@ class YtVideoPrep:
         saco_yt1b_id: str,
         data_dir: str,
         cookies_file: str,
-        id_and_frame_map_path: str,
+        yt1b_start_end_time_file: str,
         ffmpeg_timeout: int,
         sleep_interval: int = 10,
         max_sleep_interval: int = 30,
@@ -27,7 +27,7 @@ class YtVideoPrep:
         self.sleep_interval = sleep_interval
         self.max_sleep_interval = max_sleep_interval
 
-        self.id_and_frame_map_df = pd.read_json(id_and_frame_map_path)
+        self.yt1b_start_end_time_df = pd.read_json(yt1b_start_end_time_file)
         (
             self.yt_video_id,
             self.yt_video_id_w_timestamps,
@@ -52,8 +52,8 @@ class YtVideoPrep:
         os.makedirs(self.JPEGImages_6fps_dir, exist_ok=True)
 
     def _get_yt_video_id_map_info(self):
-        df = self.id_and_frame_map_df[
-            self.id_and_frame_map_df.saco_yt1b_id == self.saco_yt1b_id
+        df = self.yt1b_start_end_time_df[
+            self.yt1b_start_end_time_df.saco_yt1b_id == self.saco_yt1b_id
         ]
         assert (
             len(df) == 1
@@ -208,12 +208,12 @@ def main():
         required=True,
     )
     parser.add_argument(
-        "--id_map_file",
+        "--yt1b_start_end_time_file",
         type=str,
         required=True,
     )
     parser.add_argument(
-        "--yt1b_frame_prep_log_path",
+        "--yt1b_frame_prep_log_file",
         type=str,
         required=True,
     )
@@ -235,7 +235,7 @@ def main():
     args = parser.parse_args()
 
     logging.basicConfig(
-        filename=args.yt1b_frame_prep_log_path,
+        filename=args.yt1b_frame_prep_log_file,
         format="%(asctime)s [%(threadName)s] %(levelname)s: %(message)s",
         level=logging.INFO,
         filemode="w",
@@ -245,7 +245,7 @@ def main():
         saco_yt1b_id=args.saco_yt1b_id,
         data_dir=args.data_dir,
         cookies_file=args.cookies_file,
-        id_and_frame_map_path=args.id_map_file,
+        yt1b_start_end_time_file=args.yt1b_start_end_time_file,
         ffmpeg_timeout=args.ffmpeg_timeout,
         sleep_interval=args.sleep_interval,
         max_sleep_interval=args.max_sleep_interval,

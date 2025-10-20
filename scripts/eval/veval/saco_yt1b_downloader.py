@@ -17,7 +17,7 @@ def download_and_extract_frames(saco_yt1b_id, args):
         saco_yt1b_id=saco_yt1b_id,
         data_dir=args.data_dir,
         cookies_file=args.cookies_file,
-        id_and_frame_map_path=args.id_map_file,
+        yt1b_start_end_time_file=args.yt1b_start_end_time_file,
         ffmpeg_timeout=args.ffmpeg_timeout,
         sleep_interval=args.sleep_interval,
         max_sleep_interval=args.max_sleep_interval,
@@ -50,12 +50,12 @@ def main():
         required=True,
     )
     parser.add_argument(
-        "--id_map_file",
+        "--yt1b_start_end_time_file",
         type=str,
         required=True,
     )
     parser.add_argument(
-        "--yt1b_frame_prep_log_path",
+        "--yt1b_frame_prep_log_file",
         type=str,
         required=True,
     )
@@ -81,7 +81,7 @@ def main():
     )
     args = parser.parse_args()
 
-    log_dir = os.path.dirname(args.yt1b_frame_prep_log_path)
+    log_dir = os.path.dirname(args.yt1b_frame_prep_log_file)
     if log_dir:
         os.makedirs(log_dir, exist_ok=True)
 
@@ -91,7 +91,7 @@ def main():
         level=logging.INFO,
         format="%(asctime)s [%(processName)s/%(threadName)s] %(name)s - %(levelname)s: %(message)s",
         handlers=[
-            logging.FileHandler(args.yt1b_frame_prep_log_path, mode="w"),
+            logging.FileHandler(args.yt1b_frame_prep_log_file, mode="w"),
             logging.StreamHandler(),
         ],
         force=True,  # Override any existing configuration
@@ -108,10 +108,10 @@ def main():
 
     args = parser.parse_args()
 
-    with open(args.id_map_file, "r") as f:
-        id_map_df = pd.read_json(f)
+    with open(args.yt1b_start_end_time_file, "r") as f:
+        yt1b_start_end_time_df = pd.read_json(f)
 
-    saco_yt1b_ids = id_map_df.saco_yt1b_id.unique()
+    saco_yt1b_ids = yt1b_start_end_time_df.saco_yt1b_id.unique()
     num_workers = args.num_workers
     logger.info(
         f"Starting with {num_workers} parallel worker(s) (sleep_interval={args.sleep_interval}-{args.max_sleep_interval}s)"
@@ -124,7 +124,7 @@ def main():
     done_str = f""" ==========
         All DONE!!
         Download, frame extraction, and frame matching is all done! YT1B frames are not ready to use in {args.data_dir}/JPEGImages_6fps
-        Check video frame preparing log at {args.yt1b_frame_prep_log_path}
+        Check video frame preparing log at {args.yt1b_frame_prep_log_file}
         Some videos might not be available any more which will affect the eval reproducibility
         ==========
     """
