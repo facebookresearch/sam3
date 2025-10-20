@@ -65,41 +65,18 @@ def get_video_info(video_path):
         }
 
 
-def calculate_sha256(file_path):
-    """Calculate SHA256 hash of a file."""
-    sha256_hash = hashlib.sha256()
-    try:
-        with open(file_path, "rb") as f:
-            # Read file in chunks to handle large files
-            for byte_block in iter(lambda: f.read(4096 * 1024), b""):
-                sha256_hash.update(byte_block)
-        return sha256_hash.hexdigest()
-    except Exception as e:
-        print(f"Error calculating SHA256 for {file_path}: {e}")
-        return None
-
-
 def process_single_video(video_file):
     """Process a single video file and return its information."""
-    # Get file size
-    file_size = video_file.stat().st_size
-
     # Get video information
     video_info = get_video_info(str(video_file))
 
-    # Calculate SHA256
-    sha256 = calculate_sha256(str(video_file))
-
-    # Combine all information
     result = {
         "video_name": video_file.name,
-        "file_size": file_size,
         "width": video_info["width"],
         "height": video_info["height"],
         "fps": video_info["fps"],
         "nb_frames": video_info["nb_frames"],
         "duration": video_info["duration"],
-        "sha256": sha256,
     }
     return result
 

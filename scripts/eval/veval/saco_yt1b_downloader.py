@@ -1,8 +1,8 @@
 import argparse
 import logging
-import os
 
 import multiprocessing as mp
+import os
 from functools import partial
 
 import pandas as pd
@@ -19,16 +19,21 @@ def download_and_extract_frames(saco_yt1b_id, args):
         cookies_file=args.cookies_file,
         id_and_frame_map_path=args.id_map_file,
         ffmpeg_timeout=args.ffmpeg_timeout,
+        sleep_interval=args.sleep_interval,
+        max_sleep_interval=args.max_sleep_interval,
     )
 
     status = video_prep.download_youtube_video()
     logger.info(f"[video download][{saco_yt1b_id}] download status {status}")
 
     if status not in ["already exists", "success"]:
-        print(f"Video download failed for {saco_yt1b_id}, skipping frame generation")
+        logger.warning(
+            f"Video download failed for {saco_yt1b_id}, skipping frame generation"
+        )
         return False
 
-    video_prep.generate_frames_by_frame_matching()
+    status = video_prep.extract_frames_in_6fps_and_width_1080()
+    logger.info(f"[frame extracting][{saco_yt1b_id}] frame extracting status {status}")
     return True
 
 
@@ -59,17 +64,37 @@ def main():
         type=str,
         default=7200,  # Use longer timeout in case of large videos processing timeout
     )
+    parser.add_argument(
+        "--sleep_interval",
+        type=int,
+        default=10,
+    )
+    parser.add_argument(
+        "--max_sleep_interval",
+        type=int,
+        default=30,
+    )
+    parser.add_argument(
+        "--num_workers",
+        type=int,
+        default=4,
+    )
     args = parser.parse_args()
 
     log_dir = os.path.dirname(args.yt1b_frame_prep_log_path)
     if log_dir:
         os.makedirs(log_dir, exist_ok=True)
 
+    # Set up logging to both file and console
+    # Configure the ROOT logger so all child loggers inherit the configuration
     logging.basicConfig(
-        filename=args.yt1b_frame_prep_log_path,
-        format="%(asctime)s [%(threadName)s] %(levelname)s: %(message)s",
         level=logging.INFO,
-        filemode="w",
+        format="%(asctime)s [%(processName)s/%(threadName)s] %(name)s - %(levelname)s: %(message)s",
+        handlers=[
+            logging.FileHandler(args.yt1b_frame_prep_log_path, mode="w"),
+            logging.StreamHandler(),
+        ],
+        force=True,  # Override any existing configuration
     )
 
     YT_DLP_WARNING_STR = """ ==========
@@ -79,8 +104,7 @@ def main():
         ==========
         """
 
-    print(YT_DLP_WARNING_STR)
-    print(logger.info(YT_DLP_WARNING_STR))
+    logger.info(YT_DLP_WARNING_STR)
 
     args = parser.parse_args()
 
@@ -88,12 +112,12 @@ def main():
         id_map_df = pd.read_json(f)
 
     saco_yt1b_ids = id_map_df.saco_yt1b_id.unique()
+    num_workers = args.num_workers
+    logger.info(
+        f"Starting with {num_workers} parallel worker(s) (sleep_interval={args.sleep_interval}-{args.max_sleep_interval}s)"
+    )
 
-    cpu_count = mp.cpu_count()
-    print(f"Starting with {cpu_count} processes")
-    logger.info(f"Starting with {cpu_count} processes")
-
-    with mp.Pool(cpu_count) as p:
+    with mp.Pool(num_workers) as p:
         download_func = partial(download_and_extract_frames, args=args)
         list(tqdm(p.imap(download_func, saco_yt1b_ids), total=len(saco_yt1b_ids)))
 
@@ -104,7 +128,6 @@ def main():
         Some videos might not be available any more which will affect the eval reproducibility
         ==========
     """
-    print(done_str)
     logger.info(done_str)
 
 
