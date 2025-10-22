@@ -315,7 +315,7 @@ def _create_sam3_visual_backbone() -> Sam3DualViTDetNeck:
         ln_post=False,
         return_interm_layers=False,
         bias_patch_embed=False,
-        compile_mode="default",
+        compile_mode=None,
     )
 
     # Visual neck
@@ -589,7 +589,7 @@ def build_sam3_video_model(
             hotstart_delay=15,
             hotstart_unmatch_thresh=8,
             hotstart_dup_thresh=8,
-            suppress_unmatched_only_within_hotstart=False,
+            suppress_unmatched_only_within_hotstart=True,
             min_trk_keep_alive=-1,
             max_trk_keep_alive=30,
             init_trk_keep_alive=30,
@@ -616,7 +616,7 @@ def build_sam3_video_model(
             hotstart_delay=0,
             hotstart_unmatch_thresh=0,
             hotstart_dup_thresh=0,
-            suppress_unmatched_only_within_hotstart=False,
+            suppress_unmatched_only_within_hotstart=True,
             min_trk_keep_alive=-1,
             max_trk_keep_alive=30,
             init_trk_keep_alive=30,

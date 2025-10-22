@@ -319,7 +319,10 @@ class CustomCocoDetectionAPI(VisionDataset):
             id2index_find_query[query["id"]] = i
 
         # Sanity check: all the stages should have the same number of queries
-        num_queries_per_stage = stage2num_queries.most_common(1)[0][1]
+        if len(stage2num_queries) == 0:
+            num_queries_per_stage = 0
+        else:
+            num_queries_per_stage = stage2num_queries.most_common(1)[0][1]
         for stage, num_queries in stage2num_queries.items():
             assert (
                 num_queries == num_queries_per_stage
