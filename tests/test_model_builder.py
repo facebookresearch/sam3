@@ -50,8 +50,57 @@ class TestModelBuilder(unittest.TestCase):
         self.assertIsInstance(model, Sam3VideoInferenceWithInstanceInteractivity)
 
         # Test that model has expected attributes
-        self.assertTrue(hasattr(model, "sam2_model"))
-        self.assertTrue(hasattr(model, "sam3_model"))
+        self.assertTrue(hasattr(model, "detector"))
+        self.assertTrue(hasattr(model, "tracker"))
+
+    def test_build_sam3_image_model_with_inst_interactivity(self):
+        """Test that build_sam3_image_model creates a model with expected structure."""
+        from sam3.model.sam3_image import Sam3Image
+        from sam3.model_builder import build_sam3_image_model
+
+        # Test that the function exists
+        self.assertTrue(callable(build_sam3_image_model))
+
+        # Test model creation without checkpoint
+        bpe_path = "assets/bpe_simple_vocab_16e6.txt.gz"
+        model = build_sam3_image_model(
+            bpe_path=bpe_path,
+            checkpoint_path=None,
+            device="cpu",
+            eval_mode=True,
+            enable_inst_interactivity=True,
+        )
+        self.assertIsInstance(model, Sam3Image)
+
+        # Test that model has expected attributes
+        self.assertTrue(hasattr(model, "backbone"))
+        self.assertTrue(hasattr(model, "transformer"))
+        self.assertTrue(hasattr(model, "segmentation_head"))
+
+    def test_build_sam3_image_model_with_inst_interactivity_ckpt_loading(self):
+        """Test that build_sam3_image_model creates a model with expected structure."""
+        from sam3.model.sam3_image import Sam3Image
+        from sam3.model_builder import build_sam3_image_model
+
+        # Test that the function exists
+        self.assertTrue(callable(build_sam3_image_model))
+
+        # Test model creation without checkpoint
+        bpe_path = "assets/bpe_simple_vocab_16e6.txt.gz"
+        checkpoint_path = "assets/checkpoints/sam3_v2_rc2_fair_sc.pt"
+        model = build_sam3_image_model(
+            bpe_path=bpe_path,
+            checkpoint_path=checkpoint_path,
+            device="cpu",
+            eval_mode=True,
+            enable_inst_interactivity=True,
+        )
+        self.assertIsInstance(model, Sam3Image)
+
+        # Test that model has expected attributes
+        self.assertTrue(hasattr(model, "backbone"))
+        self.assertTrue(hasattr(model, "transformer"))
+        self.assertTrue(hasattr(model, "segmentation_head"))
 
 
 if __name__ == "__main__":

@@ -432,7 +432,7 @@ class Sam3TrackerBase(torch.nn.Module):
 
     def forward(self, input: BatchedDatapoint, is_inference=False):
         raise NotImplementedError(
-            "Please use the corresponding methods in SAM3VideoPredictor for inference or SAM2Train for training/fine-tuning"
+            "Please use the corresponding methods in SAM3VideoPredictor for inference."
             "See examples/sam3_dense_video_tracking.ipynb for an inference example."
         )
 

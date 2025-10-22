@@ -107,7 +107,6 @@ class SAM3VLBackbone(nn.Module):
                 "vision_pos_enc": sam2_pos,
                 "backbone_fpn": sam2_features,
             }
-
         sam3_src = sam3_features[-1]
         output = {
             "vision_features": sam3_src,

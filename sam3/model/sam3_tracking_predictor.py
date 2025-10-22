@@ -10,6 +10,7 @@ from sam3.model.sam3_tracker_base import concat_points, NO_OBJ_SCORE, Sam3Tracke
 from sam3.model.sam3_tracker_utils import fill_holes_in_mask_scores
 from sam3.model.utils.sam2_utils import load_video_frames
 
+
 class Sam3TrackerPredictor(Sam3TrackerBase):
     """
     The demo class that extends the `Sam3TrackerBase` to handle user interactions
@@ -48,8 +49,8 @@ class Sam3TrackerPredictor(Sam3TrackerBase):
         self.bf16_context = torch.autocast(device_type="cuda", dtype=torch.bfloat16)
         self.bf16_context.__enter__()  # keep using for the entire model process
 
-        self.iter_use_prev_mask_pred = False #TODO
-        self.add_all_frames_to_correct_as_cond = False #TODO
+        self.iter_use_prev_mask_pred = False  # TODO
+        self.add_all_frames_to_correct_as_cond = False  # TODO
 
     @torch.inference_mode()
     def init_state(

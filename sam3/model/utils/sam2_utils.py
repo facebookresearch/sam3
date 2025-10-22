@@ -12,6 +12,7 @@ import torch
 from PIL import Image
 from tqdm import tqdm
 
+
 def _load_img_as_tensor(img_path, image_size):
     img_pil = Image.open(img_path)
     img_np = np.array(img_pil.convert("RGB").resize((image_size, image_size)))
