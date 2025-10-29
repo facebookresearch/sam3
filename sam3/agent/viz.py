@@ -1,7 +1,7 @@
-import numpy as np
-from PIL import Image
 import cv2
+import numpy as np
 import pycocotools.mask as mask_utils
+from PIL import Image
 
 from .helpers.visualizer import Visualizer
 from .helpers.zoom_in import render_zoom_in
@@ -30,21 +30,17 @@ def visualize(
                on a single-mask json_i with color=color_hex.
     """
     # Common fields
-    import traceback
-    print(f"visualize --> type(input_json) = {type(input_json)}.")
-    print(f"traceback.format_stack() = {''.join(traceback.format_stack()[-10:])}")
-    # try:
     orig_h = int(input_json["orig_img_h"])
     orig_w = int(input_json["orig_img_w"])
     img_path = input_json["original_image_path"]
-    # except:
-        # import ipdb; ipdb.set_trace()
 
     # ---------- Mode A: Full-scene render ----------
     if zoom_in_index is None:
         boxes = np.array(input_json["pred_boxes"])
-        rle_masks = [{"size": (orig_h, orig_w), "counts": rle}
-                     for rle in input_json["pred_masks"]]
+        rle_masks = [
+            {"size": (orig_h, orig_w), "counts": rle}
+            for rle in input_json["pred_masks"]
+        ]
         binary_masks = [mask_utils.decode(rle) for rle in rle_masks]
 
         img_bgr = cv2.imread(img_path)

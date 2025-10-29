@@ -73,8 +73,12 @@ def render_zoom_in(
             w_new_large = min(w_new * ratio_large, img_w)
             h_new_large = min(h_new * ratio_large, img_h)
 
-        w_shift_large = _get_shift(mask_box_xywh[0], mask_box_xywh[2], w_new_large, img_w)
-        h_shift_large = _get_shift(mask_box_xywh[1], mask_box_xywh[3], h_new_large, img_h)
+        w_shift_large = _get_shift(
+            mask_box_xywh[0], mask_box_xywh[2], w_new_large, img_w
+        )
+        h_shift_large = _get_shift(
+            mask_box_xywh[1], mask_box_xywh[3], h_new_large, img_h
+        )
         zoom_in_box = [
             mask_box_xywh[0] - w_shift_large,
             mask_box_xywh[1] - h_shift_large,
@@ -89,8 +93,12 @@ def render_zoom_in(
             w_new_medium = min(w_new * ratio_med, img_w)
             h_new_medium = min(h_new * ratio_med, img_h)
 
-        w_shift_medium = _get_shift(mask_box_xywh[0], mask_box_xywh[2], w_new_medium, img_w)
-        h_shift_medium = _get_shift(mask_box_xywh[1], mask_box_xywh[3], h_new_medium, img_h)
+        w_shift_medium = _get_shift(
+            mask_box_xywh[0], mask_box_xywh[2], w_new_medium, img_w
+        )
+        h_shift_medium = _get_shift(
+            mask_box_xywh[1], mask_box_xywh[3], h_new_medium, img_h
+        )
         img_crop_box = [
             mask_box_xywh[0] - w_shift_medium,
             mask_box_xywh[1] - h_shift_medium,
@@ -169,7 +177,9 @@ def render_zoom_in(
 
     ax2.imshow(img_with_alpha_zoomin.convert("RGB"))
     ax2.axis("off")
-    draw_mask(ax2, binary_mask_zoomin, color=color, show_holes=show_holes, alpha=mask_alpha)
+    draw_mask(
+        ax2, binary_mask_zoomin, color=color, show_holes=show_holes, alpha=mask_alpha
+    )
 
     plt.tight_layout()
 

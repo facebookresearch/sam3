@@ -12,31 +12,19 @@ import matplotlib.figure as mplfigure
 import numpy as np
 import pycocotools.mask as mask_util
 import torch
-
-# from catalog import MetadataCatalog
-
-from .boxes import (
-    Boxes,
-    BoxMode,
-)
-from .masks import (
-    BitMasks,
-    PolygonMasks,
-)
-from .keypoints import (
-    Keypoints,
-)
-from .rotated_boxes import (
-    RotatedBoxes,
-)
-
-from .color_map import random_color
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 from PIL import Image
 
+# from catalog import MetadataCatalog
+
+from .boxes import Boxes, BoxMode
+
+from .color_map import random_color
+from .keypoints import Keypoints
+from .masks import BitMasks, PolygonMasks
+from .rotated_boxes import RotatedBoxes
+
 logger = logging.getLogger(__name__)
-
-
 
 
 __all__ = ["ColorMode", "VisImage", "Visualizer"]
@@ -385,7 +373,13 @@ class Visualizer:
     # TODO implement a fast, rasterized version using OpenCV
 
     def __init__(
-        self, img_rgb, metadata=None, scale=1.0, instance_mode=ColorMode.IMAGE, font_size_multiplier=1.3, boarder_width_multiplier=1.5
+        self,
+        img_rgb,
+        metadata=None,
+        scale=1.0,
+        instance_mode=ColorMode.IMAGE,
+        font_size_multiplier=1.3,
+        boarder_width_multiplier=1.5,
     ):
         """
         Args:
@@ -407,9 +401,10 @@ class Visualizer:
         self.cpu_device = torch.device("cpu")
 
         # too small texts are useless, therefore clamp to 9
-        self._default_font_size = max(
-            np.sqrt(self.output.height * self.output.width) // 60, 15 // scale
-        ) * font_size_multiplier
+        self._default_font_size = (
+            max(np.sqrt(self.output.height * self.output.width) // 60, 15 // scale)
+            * font_size_multiplier
+        )
         # self._default_font_size = 18
         self._instance_mode = instance_mode
         self.keypoint_threshold = _KEYPOINT_THRESHOLD
@@ -787,7 +782,7 @@ class Visualizer:
         for i in range(num_instances):
             color = assigned_colors[i]
             if boxes is not None:
-                self.draw_box(boxes[i], alpha = 1, edge_color=color)
+                self.draw_box(boxes[i], alpha=1, edge_color=color)
                 if binary_masks is None:
                     # draw number for non-mask instances
                     mark = self._draw_number_in_box(
@@ -805,7 +800,7 @@ class Visualizer:
                 )
                 marks.append(mark)
                 marks_position.append(mask_position)
-                
+
                 self.draw_binary_mask(
                     binary_masks[i],
                     color=color,
@@ -815,7 +810,9 @@ class Visualizer:
 
             if masks is not None:
                 for segment in masks[i].polygons:
-                    self.draw_polygon(segment.reshape(-1, 2), color, alpha=0)       # alpha=0 so holes in masks are not colored
+                    self.draw_polygon(
+                        segment.reshape(-1, 2), color, alpha=0
+                    )  # alpha=0 so holes in masks are not colored
 
         # draw keypoints
         if keypoints is not None:
