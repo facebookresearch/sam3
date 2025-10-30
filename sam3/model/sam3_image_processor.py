@@ -38,7 +38,7 @@ class Sam3Processor:
         )
 
     @torch.inference_mode()
-    def set_image(self, image, state=None):
+    def set_image(self, image, state=None, inst_interactivity=False):
         """Sets the image on which we want to do predictions."""
         if state is None:
             state = {}
@@ -56,7 +56,7 @@ class Sam3Processor:
         state["original_height"] = height
         state["original_width"] = width
         state["backbone_out"] = self.model.backbone.forward_image(image)
-        if "sam2_backbone_out" in state["backbone_out"]:
+        if inst_interactivity and "sam2_backbone_out" in state["backbone_out"]:
             sam2_backbone_out = state["backbone_out"]["sam2_backbone_out"]
             sam2_backbone_out["backbone_fpn"][0] = (
                 self.model.inst_interactive_predictor.model.sam_mask_decoder.conv_s0(
