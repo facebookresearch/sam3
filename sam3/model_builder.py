@@ -2,6 +2,7 @@
 
 import torch
 import torch.nn as nn
+from iopath.common.file_io import g_pathmgr
 
 from .model.decoder import TransformerDecoder, TransformerDecoderLayer
 from .model.encoder import TransformerEncoderFusion, TransformerEncoderLayer
@@ -328,7 +329,8 @@ def _create_sam3_model(
 
 def _load_checkpoint(model, checkpoint_path):
     """Load model checkpoint from file."""
-    ckpt = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
+    with g_pathmgr.open(checkpoint_path, "rb") as f:
+        ckpt = torch.load(f, map_location="cpu", weights_only=True)
     if "model" in ckpt and isinstance(ckpt["model"], dict):
         ckpt = ckpt["model"]
     missing_keys, unexpected_keys = model.load_state_dict(ckpt, strict=False)
