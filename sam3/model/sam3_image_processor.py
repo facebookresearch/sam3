@@ -9,6 +9,7 @@ from sam3.model import box_ops
 from sam3.model.data_misc import FindStage, interpolate
 from torchvision.transforms import v2
 
+
 class Sam3Processor:
     """ """
 
