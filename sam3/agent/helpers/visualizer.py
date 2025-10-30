@@ -1,4 +1,5 @@
-# Copyright (c) Facebook, Inc. and its affiliates.
+# Copyright (c) Meta, Inc. and its affiliates. All Rights Reserved
+
 import colorsys
 import logging
 import math

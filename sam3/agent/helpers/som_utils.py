@@ -1,4 +1,4 @@
-# From https://www.internalfb.com/code/fbsource/[3bf4b3d1d890766455011441045522ab4d0f90fc]/fbcode/gen_ai/mllm/inference/llama3/scripts/som_utils.py
+# Copyright (c) Meta, Inc. and its affiliates. All Rights Reserved
 
 import colorsys
 from dataclasses import dataclass

@@ -1,4 +1,5 @@
-# Copyright (c) Facebook, Inc. and its affiliates.
+# Copyright (c) Meta, Inc. and its affiliates. All Rights Reserved
+
 import copy
 import itertools
 from typing import Any, Iterator, List, Union

@@ -1,3 +1,5 @@
+# Copyright (c) Meta, Inc. and its affiliates. All Rights Reserved
+
 import json
 import os
 
@@ -11,6 +13,7 @@ def run_single_image_inference(
     send_generate_request,
     call_sam_service,
     output_dir="agent_output",
+    debug=False,
 ):
     """Run inference on a single image with provided prompt"""
 
@@ -26,24 +29,26 @@ def run_single_image_inference(
     image_basename = os.path.splitext(os.path.basename(image_path))[0]
     prompt_for_filename = text_prompt.replace("/", "_").replace(" ", "_")
 
-    base_filename = f"{image_basename}_{prompt_for_filename}_Agent_{llm_name}"
-    output_json_path = os.path.join(output_dir, f"{base_filename}_Pred.json")
-    output_image_path = os.path.join(output_dir, f"{base_filename}_Pred.png")
-    agent_history_path = os.path.join(output_dir, f"{base_filename}_History.json")
+    base_filename = f"{image_basename}_{prompt_for_filename}_agent_{llm_name}"
+    output_json_path = os.path.join(output_dir, f"{base_filename}_pred.json")
+    output_image_path = os.path.join(output_dir, f"{base_filename}_pred.png")
+    agent_history_path = os.path.join(output_dir, f"{base_filename}_history.json")
 
     # Check if output already exists and skip
     if os.path.exists(output_json_path):
         print(f"Output JSON {output_json_path} already exists. Skipping.")
         return
 
-    print("Starting SAM 3 Agent ...")
+    print(f"{'-'*30} Starting SAM 3 Agent Session... {'-'*30} ")
     agent_history, final_output_dict, rendered_final_output = agent_inference(
         image_path,
         text_prompt,
         send_generate_request=send_generate_request,
         call_sam_service=call_sam_service,
         output_dir=output_dir,
+        debug=debug,
     )
+    print(f"{'-'*30} End of SAM 3 Agent Session... {'-'*30} ")
 
     final_output_dict["text_prompt"] = text_prompt
     final_output_dict["image_path"] = image_path

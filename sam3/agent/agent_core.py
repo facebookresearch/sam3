@@ -1,3 +1,5 @@
+# Copyright (c) Meta, Inc. and its affiliates. All Rights Reserved
+
 import copy
 import json
 import os
@@ -127,8 +129,8 @@ def agent_inference(
     output_dir="../../sam3_agent_out",
 ):
     """
-    Given a text prompt and an image, this tool will perform all aspects of agentic problem solving, while saving sam3 and qwen outputs to their respective directories.
-    Finally, it will return agent_history, final_output_dict, rendered_final_output to be saved by the main tool.
+    Given a text prompt and an image, this tool will perform all aspects of agentic problem solving,
+    while saving sam3 and MLLM outputs to their respective directories.
 
     Args:
         img_path: Path to the input image
@@ -191,14 +193,11 @@ def agent_inference(
     print(f"> Text prompt: {initial_text_prompt}")
     print(f"> Image path: {img_path}")
 
-
     print("\n\n")
     print("-" * 30 + f" Round {str(generation_count + 1)}" + "-" * 30)
     print("\n\n")
     generated_text = send_generate_request(messages)
-    print(
-        f"\n>>> MLLM Response [start]\n{generated_text}\n>>> MLLM Response [end]\n"
-    )
+    print(f"\n>>> MLLM Response [start]\n{generated_text}\n<<< MLLM Response [end]\n")
     while generated_text is not None:
         save_debug_messages(messages, debug, debug_folder_path, debug_jsonl_path)
         assert (
@@ -206,16 +205,16 @@ def agent_inference(
             f"Generated text does not contain <tool> tag: {generated_text}",
         )
         generated_text = generated_text.split("</tool>", 1)[0] + "</tool>"
-        tool = (
+        tool_call_json_str = (
             generated_text.split("<tool>")[-1]
             .split("</tool>")[0]
             .strip()
             .replace(r"}}}", r"}}")  # remove extra } if any
         )
         try:
-            tool_call = json.loads(tool)
+            tool_call = json.loads(tool_call_json_str)
         except json.JSONDecodeError:
-            raise ValueError(f"Invalid JSON in tool call: {tool}")
+            raise ValueError(f"Invalid JSON in tool call: {tool_call_json_str}")
 
         if PATH_TO_LATEST_OUTPUT_JSON == "":
             # The first tool call must be segment_phrase or report_no_mask
@@ -315,7 +314,7 @@ def agent_inference(
             num_masks = len(current_outputs["pred_masks"])
             masks_to_keep = []
 
-            # have the MLLM check each mask one by one
+            # MLLM check the mask one by one
             for i in range(num_masks):
                 print(f"🔍 Checking mask {i+1}/{num_masks}...")
                 image_w_mask_i, image_w_zoomed_in_mask_i = visualize(current_outputs, i)
@@ -550,7 +549,7 @@ def agent_inference(
         print("\n\n")
         generated_text = send_generate_request(messages)
         print(
-            f"\n>>> MLLM Response [start]\n{generated_text}\n>>> MLLM Response [end]\n"
+            f"\n>>> MLLM Response [start]\n{generated_text}\n<<< MLLM Response [end]\n"
         )
 
     print("\n\n>>> SAM 3 Agent execution ended.\n\n")

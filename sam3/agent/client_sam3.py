@@ -1,9 +1,8 @@
+# Copyright (c) Meta, Inc. and its affiliates. All Rights Reserved
+
 import json
 import os
 
-import cv2
-import numpy as np
-import pycocotools.mask as mask_utils
 import torch
 from PIL import Image
 
@@ -82,13 +81,10 @@ def call_sam_service(
         # Send the image and text prompt as a multipart/form-data request
         serialized_response = sam3_inference(sam3_processor, image_path, text_prompt)
 
-        # 1. Get the raw JSON response from SAM3 Server
-        # serialized_response = response.json()
-
-        # add remove duplicate masks
+        # 1. Prepare the response dictionary
         serialized_response = remove_overlapping_masks(serialized_response)
-        serialized_response = {"original_image_path": image_path, **serialized_response}
         serialized_response = {
+            "original_image_path": image_path,
             "output_image_path": output_image_path,
             **serialized_response,
         }

@@ -1,4 +1,4 @@
-# Copyright (c) Facebook, Inc. and its affiliates.
+# Copyright (c) Meta, Inc. and its affiliates. All Rights Reserved
 
 """
 An awesome colormap for really neat visualizations.
