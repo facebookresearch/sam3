@@ -79,7 +79,6 @@ def call_sam_service(
     )
 
     try:
-    # if True:
         # Send the image and text prompt as a multipart/form-data request
         serialized_response = sam3_inference(sam3_processor, image_path, text_prompt)
 
@@ -132,24 +131,8 @@ def call_sam_service(
         print(f"✅ Raw JSON response saved to '{output_json_path}'")
 
         # 4. Render and save visualizations on the image and save it in the SAM3 output folder
-        print("🔍 Rendering visualizations on the image...")
-        cv2_img = cv2.cvtColor(cv2.imread(image_path), cv2.COLOR_BGR2RGB)
-        boxes_array = np.array(serialized_response["pred_boxes"])
-        coco_rle_masks = [
-            {
-                "size": (
-                    serialized_response["orig_img_h"],
-                    serialized_response["orig_img_w"],
-                ),
-                "counts": rle,
-            }
-            for rle in serialized_response["pred_masks"]
-        ]
-        binary_masks = [mask_utils.decode(i) for i in coco_rle_masks]
-        viz_image = visualize(
-            serialized_response, boxes_array, coco_rle_masks, binary_masks
-        )
-        print(f"call_sam_service output_image_path = {output_image_path}")
+        print("🔍 Rendering visualizations on the image ...")
+        viz_image = visualize(serialized_response)
         os.makedirs(os.path.dirname(output_image_path), exist_ok=True)
         viz_image.save(output_image_path)
         print("✅ Saved visualization at:", output_image_path)

@@ -191,17 +191,14 @@ def agent_inference(
     print(f"> Text prompt: {initial_text_prompt}")
     print(f"> Image path: {img_path}")
 
-    print(
-        "\n\n"
-        + f"-" * 30
-        + " Round "
-        + str(generation_count + 1)
-        + " "
-        + "-" * 30
-        + "\n"
-    )
+
+    print("\n\n")
+    print("-" * 30 + f" Round {str(generation_count + 1)}" + "-" * 30)
+    print("\n\n")
     generated_text = send_generate_request(messages)
-    print(f"\n>>> MLLM Response [start]\n{generated_text}\n>>> MLLM Response [end]\n")
+    print(
+        f"\n>>> MLLM Response [start]\n{generated_text}\n>>> MLLM Response [end]\n"
+    )
     while generated_text is not None:
         save_debug_messages(messages, debug, debug_folder_path, debug_jsonl_path)
         assert (
@@ -548,17 +545,13 @@ def agent_inference(
                 f"Exceeded maximum number of allowed generation requests ({max_generations})"
             )
 
-        print(
-            "\n\n"
-            + f"-" * 30
-            + " Round "
-            + str(generation_count + 1)
-            + " "
-            + "-" * 30
-            + "\n\n"
-        )
+        print("\n\n")
+        print("-" * 30 + f" Round {str(generation_count + 1)}" + "-" * 30)
+        print("\n\n")
         generated_text = send_generate_request(messages)
-        print(f"> MLLM Response [start]\n{generated_text}\n> MLLM Response [end]")
+        print(
+            f"\n>>> MLLM Response [start]\n{generated_text}\n>>> MLLM Response [end]\n"
+        )
 
     print("\n\n>>> SAM 3 Agent execution ended.\n\n")
 
