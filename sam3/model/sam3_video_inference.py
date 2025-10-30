@@ -7,8 +7,6 @@ import numpy as np
 import torch
 import torch.distributed as dist
 import torch.nn.functional as F
-from torchvision.ops import masks_to_boxes
-from tqdm.auto import tqdm
 
 from sam3 import perflib
 from sam3.logger import get_logger
@@ -22,6 +20,8 @@ from sam3.model.sam3_video_base import MaskletConfirmationStatus, Sam3VideoBase
 from sam3.perflib.compile import compile_wrapper, shape_logging_wrapper
 from sam3.perflib.masks_to_boxes import masks_to_boxes as perf_masks_to_boxes
 from sam3.train.utils.train_utils import copy_data_to_device
+from torchvision.ops import masks_to_boxes
+from tqdm.auto import tqdm
 
 logger = get_logger(__name__)
 
