@@ -2,13 +2,15 @@
 
 import os
 from copy import deepcopy
-from typing import Dict, Optional
+from typing import Dict, List, Optional, Tuple
 
+import numpy as np
 import torch
 
 from sam3.model.model_misc import SAM3Output
 from sam3.model.nms_utils import nms_masks
 
+from sam3.model.sam1_task_predictor import SAM3InteractiveImagePredictor
 from sam3.model.vl_combiner import SAM3VLBackbone
 
 from sam3.train.data.collator import BatchedDatapoint
@@ -55,6 +57,7 @@ class Sam3Image(torch.nn.Module):
         detach_presence_in_joint_score: bool = False,  # only relevant if using presence token/score
         separate_scorer_for_instance: bool = False,
         num_interactive_steps_val: int = 0,  # TODO: Add support back for this.
+        inst_interactive_predictor: SAM3InteractiveImagePredictor = None,
         **kwargs,  # TODO: Kalyan, Remove this!
     ):
         super().__init__()
@@ -98,6 +101,8 @@ class Sam3Image(torch.nn.Module):
 
         self.use_instance_query = use_instance_query
         self.multimask_output = multimask_output
+
+        self.inst_interactive_predictor = inst_interactive_predictor
 
     @property
     def device(self):
@@ -596,6 +601,93 @@ class Sam3Image(torch.nn.Module):
             "object_ids_padded": targets.object_ids_padded,
         }
         return batched_targets
+
+    def predict_inst(
+        self,
+        inference_state,
+        **kwargs,
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        orig_h, orig_w = (
+            inference_state["original_height"],
+            inference_state["original_width"],
+        )
+        backbone_out = inference_state["backbone_out"]["sam2_backbone_out"]
+        (
+            _,
+            vision_feats,
+            _,
+            _,
+        ) = self.inst_interactive_predictor.model._prepare_backbone_features(
+            backbone_out
+        )
+        # Add no_mem_embed, which is added to the lowest rest feat. map during training on videos
+        vision_feats[-1] = (
+            vision_feats[-1] + self.inst_interactive_predictor.model.no_mem_embed
+        )
+        feats = [
+            feat.permute(1, 2, 0).view(1, -1, *feat_size)
+            for feat, feat_size in zip(
+                vision_feats[::-1], self.inst_interactive_predictor._bb_feat_sizes[::-1]
+            )
+        ][::-1]
+        self.inst_interactive_predictor._features = {
+            "image_embed": feats[-1],
+            "high_res_feats": feats[:-1],
+        }
+        self.inst_interactive_predictor._is_image_set = True
+        self.inst_interactive_predictor._orig_hw = [(orig_h, orig_w)]
+        res = self.inst_interactive_predictor.predict(**kwargs)
+        self.inst_interactive_predictor._features = None
+        self.inst_interactive_predictor._is_image_set = False
+        return res
+
+    def predict_inst_batch(
+        self,
+        inference_state,
+        *args,
+        **kwargs,
+    ) -> Tuple[List[np.ndarray], List[np.ndarray], List[np.ndarray]]:
+        backbone_out = inference_state["backbone_out"]["sam2_backbone_out"]
+        (
+            _,
+            vision_feats,
+            _,
+            _,
+        ) = self.inst_interactive_predictor.model._prepare_backbone_features(
+            backbone_out
+        )
+        # Add no_mem_embed, which is added to the lowest res feat. map during training on videos
+        vision_feats[-1] = (
+            vision_feats[-1] + self.inst_interactive_predictor.model.no_mem_embed
+        )
+        batch_size = vision_feats[-1].shape[1]
+        orig_heights, orig_widths = (
+            inference_state["original_heights"],
+            inference_state["original_widths"],
+        )
+        assert (
+            batch_size == len(orig_heights) == len(orig_widths)
+        ), f"Batch size mismatch in predict_inst_batch. Got {batch_size}, {len(orig_heights)}, {len(orig_widths)}"
+        feats = [
+            feat.permute(1, 2, 0).view(batch_size, -1, *feat_size)
+            for feat, feat_size in zip(
+                vision_feats[::-1], self.inst_interactive_predictor._bb_feat_sizes[::-1]
+            )
+        ][::-1]
+        self.inst_interactive_predictor._features = {
+            "image_embed": feats[-1],
+            "high_res_feats": feats[:-1],
+        }
+        self.inst_interactive_predictor._is_image_set = True
+        self.inst_interactive_predictor._is_batch = True
+        self.inst_interactive_predictor._orig_hw = [
+            (orig_h, orig_w) for orig_h, orig_w in zip(orig_heights, orig_widths)
+        ]
+        res = self.inst_interactive_predictor.predict_batch(*args, **kwargs)
+        self.inst_interactive_predictor._features = None
+        self.inst_interactive_predictor._is_image_set = False
+        self.inst_interactive_predictor._is_batch = False
+        return res
 
 
 class Sam3ImageOnVideoMultiGPU(Sam3Image):

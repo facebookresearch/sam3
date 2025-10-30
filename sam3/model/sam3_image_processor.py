@@ -3,11 +3,11 @@ from typing import Dict, List
 import numpy as np
 import PIL
 import torch
+from torchvision.transforms import v2
 
 from sam3.model import box_ops
 
 from sam3.model.data_misc import FindStage, interpolate
-from torchvision.transforms import v2
 
 
 class Sam3Processor:
@@ -56,7 +56,57 @@ class Sam3Processor:
         state["original_height"] = height
         state["original_width"] = width
         state["backbone_out"] = self.model.backbone.forward_image(image)
+        if "sam2_backbone_out" in state["backbone_out"]:
+            sam2_backbone_out = state["backbone_out"]["sam2_backbone_out"]
+            sam2_backbone_out["backbone_fpn"][0] = (
+                self.model.inst_interactive_predictor.model.sam_mask_decoder.conv_s0(
+                    sam2_backbone_out["backbone_fpn"][0]
+                )
+            )
+            sam2_backbone_out["backbone_fpn"][1] = (
+                self.model.inst_interactive_predictor.model.sam_mask_decoder.conv_s1(
+                    sam2_backbone_out["backbone_fpn"][1]
+                )
+            )
+        return state
 
+    @torch.inference_mode()
+    def set_image_batch(self, images: List[np.ndarray], state=None):
+        """Sets the image batch on which we want to do predictions."""
+        # TODO: clean this up. Decide whether to merge with set_image or not.
+        if state is None:
+            state = {}
+
+        if not isinstance(images, list):
+            raise ValueError("Images must be a list of PIL images or tensors")
+        assert len(images) > 0, "Images list must not be empty"
+        assert isinstance(
+            images[0], PIL.Image.Image
+        ), "Images must be a list of PIL images"
+
+        state["original_heights"] = [image.height for image in images]
+        state["original_widths"] = [image.width for image in images]
+
+        images = [
+            self.transform(v2.functional.to_image(image).to(self.device))
+            for image in images
+        ]
+        images = torch.stack(images, dim=0)
+        print(images.shape)
+        state["backbone_out"] = self.model.backbone.forward_image(images)
+        if "sam2_backbone_out" in state["backbone_out"]:
+            print("Adapting SAM2 backbone output for SAM3 mask decoder")
+            sam2_backbone_out = state["backbone_out"]["sam2_backbone_out"]
+            sam2_backbone_out["backbone_fpn"][0] = (
+                self.model.inst_interactive_predictor.model.sam_mask_decoder.conv_s0(
+                    sam2_backbone_out["backbone_fpn"][0]
+                )
+            )
+            sam2_backbone_out["backbone_fpn"][1] = (
+                self.model.inst_interactive_predictor.model.sam_mask_decoder.conv_s1(
+                    sam2_backbone_out["backbone_fpn"][1]
+                )
+            )
         return state
 
     @torch.inference_mode()
