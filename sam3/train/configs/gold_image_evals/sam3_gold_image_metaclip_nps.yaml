@@ -7,13 +7,13 @@ defaults:
 # ============================================================================
 paths:
   checkpoint_path: /fsx-onevision/shoubhikdn/sam3_ckpts/paper_image_only_checkpoint_presence_0.35_completed_model_only.pt
-  experiment_log_dir: /fsx-onevision/shoubhikdn/omnivision_onevision/release_experiments/gold_metaclip_release/
-  coco_gt : /fsx-onevision/shoubhikdn/release/saco_gold/annotations_cleaned/gold_metaclip_merged_a_release_test.json
+  experiment_log_dir: /fsx-onevision/shoubhikdn/omnivision_onevision/release_experiments/gold_metaclip_launch_1029/
+  coco_gt : /fsx-onevision/shoubhikdn/release/roboflow/gt-annotations/gold_metaclip_merged_a_release_test.json
   coco_gts :
-    - /fsx-onevision/shoubhikdn/release/saco_gold/annotations_cleaned/gold_metaclip_merged_a_release_test.json
-    - /fsx-onevision/shoubhikdn/release/saco_gold/annotations_cleaned/gold_metaclip_merged_b_release_test.json
-    - /fsx-onevision/shoubhikdn/release/saco_gold/annotations_cleaned/gold_metaclip_merged_c_release_test.json
-  metaclip_img_path: /fsx-onevision/shoubhikdn/release/saco_gold/images/metaclip/
+    - /fsx-onevision/shoubhikdn/release/roboflow/gt-annotations/gold_metaclip_merged_a_release_test.json
+    - /fsx-onevision/shoubhikdn/release/roboflow/gt-annotations/gold_metaclip_merged_b_release_test.json
+    - /fsx-onevision/shoubhikdn/release/roboflow/gt-annotations/gold_metaclip_merged_c_release_test.json
+  metaclip_img_path: /fsx-onevision/shoubhikdn/release/roboflow/metaclip-images/
   bpe_path: /fsx-onevision/chayryali/ve/bpe_simple_vocab_16e6.txt.gz
 
 # ============================================================================
