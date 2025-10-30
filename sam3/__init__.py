@@ -1,5 +1,7 @@
 # Copyright (c) Meta, Inc. and its affiliates. All Rights Reserved
 
-__version__ = "0.0.2"
-
 from .model_builder import build_sam3_image_model
+
+__version__ = "0.1.0"
+
+__all__ = ["build_sam3_image_model"]
