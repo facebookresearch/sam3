@@ -10,6 +10,113 @@ from .client_sam3 import call_sam_service
 from .viz import visualize
 
 
+def save_debug_messages(messages_list, debug, debug_folder_path, debug_jsonl_path):
+    """Save messages to debug jsonl file if debug is enabled"""
+    if debug and debug_jsonl_path:
+        # Ensure the debug directory exists before writing
+        os.makedirs(debug_folder_path, exist_ok=True)
+        with open(debug_jsonl_path, "w") as f:
+            for msg in messages_list:
+                f.write(json.dumps(msg, indent=4) + "\n")
+
+
+def cleanup_debug_files(debug, debug_folder_path, debug_jsonl_path):
+    """Clean up debug files when function successfully returns"""
+    if debug and debug_folder_path:
+        try:
+            if os.path.exists(debug_jsonl_path):
+                os.remove(debug_jsonl_path)
+            if os.path.exists(debug_folder_path):
+                os.rmdir(debug_folder_path)
+        except Exception as e:
+            print(f"Warning: Could not clean up debug files: {e}")
+
+
+def count_images(messages):
+    """Count the total number of images present in the messages history."""
+    total = 0
+    for message in messages:
+        # Check if message has content (should be a list)
+        if "content" in message and isinstance(message["content"], list):
+            # Iterate through each content item
+            for content_item in message["content"]:
+                # Check if content item is a dict with type "image"
+                if (
+                    isinstance(content_item, dict)
+                    and content_item.get("type") == "image"
+                ):
+                    total += 1
+    return total
+
+
+def _prune_messages_for_next_round(
+    messages_list,
+    used_text_prompts,
+    latest_sam3_text_prompt,
+    img_path,
+    initial_text_prompt,
+):
+    """Return a new messages list that contains only:
+    1) messages[:2] (with optional warning text added to the second message's content)
+    2) the latest assistant message (and everything after it) that contains a segment_phrase tool call
+    """
+    # There should not be more than 10 messages in the conversation history
+    assert len(messages_list) < 10
+
+    # Part 1: always keep the first two message JSONs
+    part1 = copy.deepcopy(messages_list[:2])
+
+    # Part 2: search backwards for the latest assistant message containing a segment_phrase tool call
+    part2_start_idx = None
+    for idx in range(len(messages_list) - 1, 1, -1):
+        msg = messages_list[idx]
+        # We only consider assistant messages with a "content" list
+        if msg.get("role") != "assistant" or "content" not in msg:
+            continue
+        # Look for any content element that is a text containing the segment_phrase tool call
+        for content in msg["content"]:
+            if (
+                isinstance(content, dict)
+                and content.get("type") == "text"
+                and "<tool>" in content.get("text", "")
+                and "segment_phrase" in content.get("text", "")
+            ):
+                part2_start_idx = idx
+                break
+        if part2_start_idx is not None:
+            break
+
+    part2 = messages_list[part2_start_idx:] if part2_start_idx is not None else []
+
+    # Part 3: decide whether to add warning text to the second message in part1
+    previously_used = (
+        [p for p in used_text_prompts if p != latest_sam3_text_prompt]
+        if latest_sam3_text_prompt
+        else list(used_text_prompts)
+    )
+    if part2 and len(previously_used) > 0:
+        warning_text = f'Note that we have previously called the segment_phrase tool with each "text_prompt" in this list: {list(previously_used)}, but none of the generated results were satisfactory. So make sure that you do not use any of these phrases as the "text_prompt" to call the segment_phrase tool again.'
+        # Replace the second message entirely to keep exactly 2 content items
+        part1[1] = {
+            "role": "user",
+            "content": [
+                {"type": "image", "image": img_path},
+                {
+                    "type": "text",
+                    "text": f"The above image is the raw input image. The initial user input query is: '{initial_text_prompt}'."
+                    + " "
+                    + warning_text,
+                },
+            ],
+        }
+        assert len(part1[1]["content"]) == 2
+
+    # Build the new messages list: part1 (with optional warning), then part2
+    new_messages = list(part1)
+    new_messages.extend(part2)
+    return new_messages
+
+
 def agent_inference(
     img_path: str,
     initial_text_prompt: str,
@@ -30,7 +137,6 @@ def agent_inference(
         max_generations: Maximum number of send_generate_request calls allowed (default: 100)
     """
     # setup dir
-    print("SAM3 output dir:", output_dir)
     sam_output_dir = os.path.join(output_dir, "sam_out")
     error_save_dir = os.path.join(output_dir, "none_out")
     debug_save_dir = os.path.join(output_dir, "agent_debug_out")
@@ -38,11 +144,13 @@ def agent_inference(
     os.makedirs(error_save_dir, exist_ok=True)
     os.makedirs(debug_save_dir, exist_ok=True)
     current_dir = os.path.dirname(os.path.abspath(__file__))
-    MLLM_SYSTEM_PROMPT_PATH = os.path.join(current_dir, "system_prompts/system_prompt.txt")
+    MLLM_SYSTEM_PROMPT_PATH = os.path.join(
+        current_dir, "system_prompts/system_prompt.txt"
+    )
     ITERATIVE_CHECKING_SYSTEM_PROMPT_PATH = os.path.join(
         current_dir, "system_prompts/system_prompt_iterative_checking.txt"
     )
-    # init
+    # init variables
     PATH_TO_LATEST_OUTPUT_JSON = ""
     LATEST_SAM3_TEXT_PROMPT = ""
     USED_TEXT_PROMPTS = (
@@ -60,42 +168,7 @@ def agent_inference(
         debug_jsonl_path = os.path.join(debug_folder_path, "debug_history.json")
         os.makedirs(debug_folder_path, exist_ok=True)
 
-    def save_debug_messages(messages_list):
-        """Save messages to debug jsonl file if debug is enabled"""
-        if debug and debug_jsonl_path:
-            # Ensure the debug directory exists before writing
-            os.makedirs(debug_folder_path, exist_ok=True)
-            with open(debug_jsonl_path, "w") as f:
-                for msg in messages_list:
-                    f.write(json.dumps(msg, indent=4) + "\n")
-
-    def cleanup_debug_files():
-        """Clean up debug files when function successfully returns"""
-        if debug and debug_folder_path:
-            try:
-                if os.path.exists(debug_jsonl_path):
-                    os.remove(debug_jsonl_path)
-                if os.path.exists(debug_folder_path):
-                    os.rmdir(debug_folder_path)
-            except Exception as e:
-                print(f"Warning: Could not clean up debug files: {e}")
-
-    def count_images(messages):
-        """Count the total number of images present in the messages history."""
-        total = 0
-        for message in messages:
-            # Check if message has content (should be a list)
-            if "content" in message and isinstance(message["content"], list):
-                # Iterate through each content item
-                for content_item in message["content"]:
-                    # Check if content item is a dict with type "image"
-                    if (
-                        isinstance(content_item, dict)
-                        and content_item.get("type") == "image"
-                    ):
-                        total += 1
-        return total
-
+    # The helper functions are now defined outside the agent_inference function
     with open(MLLM_SYSTEM_PROMPT_PATH, "r") as f:
         system_prompt = f.read().strip()
     with open(ITERATIVE_CHECKING_SYSTEM_PROMPT_PATH, "r") as f:
@@ -115,87 +188,22 @@ def agent_inference(
             ],
         },
     ]
-    print("\nInitial text prompt:\n\n", initial_text_prompt)
-    print("\n\nInitial image path:\n\n", img_path)
+    print(f"> Text prompt: {initial_text_prompt}")
+    print(f"> Image path: {img_path}")
 
-    # Helper to prune the `messages` history according to the 3-part rules
-    def _prune_messages_for_next_round(
-        messages_list, used_text_prompts, latest_sam3_text_prompt
-    ):
-        """Return a new messages list that contains only:
-        1) messages[:2] (with optional warning text added to the second message's content)
-        2) the latest assistant message (and everything after it) that contains a segment_phrase tool call (searching backwards from the end down to index 2)
-
-        This implements the exact selection rules you requested. Comments inline explain each step.
-        """
-        # There should not be more than 10 messages in the conversation history
-        assert len(messages_list) < 10
-
-        # Part 1: always keep the first two message JSONs
-        part1 = copy.deepcopy(messages_list[:2])
-
-        # Part 2: search backwards for the latest assistant message containing a segment_phrase tool call
-        part2_start_idx = None
-        for idx in range(len(messages_list) - 1, 1, -1):
-            msg = messages_list[idx]
-            # We only consider assistant messages with a "content" list
-            if msg.get("role") != "assistant" or "content" not in msg:
-                continue
-            # Look for any content element that is a text containing the segment_phrase tool call
-            for content in msg["content"]:
-                if (
-                    isinstance(content, dict)
-                    and content.get("type") == "text"
-                    and "<tool>" in content.get("text", "")
-                    and "segment_phrase" in content.get("text", "")
-                ):
-                    part2_start_idx = idx
-                    break
-            if part2_start_idx is not None:
-                break
-
-        part2 = messages_list[part2_start_idx:] if part2_start_idx is not None else []
-
-        # Part 3: decide whether to add warning text to the second message in part1
-        # Replace the second message so it always contains exactly two content items (image + text with appended warning)
-        previously_used = (
-            [p for p in used_text_prompts if p != latest_sam3_text_prompt]
-            if latest_sam3_text_prompt
-            else list(used_text_prompts)
-        )
-        if (
-            part2 and len(previously_used) > 0
-        ):  # only add a warning if part2 exists and there are previously used prompts
-            warning_text = f'Note that we have previously called the segment_phrase tool with each "text_prompt" in this list: {list(previously_used)}, but none of the generated results were satisfactory. So make sure that you do not use any of these phrases as the "text_prompt" to call the segment_phrase tool again.'
-            # Replace the second message entirely to keep exactly 2 content items
-            part1[1] = {
-                "role": "user",
-                "content": [
-                    {"type": "image", "image": img_path},
-                    {
-                        "type": "text",
-                        "text": f"The above image is the raw input image. The initial user input query is: '{initial_text_prompt}'."
-                        + " "
-                        + warning_text,
-                    },
-                ],
-            }
-            assert (
-                len(part1[1]["content"]) == 2
-            ), "Second message must contain exactly 2 content items after pruning."
-
-        # Build the new messages list: part1 (with optional warning), then part2
-        new_messages = list(part1)
-        new_messages.extend(part2)
-        return new_messages
-
+    print(
+        "\n\n"
+        + f"-" * 30
+        + " Round "
+        + str(generation_count + 1)
+        + " "
+        + "-" * 30
+        + "\n"
+    )
     generated_text = send_generate_request(messages)
-
+    print(f"\n>>> MLLM Response [start]\n{generated_text}\n>>> MLLM Response [end]\n")
     while generated_text is not None:
-        # Save debug messages at the start of each turn if debug is enabled
-        save_debug_messages(messages)
-
-        print("\n\n Generated_text:\n\n", generated_text)
+        save_debug_messages(messages, debug, debug_folder_path, debug_jsonl_path)
         assert (
             "<tool>" in generated_text,
             f"Generated text does not contain <tool> tag: {generated_text}",
@@ -205,8 +213,8 @@ def agent_inference(
             generated_text.split("<tool>")[-1]
             .split("</tool>")[0]
             .strip()
-            .replace(r"}}}", r"}}") # remove extra } if any
-        )  
+            .replace(r"}}}", r"}}")  # remove extra } if any
+        )
         try:
             tool_call = json.loads(tool)
         except json.JSONDecodeError:
@@ -217,7 +225,7 @@ def agent_inference(
             assert (
                 tool_call["name"] == "segment_phrase"
                 or tool_call["name"] == "report_no_mask"
-            )  
+            )
 
         if tool_call["name"] == "segment_phrase":
             print("🔍 Calling segment_phrase tool...")
@@ -283,7 +291,7 @@ def agent_inference(
                             ],
                         }
                     )
-                print("\n\nsam3_output_text_message:\n", sam3_output_text_message)
+                print("\n\n>>> sam3_output_text_message:\n", sam3_output_text_message)
 
         elif tool_call["name"] == "examine_each_mask":
             print("🔍 Calling examine_each_mask tool...")
@@ -481,7 +489,7 @@ def agent_inference(
             )
 
             # Clean up debug files before successful return
-            cleanup_debug_files()
+            cleanup_debug_files(debug, debug_folder_path, debug_jsonl_path)
             return messages, final_outputs, rendered_final_output
 
         elif tool_call["name"] == "report_no_mask":
@@ -526,7 +534,11 @@ def agent_inference(
         # Prune the messages history before the next MLLM generation round according to the 3-part rules.
         # This keeps history compact and ensures the model sees only the allowed parts.
         messages = _prune_messages_for_next_round(
-            messages, USED_TEXT_PROMPTS, LATEST_SAM3_TEXT_PROMPT
+            messages,
+            USED_TEXT_PROMPTS,
+            LATEST_SAM3_TEXT_PROMPT,
+            img_path,
+            initial_text_prompt,
         )
         # make sure there can never be more than 2 images in the context
         assert count_images(messages) <= 2
@@ -535,7 +547,20 @@ def agent_inference(
             raise ValueError(
                 f"Exceeded maximum number of allowed generation requests ({max_generations})"
             )
+
+        print(
+            "\n\n"
+            + f"-" * 30
+            + " Round "
+            + str(generation_count + 1)
+            + " "
+            + "-" * 30
+            + "\n\n"
+        )
         generated_text = send_generate_request(messages)
+        print(f"> MLLM Response [start]\n{generated_text}\n> MLLM Response [end]")
+
+    print("\n\n>>> SAM 3 Agent execution ended.\n\n")
 
     error_save_path = os.path.join(
         error_save_dir,

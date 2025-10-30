@@ -1,33 +1,58 @@
-import getpass
 import json
 import os
-from typing import List
 
 import cv2
 import numpy as np
 import pycocotools.mask as mask_utils
-import requests
+import torch
+from PIL import Image
+
+from sam3.model.box_ops import box_xyxy_to_xywh
+from sam3.train.masks_ops import rle_encode
 
 from .helpers.mask_overlap_removal import remove_overlapping_masks
 from .viz import visualize
 
 
-USER = getpass.getuser()
-SAM_OUTPUT_DIR = f"/fsx-onevision/{USER}/code/out/sam_out"
+def sam3_inference(processor, image_path, text_prompt):
+    """Run SAM 3 image inference with text prompts and format the outputs"""
+    image = Image.open(image_path)
+    orig_img_w, orig_img_h = image.size
 
+    # model inference
+    inference_state = processor.set_image(image)
+    inference_state = processor.set_text_prompt(
+        state=inference_state, prompt=text_prompt
+    )
 
-# --- Main API Call Function ---
-SAM3_SERVICE_URL = "http://localhost:8000/segment"
-# SAM3_SERVICE_URL = "http://h100-023-012:8000/segment"
+    # format and assemble outputs
+    pred_boxes_xyxy = torch.stack(
+        [
+            inference_state["boxes"][:, 0] / orig_img_w,
+            inference_state["boxes"][:, 1] / orig_img_h,
+            inference_state["boxes"][:, 2] / orig_img_w,
+            inference_state["boxes"][:, 3] / orig_img_h,
+        ],
+        dim=-1,
+    )  # normalized in range [0, 1]
+    pred_boxes_xywh = box_xyxy_to_xywh(pred_boxes_xyxy).tolist()
+    pred_masks = rle_encode(inference_state["masks"].squeeze(1))
+    pred_masks = [m["counts"] for m in pred_masks]
+    outputs = {
+        "orig_img_h": orig_img_h,
+        "orig_img_w": orig_img_w,
+        "pred_boxes": pred_boxes_xywh,
+        "pred_masks": pred_masks,
+        "pred_scores": inference_state["scores"].tolist(),
+    }
+    return outputs
 
 
 def call_sam_service(
+    sam3_processor,
     image_path: str,
     text_prompt: str,
-    output_folder_path: str = SAM_OUTPUT_DIR,
-    threshold: float = 0.5,
-    selected_masks: List[int] = None,
-    server_url=SAM3_SERVICE_URL,
+    output_folder_path: str = "sam3_output",
 ):
     """
     Loads an image, sends it with a text prompt to the service,
@@ -54,19 +79,12 @@ def call_sam_service(
     )
 
     try:
+    # if True:
         # Send the image and text prompt as a multipart/form-data request
-        with open(image_path, "rb") as f:
-            data = {
-                "image_path": image_path,
-                "find_input_text": text_prompt,
-                "threshold": threshold,
-            }
-            response = requests.post(server_url, data=data)
-
-        response.raise_for_status()
+        serialized_response = sam3_inference(sam3_processor, image_path, text_prompt)
 
         # 1. Get the raw JSON response from SAM3 Server
-        serialized_response = response.json()
+        # serialized_response = response.json()
 
         # add remove duplicate masks
         serialized_response = remove_overlapping_masks(serialized_response)
@@ -115,7 +133,6 @@ def call_sam_service(
 
         # 4. Render and save visualizations on the image and save it in the SAM3 output folder
         print("🔍 Rendering visualizations on the image...")
-        # pil_image = np.array(Image.open(image_path).convert('RGB'))
         cv2_img = cv2.cvtColor(cv2.imread(image_path), cv2.COLOR_BGR2RGB)
         boxes_array = np.array(serialized_response["pred_boxes"])
         coco_rle_masks = [
@@ -129,12 +146,14 @@ def call_sam_service(
             for rle in serialized_response["pred_masks"]
         ]
         binary_masks = [mask_utils.decode(i) for i in coco_rle_masks]
-        viz_image = visualize(cv2_img, boxes_array, coco_rle_masks, binary_masks)
+        viz_image = visualize(
+            serialized_response, boxes_array, coco_rle_masks, binary_masks
+        )
+        print(f"call_sam_service output_image_path = {output_image_path}")
         os.makedirs(os.path.dirname(output_image_path), exist_ok=True)
         viz_image.save(output_image_path)
         print("✅ Saved visualization at:", output_image_path)
-
-    except requests.exceptions.RequestException as e:
+    except Exception as e:
         print(f"❌ Error calling service: {e}")
 
     return output_json_path

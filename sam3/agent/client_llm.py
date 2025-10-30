@@ -101,15 +101,14 @@ def send_generate_request(
     client = OpenAI(api_key=api_key, base_url=server_url)
 
     try:
-        print(f"Calling model {model}...")
+        print(f"🔍 Calling model {model}...")
         response = client.chat.completions.create(
             model=model,
             messages=processed_messages,
             max_completion_tokens=max_tokens,
             n=1,
         )
-
-        print(f"Received response: {response.choices[0].message}")
+        # print(f"Received response: {response.choices[0].message}")
 
         # Extract the response content
         if response.choices and len(response.choices) > 0:
