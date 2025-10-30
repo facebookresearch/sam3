@@ -2,6 +2,7 @@
 
 import torch
 import torch.nn as nn
+from iopath.common.file_io import g_pathmgr
 
 from sam3.model.sam1_task_predictor import SAM3InteractiveImagePredictor
 from sam3.sam3_video_model_builder import build_sam3_tracking_predictor
@@ -333,7 +334,8 @@ def _create_sam3_model(
 
 def _load_checkpoint(model, checkpoint_path):
     """Load model checkpoint from file."""
-    ckpt = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
+    with g_pathmgr.open(checkpoint_path, "rb") as f:
+        ckpt = torch.load(f, map_location="cpu", weights_only=True)
     if "model" in ckpt and isinstance(ckpt["model"], dict):
         ckpt = ckpt["model"]
     sam3_image_ckpt = {

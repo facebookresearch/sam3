@@ -12,6 +12,7 @@ from typing import Optional
 
 import torch
 import torch.nn as nn
+from iopath.common.file_io import g_pathmgr
 
 from sam3.model.decoder import (
     TransformerDecoder,
@@ -633,7 +634,8 @@ def build_sam3_video_model(
 
     # Load checkpoint if provided
     if checkpoint_path is not None:
-        ckpt = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
+        with g_pathmgr.open(checkpoint_path, "rb") as f:
+            ckpt = torch.load(f, map_location="cpu", weights_only=True)
         if "model" in ckpt and isinstance(ckpt["model"], dict):
             ckpt = ckpt["model"]
 
