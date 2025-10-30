@@ -157,10 +157,14 @@ def plot_mask(mask, color="r", ax=None):
     ax.imshow(mask_img)
 
 
-def normalize_bbox(bbox_xyxy, img_w, img_h):
-    bbox_xyxy[0], bbox_xyxy[2] = bbox_xyxy[0] / img_w, bbox_xyxy[2] / img_w
-    bbox_xyxy[1], bbox_xyxy[3] = bbox_xyxy[1] / img_h, bbox_xyxy[3] / img_h
-    return bbox_xyxy
+def normalize_bbox(bbox_xywh, img_w, img_h):
+    # Assumes bbox_xywh is in XYWH format
+    normalize_bbox = bbox_xywh.clone()
+    normalize_bbox[:, 0] /= img_w
+    normalize_bbox[:, 1] /= img_h
+    normalize_bbox[:, 2] /= img_w
+    normalize_bbox[:, 3] /= img_h
+    return normalize_bbox
 
 
 def visualize_frame_output(frame_idx, video_frames, outputs, figsize=(12, 8)):
@@ -705,9 +709,11 @@ def get_all_annotations_for_frame(
         empty_mask = np.zeros(frame.shape[:2], dtype=np.uint8)
         mask_np_pairs = annot_df_current_video.apply(
             lambda row: (
-                mask_util.decode(row.segmentations[frame_idx])
-                if row.segmentations[frame_idx]
-                else empty_mask,
+                (
+                    mask_util.decode(row.segmentations[frame_idx])
+                    if row.segmentations[frame_idx]
+                    else empty_mask
+                ),
                 row.noun_phrase,
             ),
             axis=1,
