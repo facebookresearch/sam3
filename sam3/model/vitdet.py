@@ -18,7 +18,12 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.utils.checkpoint as checkpoint
-from timm.layers import DropPath, Mlp, trunc_normal_
+
+try:
+    from timm.layers import DropPath, Mlp, trunc_normal_
+except ModuleNotFoundError:
+    # compatibility for older timm versions
+    from timm.models.layers import DropPath, Mlp, trunc_normal_
 from torch import Tensor
 
 from .model_misc import LayerScale
