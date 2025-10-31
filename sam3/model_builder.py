@@ -4,6 +4,9 @@ import torch
 import torch.nn as nn
 from iopath.common.file_io import g_pathmgr
 
+from sam3.model.sam1_task_predictor import SAM3InteractiveImagePredictor
+from sam3.sam3_video_model_builder import build_sam3_tracking_predictor
+
 from .model.decoder import TransformerDecoder, TransformerDecoderLayer
 from .model.encoder import TransformerEncoderFusion, TransformerEncoderLayer
 from .model.geometry_encoders import FusedMaskEncoder, SequenceGeometryEncoder
@@ -62,18 +65,18 @@ def _create_vit_backbone():
         ln_post=False,
         return_interm_layers=False,
         bias_patch_embed=False,
-        compile_mode="default",
+        compile_mode="default",  # TODO: enable turning off
     )
 
 
-def _create_vit_neck(position_encoding, vit_backbone):
+def _create_vit_neck(position_encoding, vit_backbone, enable_inst_interactivity=False):
     """Create ViT neck for feature pyramid."""
     return Sam3DualViTDetNeck(
         position_encoding=position_encoding,
         d_model=256,
         scale_factors=[4.0, 2.0, 1.0, 0.5],
         trunk=vit_backbone,
-        add_sam2_neck=False,
+        add_sam2_neck=enable_inst_interactivity,
     )
 
 
@@ -293,6 +296,7 @@ def _create_sam3_model(
     input_geometry_encoder,
     segmentation_head,
     dot_prod_scoring,
+    inst_interactive_predictor,
     eval_mode,
 ):
     """Create the SAM3 image model."""
@@ -306,6 +310,7 @@ def _create_sam3_model(
         "dot_prod_scoring": dot_prod_scoring,
         "use_instance_query": True,
         "multimask_output": True,
+        "inst_interactive_predictor": inst_interactive_predictor,
     }
 
     matcher = None
@@ -333,7 +338,18 @@ def _load_checkpoint(model, checkpoint_path):
         ckpt = torch.load(f, map_location="cpu", weights_only=True)
     if "model" in ckpt and isinstance(ckpt["model"], dict):
         ckpt = ckpt["model"]
-    missing_keys, unexpected_keys = model.load_state_dict(ckpt, strict=False)
+    sam3_image_ckpt = {
+        k.replace("sam3_model.", ""): v for k, v in ckpt.items() if "sam3_model" in k
+    }
+    if model.inst_interactive_predictor is not None:
+        sam3_image_ckpt.update(
+            {
+                k.replace("sam2_predictor.", "inst_interactive_predictor."): v
+                for k, v in ckpt.items()
+                if "sam2_predictor" in k
+            }
+        )
+    missing_keys, unexpected_keys = model.load_state_dict(sam3_image_ckpt, strict=False)
     if len(missing_keys) > 0 or len(unexpected_keys) > 0:
         print(
             f"loaded {checkpoint_path} and found "
@@ -356,6 +372,7 @@ def build_sam3_image_model(
     eval_mode=True,
     checkpoint_path=None,
     enable_segmentation=True,
+    enable_inst_interactivity=False,
 ):
     """
     Build SAM3 image model for interactive segmentation.
@@ -376,7 +393,11 @@ def build_sam3_image_model(
     # Create visual components
     position_encoding = _create_position_encoding()
     vit_backbone = _create_vit_backbone()
-    vit_neck = _create_vit_neck(position_encoding, vit_backbone)
+    vit_neck = _create_vit_neck(
+        position_encoding,
+        vit_backbone,
+        enable_inst_interactivity=enable_inst_interactivity,
+    )
 
     # Create text components
     tokenizer, text_encoder = _create_text_components(bpe_path)
@@ -397,7 +418,11 @@ def build_sam3_image_model(
 
     # Create geometry encoder
     input_geometry_encoder = _create_geometry_encoder()
-
+    if enable_inst_interactivity:
+        sam3_pvs_base = build_sam3_tracking_predictor(with_backbone=False)
+        inst_predictor = SAM3InteractiveImagePredictor(sam3_pvs_base)
+    else:
+        inst_predictor = None
     # Create the SAM3 model
     model = _create_sam3_model(
         backbone,
@@ -405,9 +430,11 @@ def build_sam3_image_model(
         input_geometry_encoder,
         segmentation_head,
         dot_prod_scoring,
+        inst_predictor,
         eval_mode,
     )
 
+    # TODO: Clean this up after finalizing the checkpoint for release
     # Load checkpoint if provided
     if checkpoint_path is not None:
         _load_checkpoint(model, checkpoint_path)
