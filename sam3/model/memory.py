@@ -7,7 +7,11 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from timm.layers import DropPath
+try:
+    from timm.layers import DropPath
+except ModuleNotFoundError:
+    # compatibility for older timm versions
+    from timm.models.layers import DropPath
 
 from .model_misc import get_clones, LayerNorm2d
 
