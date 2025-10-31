@@ -168,10 +168,13 @@ def normalize_bbox(bbox_xywh, img_w, img_h):
             bbox_xywh, torch.Tensor
         ), "Only torch tensors are supported for batching."
         normalized_bbox = bbox_xywh.clone()
-        normalized_bbox[:, 0] /= img_w
-        normalized_bbox[:, 1] /= img_h
-        normalized_bbox[:, 2] /= img_w
-        normalized_bbox[:, 3] /= img_h
+        assert (
+            normalized_bbox.size(-1) == 4
+        ), "bbox_xywh tensor must have last dimension of size 4."
+        normalized_bbox[..., 0] /= img_w
+        normalized_bbox[..., 1] /= img_h
+        normalized_bbox[..., 2] /= img_w
+        normalized_bbox[..., 3] /= img_h
     return normalized_bbox
 
 
