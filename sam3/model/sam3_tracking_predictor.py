@@ -4,11 +4,11 @@ import logging
 from collections import OrderedDict
 
 import torch
+from tqdm.auto import tqdm
 
 from sam3.model.sam3_tracker_base import concat_points, NO_OBJ_SCORE, Sam3TrackerBase
 from sam3.model.sam3_tracker_utils import fill_holes_in_mask_scores
 from sam3.model.utils.sam2_utils import load_video_frames
-from tqdm.auto import tqdm
 
 
 class Sam3TrackerPredictor(Sam3TrackerBase):
@@ -49,8 +49,8 @@ class Sam3TrackerPredictor(Sam3TrackerBase):
         self.bf16_context = torch.autocast(device_type="cuda", dtype=torch.bfloat16)
         self.bf16_context.__enter__()  # keep using for the entire model process
 
-        self.iter_use_prev_mask_pred = False  # TODO
-        self.add_all_frames_to_correct_as_cond = False  # TODO
+        self.iter_use_prev_mask_pred = True
+        self.add_all_frames_to_correct_as_cond = True
 
     @torch.inference_mode()
     def init_state(
@@ -74,8 +74,7 @@ class Sam3TrackerPredictor(Sam3TrackerBase):
         # (e.g. in a test case of 768x768 model, fps dropped from 27 to 24 when tracking one object
         # and from 24 to 21 when tracking two objects)
         inference_state["offload_state_to_cpu"] = offload_state_to_cpu
-        # TODO: support arbitrary device and remove all ".cuda()" calls
-        inference_state["device"] = torch.device("cuda")
+        inference_state["device"] = self.device
         if offload_state_to_cpu:
             inference_state["storage_device"] = torch.device("cpu")
         else:
@@ -778,10 +777,8 @@ class Sam3TrackerPredictor(Sam3TrackerBase):
             if start_frame_idx > 0:
                 processing_order = range(start_frame_idx, end_frame_idx - 1, -1)
             else:
-                # TODO: Jie - this is the edge case that we start from frame 0 and track in reverse order;
-                # and in the case we track a single frame for dense tracking, it should still run 1 frame (idx=0).
-                # Not sure if this has any side effect.
-                # processing_order = []  # skip reverse tracking if starting from frame 0 <-- original behaviour
+                # this is the edge case where we start from frame 0 and track in reverse order;
+                # in this case, we track a single frame (frame 0)
                 processing_order = [0]
         else:
             end_frame_idx = min(
@@ -803,7 +800,6 @@ class Sam3TrackerPredictor(Sam3TrackerBase):
         propagate_preflight=False,
     ):
         """Propagate the input points across frames to track in the entire video."""
-        # TODO:
         if propagate_preflight:
             self.propagate_in_video_preflight(inference_state)
         # NOTE: This is a copy from the parent class, except that we return object scores as well.
