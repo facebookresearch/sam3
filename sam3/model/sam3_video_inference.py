@@ -1040,7 +1040,9 @@ class Sam3VideoInferenceWithInstanceInteractivity(Sam3VideoInference):
         if propagation_type == "propagation_fetch":
             for frame_idx in tqdm(processing_order):
                 if self.rank == 0:
-                    obj_id_to_mask = inference_state["cached_frame_outputs"][frame_idx]
+                    obj_id_to_mask = inference_state["cached_frame_outputs"].get(
+                        frame_idx, {}
+                    )
                     # post processing - remove suppressed obj_ids
                     obj_id_to_score = tracker_metadata["obj_id_to_score"]
                     suppressed_obj_ids = tracker_metadata["rank0_metadata"][

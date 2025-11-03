@@ -2,8 +2,6 @@
 
 SAM3 is a foundational visual grounding model that detects, segments and tracks objects in images and videos. SAM3 supports object category detection and instance segmentation using text and visual example prompts, as well as vocabulary-free promptable segmentation using point, mask or box prompts as in SAM2. SAM3 can detect objects based on open-vocabulary noun phrases1, and allows the user to interactively refine the output with additional points or boxes.
 
-**Note**: The current model definition only supports images, video is coming soon.
-
 ## Installation
 
 ### Prerequisites
