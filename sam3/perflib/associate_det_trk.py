@@ -4,7 +4,7 @@ from collections import defaultdict
 
 import torch
 import torch.nn.functional as F
-from onevision.perflib.iou import pairwise_iou
+from sam3.perflib.masks_ops import mask_iou
 from scipy.optimize import linear_sum_assignment
 
 
@@ -60,7 +60,7 @@ def associate_det_trk(
         det_masks = det_masks > 0
         track_masks = track_masks > 0
 
-        iou = pairwise_iou(det_masks, track_masks)  # (N, M)
+        iou = mask_iou(det_masks, track_masks)  # (N, M)
         igeit = iou >= iou_threshold
         igeit_any_dim_1 = igeit.any(dim=1)
         igeit_trk = iou >= iou_threshold_trk
@@ -92,7 +92,9 @@ def associate_det_trk(
         ):
             matched_trk = set()
             matched_det = set()
-            matched_det_scores = {}  # track index -> [det_score, det_score * iou] det score of matched detection mask
+            matched_det_scores = (
+                {}
+            )  # track index -> [det_score, det_score * iou] det score of matched detection mask
             for d, t in zip(row_ind, col_ind):
                 matched_det_scores[t] = [
                     det_scores_list[d],

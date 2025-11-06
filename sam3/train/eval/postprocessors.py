@@ -122,7 +122,9 @@ class PostProcessImage(nn.Module):
 
         if boxes is None:
             assert out_masks is not None
-            assert not ret_tensordict, "We don't support returning TensorDict if the output does not contain boxes"
+            assert (
+                not ret_tensordict
+            ), "We don't support returning TensorDict if the output does not contain boxes"
             B = len(out_masks)
             boxes = [None] * B
             scores = [None] * B
@@ -420,7 +422,9 @@ class PostProcessAPIVideo(PostProcessImage):
         # This will hold the packed representation of predictions.
         vid_preds_packed: List[TensorDict] = []
         vid_masklets_rle_packed: List[Optional[Dict]] = []
-        video_id = -1  # We assume single video postprocessing, this ID should be unique in the datapoint.
+        video_id = (
+            -1
+        )  # We assume single video postprocessing, this ID should be unique in the datapoint.
 
         for frame_idx, (frame_outs, meta) in enumerate(
             zip(find_stages, find_metadatas)

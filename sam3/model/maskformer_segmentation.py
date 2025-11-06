@@ -248,7 +248,9 @@ class UniversalSegmentationHead(SegmentationHead):
         self.d_model = hidden_dim
 
         if dot_product_scorer is not None:
-            assert presence_head, "Specifying a dot product scorer without a presence head is likely a mistake"
+            assert (
+                presence_head
+            ), "Specifying a dot product scorer without a presence head is likely a mistake"
 
         self.presence_head = None
         if presence_head:

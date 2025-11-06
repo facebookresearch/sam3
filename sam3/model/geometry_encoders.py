@@ -148,54 +148,30 @@ class Prompt:
         )
 
         # Dimension checks
-        assert (
-            box_embeddings is not None
-            and list(box_embeddings.shape[:2])
-            == [
-                box_seq_len,
-                bs,
-            ]
-        ), f"Wrong dimension for box embeddings. Expected [{box_seq_len}, {bs}, *] got {box_embeddings.shape}"
-        assert (
-            box_mask is not None
-            and list(box_mask.shape)
-            == [
-                bs,
-                box_seq_len,
-            ]
-        ), f"Wrong dimension for box mask. Expected [{bs}, {box_seq_len}] got {box_mask.shape}"
-        assert (
-            point_embeddings is not None
-            and list(point_embeddings.shape[:2])
-            == [
-                point_seq_len,
-                bs,
-            ]
-        ), f"Wrong dimension for point embeddings. Expected [{point_seq_len}, {bs}, *] got {point_embeddings.shape}"
-        assert (
-            point_mask is not None
-            and list(point_mask.shape)
-            == [
-                bs,
-                point_seq_len,
-            ]
-        ), f"Wrong dimension for point mask. Expected [{bs}, {point_seq_len}] got {point_mask.shape}"
-        assert (
-            box_labels is not None
-            and list(box_labels.shape)
-            == [
-                box_seq_len,
-                bs,
-            ]
-        ), f"Wrong dimension for box labels. Expected [{box_seq_len}, {bs}] got {box_labels.shape}"
-        assert (
-            point_labels is not None
-            and list(point_labels.shape)
-            == [
-                point_seq_len,
-                bs,
-            ]
-        ), f"Wrong dimension for point labels. Expected [{point_seq_len}, {bs}] got {point_labels.shape}"
+        assert box_embeddings is not None and list(box_embeddings.shape[:2]) == [
+            box_seq_len,
+            bs,
+        ], f"Wrong dimension for box embeddings. Expected [{box_seq_len}, {bs}, *] got {box_embeddings.shape}"
+        assert box_mask is not None and list(box_mask.shape) == [
+            bs,
+            box_seq_len,
+        ], f"Wrong dimension for box mask. Expected [{bs}, {box_seq_len}] got {box_mask.shape}"
+        assert point_embeddings is not None and list(point_embeddings.shape[:2]) == [
+            point_seq_len,
+            bs,
+        ], f"Wrong dimension for point embeddings. Expected [{point_seq_len}, {bs}, *] got {point_embeddings.shape}"
+        assert point_mask is not None and list(point_mask.shape) == [
+            bs,
+            point_seq_len,
+        ], f"Wrong dimension for point mask. Expected [{bs}, {point_seq_len}] got {point_mask.shape}"
+        assert box_labels is not None and list(box_labels.shape) == [
+            box_seq_len,
+            bs,
+        ], f"Wrong dimension for box labels. Expected [{box_seq_len}, {bs}] got {box_labels.shape}"
+        assert point_labels is not None and list(point_labels.shape) == [
+            point_seq_len,
+            bs,
+        ], f"Wrong dimension for point labels. Expected [{point_seq_len}, {bs}] got {point_labels.shape}"
         assert (
             # Allowed to be None, we leave it to the encoder to check for validity before encoding.
             mask_embeddings is None
@@ -205,14 +181,10 @@ class Prompt:
                 bs,
             ]
         ), f"Wrong dimension for mask embeddings. Expected [{mask_seq_len}, {bs}, *] got {mask_embeddings.shape}"
-        assert (
-            mask_mask is None
-            or list(mask_mask.shape)
-            == [
-                bs,
-                mask_seq_len,
-            ]
-        ), f"Wrong dimension for mask attn. mask. Expected [{bs}, {mask_seq_len}] got {mask_mask.shape}"
+        assert mask_mask is None or list(mask_mask.shape) == [
+            bs,
+            mask_seq_len,
+        ], f"Wrong dimension for mask attn. mask. Expected [{bs}, {mask_seq_len}] got {mask_mask.shape}"
 
         # Device checks
         assert (
@@ -704,13 +676,10 @@ class SequenceGeometryEncoder(nn.Module):
         assert (
             n_masks == 1
         ), "We assume one mask per prompt for now. Code should still be functional if this assertion is removed."
-        assert (
-            list(attn_mask.shape)
-            == [
-                bs,
-                n_masks,
-            ]
-        ), f"Expected attn_mask to be of shape {bs}x{n_masks}. Got {list(attn_mask.shape)}."
+        assert list(attn_mask.shape) == [
+            bs,
+            n_masks,
+        ], f"Expected attn_mask to be of shape {bs}x{n_masks}. Got {list(attn_mask.shape)}."
         masks, pos = self.mask_encoder(
             masks=masks.flatten(0, 1).float(),
             pix_feat=img_feats,

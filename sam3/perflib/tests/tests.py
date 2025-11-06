@@ -5,8 +5,8 @@ import os
 import numpy as np
 import pytest
 import torch
-from onevision.perflib.masks_to_boxes import masks_to_boxes
 from PIL import Image
+from sam3.perflib.masks_ops import masks_to_boxes
 
 
 class TestMasksToBoxes:
