@@ -13,9 +13,9 @@ import matplotlib.figure as mplfigure
 import numpy as np
 import pycocotools.mask as mask_util
 import torch
+from iopath.common.file_io import PathManager
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 from PIL import Image
-from iopath.common.file_io import PathManager
 
 from .boxes import Boxes, BoxMode
 
