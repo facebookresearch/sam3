@@ -16,8 +16,6 @@ import torch
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 from PIL import Image
 
-# from catalog import MetadataCatalog
-
 from .boxes import Boxes, BoxMode
 
 from .color_map import random_color
