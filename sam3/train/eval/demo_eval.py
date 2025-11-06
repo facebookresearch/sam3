@@ -9,9 +9,7 @@ import logging
 from typing import Optional
 
 import numpy as np
-
 import pycocotools.mask as maskUtils
-
 from pycocotools.cocoeval import COCOeval
 
 from sam3.train.eval.coco_eval import CocoEvaluator
@@ -494,6 +492,7 @@ class DemoEvaluator(CocoEvaluator):
         average_by_rarity=False,
         gather_pred_via_filesys=False,
         exhaustive_only=False,
+        all_exhaustive_only=True,
         compute_JnF=False,
         metrics_dump_dir: Optional[str] = None,
     ):
@@ -508,6 +507,7 @@ class DemoEvaluator(CocoEvaluator):
             # average_by_rarity=average_by_rarity,
             gather_pred_via_filesys=gather_pred_via_filesys,
             exhaustive_only=exhaustive_only,
+            all_exhaustive_only=all_exhaustive_only,
             metrics_dump_dir=metrics_dump_dir,
         )
 
