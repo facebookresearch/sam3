@@ -9,16 +9,14 @@ import logging
 from typing import Optional
 
 import numpy as np
-
 import pycocotools.mask as maskUtils
-
 from pycocotools.cocoeval import COCOeval
-
-from scipy.optimize import linear_sum_assignment
 
 from sam3.train.eval.coco_eval import CocoEvaluator
 from sam3.train.masks_ops import compute_F_measure
 from sam3.train.utils.distributed import is_main_process
+
+from scipy.optimize import linear_sum_assignment
 
 
 class DemoEval(COCOeval):
