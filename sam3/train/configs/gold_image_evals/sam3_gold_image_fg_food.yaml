@@ -6,8 +6,8 @@ defaults:
 # Paths Configuration (Chage this to your own paths)
 # ============================================================================
 paths:
-  checkpoint_path: /fsx-onevision/shoubhikdn/sam3_ckpts/paper_image_only_checkpoint_presence_0.35_completed_model_only.pt
-  experiment_log_dir: /fsx-onevision/shoubhikdn/omnivision_onevision/release_experiments/gold_fg_food_launch_1029/
+  checkpoint_path: /fsx-onevision/shoubhikdn/sam3_ckpts/sam3_v2_rc2/sam3_v2_rc2.pt
+  experiment_log_dir: /fsx-onevision/shoubhikdn/omnivision_onevision/release_experiments/gold_fg_food_launch_arxiv_sam3_v2_rc2/
   coco_gt : /fsx-onevision/shoubhikdn/release/roboflow/gt-annotations/gold_fg_food_merged_a_release_test.json
   coco_gts :
     - /fsx-onevision/shoubhikdn/release/roboflow/gt-annotations/gold_fg_food_merged_a_release_test.json
