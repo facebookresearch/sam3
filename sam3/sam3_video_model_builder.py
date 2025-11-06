@@ -12,6 +12,7 @@ from typing import Optional
 
 import torch
 import torch.nn as nn
+from iopath.common.file_io import g_pathmgr
 
 from sam3.model.decoder import (
     TransformerDecoder,
@@ -215,7 +216,9 @@ def build_tracker(apply_temporal_disambiguation: bool) -> Sam3TrackerPredictor:
     return model
 
 
-def build_sam3_tracking_predictor(sam3_ckpt=None) -> Sam3TrackerBase:
+def build_sam3_tracking_predictor(
+    sam3_ckpt=None, with_backbone=True
+) -> Sam3TrackerBase:
     """
     Build the SAM3 tracker module for video tracking.
 
@@ -226,13 +229,15 @@ def build_sam3_tracking_predictor(sam3_ckpt=None) -> Sam3TrackerBase:
     # Create model components
     maskmem_backbone = _create_tracker_maskmem_backbone()
     transformer = _create_tracker_transformer()
-    vision_backbone = _create_sam3_visual_backbone()
-    backbone = SAM3VLBackbone(scalp=1, visual=vision_backbone, text=None)
+    if with_backbone:
+        vision_backbone = _create_sam3_visual_backbone()
+        backbone = SAM3VLBackbone(scalp=1, visual=vision_backbone, text=None)
+
     # Create the Tracker module
     model = Sam3TrackerBase(
         image_size=1008,
         num_maskmem=7,
-        backbone=backbone,
+        backbone=backbone if with_backbone else None,
         backbone_stride=14,
         transformer=transformer,
         maskmem_backbone=maskmem_backbone,
@@ -512,6 +517,7 @@ def build_sam3_video_model(
     geo_encoder_use_img_cross_attn: bool = True,
     strict_state_dict_loading: bool = True,
     apply_temporal_disambiguation: bool = True,
+    device="cuda" if torch.cuda.is_available() else "cpu",
 ) -> Sam3VideoInferenceWithInstanceInteractivity:
     """
     Build SAM3 dense tracking model.
@@ -628,7 +634,8 @@ def build_sam3_video_model(
 
     # Load checkpoint if provided
     if checkpoint_path is not None:
-        ckpt = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
+        with g_pathmgr.open(checkpoint_path, "rb") as f:
+            ckpt = torch.load(f, map_location="cpu", weights_only=True)
         if "model" in ckpt and isinstance(ckpt["model"], dict):
             ckpt = ckpt["model"]
 
@@ -649,4 +656,5 @@ def build_sam3_video_model(
         if unexpected_keys:
             print(f"Unexpected keys: {unexpected_keys}")
 
+    model.to(device=device)
     return model

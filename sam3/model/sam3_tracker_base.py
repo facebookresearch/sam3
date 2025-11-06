@@ -13,8 +13,12 @@ from sam3.sam.mask_decoder import MaskDecoder, MLP
 from sam3.sam.prompt_encoder import PromptEncoder
 from sam3.sam.transformer import TwoWayTransformer
 from sam3.train.data.collator import BatchedDatapoint
-from timm.layers import trunc_normal_
 
+try:
+    from timm.layers import trunc_normal_
+except ModuleNotFoundError:
+    # compatibility for older timm versions
+    from timm.models.layers import trunc_normal_
 
 # a large negative value as a placeholder score for missing objects
 NO_OBJ_SCORE = -1024.0
@@ -432,7 +436,7 @@ class Sam3TrackerBase(torch.nn.Module):
 
     def forward(self, input: BatchedDatapoint, is_inference=False):
         raise NotImplementedError(
-            "Please use the corresponding methods in SAM3VideoPredictor for inference or SAM2Train for training/fine-tuning"
+            "Please use the corresponding methods in SAM3VideoPredictor for inference."
             "See examples/sam3_dense_video_tracking.ipynb for an inference example."
         )
 

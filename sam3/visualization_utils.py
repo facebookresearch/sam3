@@ -1,12 +1,9 @@
 import json
 import os
-import pprint
 import subprocess
 from pathlib import Path
-from typing import Any, Dict
 
 import cv2
-
 import matplotlib.patches as patches
 import matplotlib.pyplot as plt
 import numpy as np
@@ -14,9 +11,7 @@ import pandas as pd
 import pycocotools.mask as mask_utils
 import torch
 from matplotlib.colors import to_rgb
-from matplotlib.patches import Rectangle
 from PIL import Image
-from pycocotools import mask as mask_util
 from skimage.color import lab2rgb, rgb2lab
 from sklearn.cluster import KMeans
 from torchvision.ops import masks_to_boxes
@@ -157,10 +152,30 @@ def plot_mask(mask, color="r", ax=None):
     ax.imshow(mask_img)
 
 
-def normalize_bbox(bbox_xyxy, img_w, img_h):
-    bbox_xyxy[0], bbox_xyxy[2] = bbox_xyxy[0] / img_w, bbox_xyxy[2] / img_w
-    bbox_xyxy[1], bbox_xyxy[3] = bbox_xyxy[1] / img_h, bbox_xyxy[3] / img_h
-    return bbox_xyxy
+def normalize_bbox(bbox_xywh, img_w, img_h):
+    # Assumes bbox_xywh is in XYWH format
+    if isinstance(bbox_xywh, list):
+        assert (
+            len(bbox_xywh) == 4
+        ), "bbox_xywh list must have 4 elements. Batching not support except for torch tensors."
+        normalized_bbox = bbox_xywh.copy()
+        normalized_bbox[0] /= img_w
+        normalized_bbox[1] /= img_h
+        normalized_bbox[2] /= img_w
+        normalized_bbox[3] /= img_h
+    else:
+        assert isinstance(
+            bbox_xywh, torch.Tensor
+        ), "Only torch tensors are supported for batching."
+        normalized_bbox = bbox_xywh.clone()
+        assert (
+            normalized_bbox.size(-1) == 4
+        ), "bbox_xywh tensor must have last dimension of size 4."
+        normalized_bbox[..., 0] /= img_w
+        normalized_bbox[..., 1] /= img_h
+        normalized_bbox[..., 2] /= img_w
+        normalized_bbox[..., 3] /= img_h
+    return normalized_bbox
 
 
 def visualize_frame_output(frame_idx, video_frames, outputs, figsize=(12, 8)):
@@ -705,9 +720,11 @@ def get_all_annotations_for_frame(
         empty_mask = np.zeros(frame.shape[:2], dtype=np.uint8)
         mask_np_pairs = annot_df_current_video.apply(
             lambda row: (
-                mask_util.decode(row.segmentations[frame_idx])
-                if row.segmentations[frame_idx]
-                else empty_mask,
+                (
+                    mask_utils.decode(row.segmentations[frame_idx])
+                    if row.segmentations[frame_idx]
+                    else empty_mask
+                ),
                 row.noun_phrase,
             ),
             axis=1,
