@@ -405,7 +405,7 @@ def fill_holes_in_mask_scores(mask, max_area, fill_holes=True, remove_sprinkles=
     return mask
 
 
-def _get_connected_components_with_padding(mask, get_counts=True):
+def _get_connected_components_with_padding(mask):
     """Get connected components from masks (possibly padding them to an even size)."""
     from sam3.perflib.connected_components import connected_components
 
@@ -415,12 +415,12 @@ def _get_connected_components_with_padding(mask, get_counts=True):
     pad_h = H % 2
     pad_w = W % 2
     if pad_h == 0 and pad_w == 0:
-        labels, counts = connected_components(mask, get_counts)
+        labels, counts = connected_components(mask)
     else:
         # pad the mask to make its height and width even
         # padding format is (padding_left,padding_right,padding_top,padding_bottom)
         mask_pad = F.pad(mask, (0, pad_w, 0, pad_h), mode="constant", value=0)
-        labels, counts = connected_components(mask_pad, get_counts)
+        labels, counts = connected_components(mask_pad)
         labels = labels[:, :, :H, :W]
         counts = counts[:, :, :H, :W]
 
