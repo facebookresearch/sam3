@@ -34,29 +34,6 @@ def instance_masks_to_semantic_masks(
     return torch.stack([torch.any(masks, dim=0) for masks in masks_per_query], dim=0)
 
 
-def mask_iou(masks1, masks2):
-    """
-    Compute the intersection over union of two sets of masks.
-    The function is symmetric.
-
-    Args:
-        masks1: torch.Tensor of shape (N, H, W) where N is the number of masks.
-        masks2: torch.Tensor of shape (M, H, W) where N is the number of masks.
-
-    Returns:
-        torch.Tensor of shape (N, M) where the i-th row and j-th column contains the IoU between masks1[i] and masks2[j].
-    """
-    assert masks1.shape[1:] == masks2.shape[1:]
-    assert masks1.dtype == torch.bool and masks2.dtype == torch.bool
-
-    intersection = (masks1[:, None] * masks2[None]).flatten(-2).sum(-1)
-    area1 = masks1.flatten(-2).sum(-1)
-    area2 = masks2.flatten(-2).sum(-1)
-
-    union = area1[:, None] + area2[None] - intersection
-    return intersection / (union + 1e-8)
-
-
 def mask_intersection(masks1, masks2, block_size=16):
     """Compute the intersection of two sets of masks, without blowing the memory"""
 

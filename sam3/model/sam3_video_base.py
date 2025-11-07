@@ -19,8 +19,8 @@ from sam3 import perflib
 from sam3.logger import get_logger
 from sam3.model.box_ops import fast_diag_box_iou
 from sam3.model.data_misc import BatchedDatapoint
-from sam3.model.nms_utils import mask_iou
 from sam3.model.sam3_tracker_utils import fill_holes_in_mask_scores, mask_to_box
+from sam3.perflib.masks_ops import mask_iou
 from sam3.train.masks_ops import rle_encode
 from torch import nn, Tensor
 
