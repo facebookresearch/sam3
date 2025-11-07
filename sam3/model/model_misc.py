@@ -311,9 +311,7 @@ class SAM3Output(list):
         # Defines the type of iterator over ouptuts.
         ALL_STEPS_PER_STAGE = auto()
         LAST_STEP_PER_STAGE = auto()
-        FLATTENED = (
-            auto()
-        )  # Returns each interactivity step as if it is a separate stage (this is used in SAM3Image model)
+        FLATTENED = auto()  # Returns each interactivity step as if it is a separate stage (this is used in SAM3Image model)
 
     def __init__(
         self,

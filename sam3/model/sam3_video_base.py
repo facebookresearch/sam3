@@ -1190,8 +1190,8 @@ class Sam3VideoBase(nn.Module):
 
         assert det_masks.is_floating_point(), "float tensor expected (do not binarize)"
         assert trk_masks.is_floating_point(), "float tensor expected (do not binarize)"
-        assert trk_masks.size(0) == len(
-            trk_obj_ids
+        assert (
+            trk_masks.size(0) == len(trk_obj_ids)
         ), f"trk_masks and trk_obj_ids should have the same length, {trk_masks.size(0)} vs {len(trk_obj_ids)}"
         if trk_masks.size(0) == 0:
             # all detections are new
@@ -1503,9 +1503,9 @@ class Sam3VideoBase(nn.Module):
             for storage_key in ["cond_frame_outputs", "non_cond_frame_outputs"]:
                 if frame_idx not in output_dict[storage_key]:
                     continue
-                output_dict[storage_key][frame_idx][
-                    "maskmem_features"
-                ] = local_maskmem_features
+                output_dict[storage_key][frame_idx]["maskmem_features"] = (
+                    local_maskmem_features
+                )
                 output_dict[storage_key][frame_idx]["maskmem_pos_enc"] = [
                     pos for pos in local_maskmem_pos_enc
                 ]
