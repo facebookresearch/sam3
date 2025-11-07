@@ -4,7 +4,7 @@ Transformer decoder.
 Inspired from Pytorch's version, adds the pre-norm variant
 """
 
-from typing import Any, Dict, List, Optional, Optional
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 
