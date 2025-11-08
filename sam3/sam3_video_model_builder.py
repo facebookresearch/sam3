@@ -267,14 +267,11 @@ def build_sam3_tracking_predictor(
         state_dict = {
             k: v
             for k, v in sam3_ckpt.items()
-            if "sam2_predictor" in k or "backbone.vision_backbone" in k
+            if "tracker" in k or "backbone.vision_backbone" in k
         }
+        state_dict = {k.replace("tracker.", ""): v for k, v in state_dict.items()}
         state_dict = {
-            k.replace("sam2_predictor.model.", ""): v for k, v in state_dict.items()
-        }
-        state_dict = {
-            k.replace("sam3_model.backbone", "backbone"): v
-            for k, v in state_dict.items()
+            k.replace("detector.backbone", "backbone"): v for k, v in state_dict.items()
         }
         model.load_state_dict(state_dict)
     return model
@@ -638,15 +635,6 @@ def build_sam3_video_model(
             ckpt = torch.load(f, map_location="cpu", weights_only=True)
         if "model" in ckpt and isinstance(ckpt["model"], dict):
             ckpt = ckpt["model"]
-
-        # remap keys in old checkpoints for compatibility (TODO remove this when we have the final checkpoints)
-        for key in list(ckpt.keys()):
-            if key.startswith("sam2_predictor.model."):
-                new_key = "tracker." + key[len("sam2_predictor.model.") :]
-                ckpt[new_key] = ckpt.pop(key)
-            elif key.startswith("sam3_model."):
-                new_key = "detector." + key[len("sam3_model.") :]
-                ckpt[new_key] = ckpt.pop(key)
 
         missing_keys, unexpected_keys = model.load_state_dict(
             ckpt, strict=strict_state_dict_loading

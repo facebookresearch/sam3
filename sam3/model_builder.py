@@ -166,7 +166,7 @@ def _create_transformer_decoder():
         interaction_layer=None,
         dac_use_selfatt_ln=True,
         use_act_checkpoint=True,
-        instance_query=True,
+        instance_query=False,
         num_instances=4,
         presence_token=True,
     )
@@ -237,14 +237,6 @@ def _create_geometry_encoder():
     # Create fuser
     fuser = SimpleFuser(layer=cx_block, num_layers=2)
 
-    # Create mask encoder
-    mask_encoder = FusedMaskEncoder(
-        out_dim=256,
-        position_encoding=_create_position_encoding(precompute_resolution=1008),
-        mask_downsampler=mask_downsampler,
-        fuser=fuser,
-    )
-
     # Create geometry encoder layer
     geo_layer = TransformerEncoderLayer(
         activation="relu",
@@ -285,7 +277,6 @@ def _create_geometry_encoder():
         use_act_ckpt=True,
         add_cls=True,
         add_post_encode_proj=True,
-        mask_encoder=mask_encoder,
     )
     return input_geometry_encoder
 
@@ -308,7 +299,7 @@ def _create_sam3_model(
         "num_feature_levels": 1,
         "o2m_mask_predict": True,
         "dot_prod_scoring": dot_prod_scoring,
-        "use_instance_query": True,
+        "use_instance_query": False,
         "multimask_output": True,
         "inst_interactive_predictor": inst_interactive_predictor,
     }
@@ -339,21 +330,21 @@ def _load_checkpoint(model, checkpoint_path):
     if "model" in ckpt and isinstance(ckpt["model"], dict):
         ckpt = ckpt["model"]
     sam3_image_ckpt = {
-        k.replace("sam3_model.", ""): v for k, v in ckpt.items() if "sam3_model" in k
+        k.replace("detector.", ""): v for k, v in ckpt.items() if "detector" in k
     }
     if model.inst_interactive_predictor is not None:
         sam3_image_ckpt.update(
             {
-                k.replace("sam2_predictor.", "inst_interactive_predictor."): v
+                k.replace("tracker.", "inst_interactive_predictor."): v
                 for k, v in ckpt.items()
-                if "sam2_predictor" in k
+                if "tracker" in k
             }
         )
-    missing_keys, unexpected_keys = model.load_state_dict(sam3_image_ckpt, strict=False)
-    if len(missing_keys) > 0 or len(unexpected_keys) > 0:
+    missing_keys, _ = model.load_state_dict(sam3_image_ckpt, strict=False)
+    if len(missing_keys) > 0:
         print(
             f"loaded {checkpoint_path} and found "
-            f"missing and/or unexpected keys:\n{missing_keys=}\n{unexpected_keys=}"
+            f"missing and/or unexpected keys:\n{missing_keys=}"
         )
 
 
