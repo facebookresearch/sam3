@@ -2,6 +2,8 @@
 
 import torch
 import torch.nn as nn
+
+from huggingface_hub import hf_hub_download
 from iopath.common.file_io import g_pathmgr
 
 from sam3.model.sam1_task_predictor import SAM3InteractiveImagePredictor
@@ -26,6 +28,9 @@ from .model.text_encoder_ve import VETextEncoder
 from .model.tokenizer_ve import SimpleTokenizer
 from .model.vitdet import ViT
 from .model.vl_combiner import SAM3VLBackbone
+
+SAM3_MODEL_ID = "facebook/sam3"
+SAM3_CKPT_NAME = "sam3.pt"
 
 
 def _create_position_encoding(precompute_resolution=None):
@@ -362,6 +367,7 @@ def build_sam3_image_model(
     device="cuda" if torch.cuda.is_available() else "cpu",
     eval_mode=True,
     checkpoint_path=None,
+    load_from_HF=True,
     enable_segmentation=True,
     enable_inst_interactivity=False,
 ):
@@ -426,6 +432,10 @@ def build_sam3_image_model(
     )
 
     # TODO: Clean this up after finalizing the checkpoint for release
+    if load_from_HF and checkpoint_path is None:
+        checkpoint_path = hf_hub_download(
+            repo_id=SAM3_MODEL_ID, filename=SAM3_CKPT_NAME
+        )
     # Load checkpoint if provided
     if checkpoint_path is not None:
         _load_checkpoint(model, checkpoint_path)
