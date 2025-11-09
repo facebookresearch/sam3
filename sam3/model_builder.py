@@ -430,8 +430,6 @@ def build_sam3_image_model(
         inst_predictor,
         eval_mode,
     )
-
-    # TODO: Clean this up after finalizing the checkpoint for release
     if load_from_HF and checkpoint_path is None:
         checkpoint_path = hf_hub_download(
             repo_id=SAM3_MODEL_ID, filename=SAM3_CKPT_NAME
