@@ -2,6 +2,8 @@
 
 import torch
 import torch.nn as nn
+
+from huggingface_hub import hf_hub_download
 from iopath.common.file_io import g_pathmgr
 
 from sam3.model.sam1_task_predictor import SAM3InteractiveImagePredictor
@@ -26,6 +28,9 @@ from .model.text_encoder_ve import VETextEncoder
 from .model.tokenizer_ve import SimpleTokenizer
 from .model.vitdet import ViT
 from .model.vl_combiner import SAM3VLBackbone
+
+SAM3_MODEL_ID = "facebook/sam3"
+SAM3_CKPT_NAME = "sam3.pt"
 
 
 def _create_position_encoding(precompute_resolution=None):
@@ -166,7 +171,7 @@ def _create_transformer_decoder():
         interaction_layer=None,
         dac_use_selfatt_ln=True,
         use_act_checkpoint=True,
-        instance_query=True,
+        instance_query=False,
         num_instances=4,
         presence_token=True,
     )
@@ -237,14 +242,6 @@ def _create_geometry_encoder():
     # Create fuser
     fuser = SimpleFuser(layer=cx_block, num_layers=2)
 
-    # Create mask encoder
-    mask_encoder = FusedMaskEncoder(
-        out_dim=256,
-        position_encoding=_create_position_encoding(precompute_resolution=1008),
-        mask_downsampler=mask_downsampler,
-        fuser=fuser,
-    )
-
     # Create geometry encoder layer
     geo_layer = TransformerEncoderLayer(
         activation="relu",
@@ -285,7 +282,6 @@ def _create_geometry_encoder():
         use_act_ckpt=True,
         add_cls=True,
         add_post_encode_proj=True,
-        mask_encoder=mask_encoder,
     )
     return input_geometry_encoder
 
@@ -308,7 +304,7 @@ def _create_sam3_model(
         "num_feature_levels": 1,
         "o2m_mask_predict": True,
         "dot_prod_scoring": dot_prod_scoring,
-        "use_instance_query": True,
+        "use_instance_query": False,
         "multimask_output": True,
         "inst_interactive_predictor": inst_interactive_predictor,
     }
@@ -339,21 +335,21 @@ def _load_checkpoint(model, checkpoint_path):
     if "model" in ckpt and isinstance(ckpt["model"], dict):
         ckpt = ckpt["model"]
     sam3_image_ckpt = {
-        k.replace("sam3_model.", ""): v for k, v in ckpt.items() if "sam3_model" in k
+        k.replace("detector.", ""): v for k, v in ckpt.items() if "detector" in k
     }
     if model.inst_interactive_predictor is not None:
         sam3_image_ckpt.update(
             {
-                k.replace("sam2_predictor.", "inst_interactive_predictor."): v
+                k.replace("tracker.", "inst_interactive_predictor."): v
                 for k, v in ckpt.items()
-                if "sam2_predictor" in k
+                if "tracker" in k
             }
         )
-    missing_keys, unexpected_keys = model.load_state_dict(sam3_image_ckpt, strict=False)
-    if len(missing_keys) > 0 or len(unexpected_keys) > 0:
+    missing_keys, _ = model.load_state_dict(sam3_image_ckpt, strict=False)
+    if len(missing_keys) > 0:
         print(
             f"loaded {checkpoint_path} and found "
-            f"missing and/or unexpected keys:\n{missing_keys=}\n{unexpected_keys=}"
+            f"missing and/or unexpected keys:\n{missing_keys=}"
         )
 
 
@@ -371,6 +367,7 @@ def build_sam3_image_model(
     device="cuda" if torch.cuda.is_available() else "cpu",
     eval_mode=True,
     checkpoint_path=None,
+    load_from_HF=True,
     enable_segmentation=True,
     enable_inst_interactivity=False,
 ):
@@ -433,8 +430,10 @@ def build_sam3_image_model(
         inst_predictor,
         eval_mode,
     )
-
-    # TODO: Clean this up after finalizing the checkpoint for release
+    if load_from_HF and checkpoint_path is None:
+        checkpoint_path = hf_hub_download(
+            repo_id=SAM3_MODEL_ID, filename=SAM3_CKPT_NAME
+        )
     # Load checkpoint if provided
     if checkpoint_path is not None:
         _load_checkpoint(model, checkpoint_path)

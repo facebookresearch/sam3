@@ -32,6 +32,7 @@ dependencies = [
     "regex",
     "iopath>=0.1.10",
     "typing_extensions",
+    "huggingface_hub",
 ]
 
 [project.optional-dependencies]

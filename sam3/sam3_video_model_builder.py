@@ -12,6 +12,7 @@ from typing import Optional
 
 import torch
 import torch.nn as nn
+from huggingface_hub import hf_hub_download
 from iopath.common.file_io import g_pathmgr
 
 from sam3.model.decoder import (
@@ -50,6 +51,9 @@ from sam3.model.tokenizer_ve import SimpleTokenizer
 from sam3.model.vitdet import ViT
 from sam3.model.vl_combiner import SAM3VLBackbone
 from sam3.sam.transformer import RoPEAttention
+
+SAM3_MODEL_ID = "facebook/sam3"
+SAM3_CKPT_NAME = "sam3.pt"
 
 
 # Setup TensorFloat-32 for Ampere GPUs if available
@@ -217,7 +221,7 @@ def build_tracker(apply_temporal_disambiguation: bool) -> Sam3TrackerPredictor:
 
 
 def build_sam3_tracking_predictor(
-    sam3_ckpt=None, with_backbone=True
+    sam3_ckpt=None, load_from_HF=True, with_backbone=True
 ) -> Sam3TrackerBase:
     """
     Build the SAM3 tracker module for video tracking.
@@ -262,19 +266,21 @@ def build_sam3_tracking_predictor(
         },
     )
 
+    if load_from_HF and sam3_ckpt is None:
+        checkpoint_path = hf_hub_download(
+            repo_id=SAM3_MODEL_ID, filename=SAM3_CKPT_NAME
+        )
+        sam3_ckpt = torch.load(checkpoint_path, map_location="cpu")
     if sam3_ckpt is not None:
         # Keep tracker heads + sam3 backbone
         state_dict = {
             k: v
             for k, v in sam3_ckpt.items()
-            if "sam2_predictor" in k or "backbone.vision_backbone" in k
+            if "tracker" in k or "backbone.vision_backbone" in k
         }
+        state_dict = {k.replace("tracker.", ""): v for k, v in state_dict.items()}
         state_dict = {
-            k.replace("sam2_predictor.model.", ""): v for k, v in state_dict.items()
-        }
-        state_dict = {
-            k.replace("sam3_model.backbone", "backbone"): v
-            for k, v in state_dict.items()
+            k.replace("detector.backbone", "backbone"): v for k, v in state_dict.items()
         }
         model.load_state_dict(state_dict)
     return model
@@ -512,6 +518,7 @@ def _create_sam3_geometry_encoder(
 
 def build_sam3_video_model(
     checkpoint_path: Optional[str] = None,
+    load_from_HF=True,
     bpe_path: Optional[str] = None,
     has_presence_token: bool = True,
     geo_encoder_use_img_cross_attn: bool = True,
@@ -633,20 +640,15 @@ def build_sam3_video_model(
         )
 
     # Load checkpoint if provided
+    if load_from_HF and checkpoint_path is None:
+        checkpoint_path = hf_hub_download(
+            repo_id=SAM3_MODEL_ID, filename=SAM3_CKPT_NAME
+        )
     if checkpoint_path is not None:
         with g_pathmgr.open(checkpoint_path, "rb") as f:
             ckpt = torch.load(f, map_location="cpu", weights_only=True)
         if "model" in ckpt and isinstance(ckpt["model"], dict):
             ckpt = ckpt["model"]
-
-        # remap keys in old checkpoints for compatibility (TODO remove this when we have the final checkpoints)
-        for key in list(ckpt.keys()):
-            if key.startswith("sam2_predictor.model."):
-                new_key = "tracker." + key[len("sam2_predictor.model.") :]
-                ckpt[new_key] = ckpt.pop(key)
-            elif key.startswith("sam3_model."):
-                new_key = "detector." + key[len("sam3_model.") :]
-                ckpt[new_key] = ckpt.pop(key)
 
         missing_keys, unexpected_keys = model.load_state_dict(
             ckpt, strict=strict_state_dict_loading

@@ -27,7 +27,7 @@ class Sam3VideoPredictor:
 
     def __init__(
         self,
-        checkpoint_path,
+        checkpoint_path=None,
         bpe_path=None,
         has_presence_token=False,
         geo_encoder_use_img_cross_attn=False,
