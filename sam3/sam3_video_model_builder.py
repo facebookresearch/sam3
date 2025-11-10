@@ -221,7 +221,10 @@ def build_tracker(apply_temporal_disambiguation: bool) -> Sam3TrackerPredictor:
 
 
 def build_sam3_tracking_predictor(
-    sam3_ckpt=None, load_from_HF=True, with_backbone=True
+    sam3_ckpt=None,
+    load_from_HF=True,
+    with_backbone=True,
+    device="cuda" if torch.cuda.is_available() else "cpu",
 ) -> Sam3TrackerBase:
     """
     Build the SAM3 tracker module for video tracking.
@@ -283,6 +286,7 @@ def build_sam3_tracking_predictor(
             k.replace("detector.backbone", "backbone"): v for k, v in state_dict.items()
         }
         model.load_state_dict(state_dict)
+    model.to(device)
     return model
 
 

@@ -38,7 +38,7 @@ class Sam3Processor:
         )
 
     @torch.inference_mode()
-    def set_image(self, image, state=None, inst_interactivity=False):
+    def set_image(self, image, state=None):
         """Sets the image on which we want to do predictions."""
         if state is None:
             state = {}
@@ -56,7 +56,8 @@ class Sam3Processor:
         state["original_height"] = height
         state["original_width"] = width
         state["backbone_out"] = self.model.backbone.forward_image(image)
-        if inst_interactivity and "sam2_backbone_out" in state["backbone_out"]:
+        inst_interactivity_en = self.model.inst_interactive_predictor is not None
+        if inst_interactivity_en and "sam2_backbone_out" in state["backbone_out"]:
             sam2_backbone_out = state["backbone_out"]["sam2_backbone_out"]
             sam2_backbone_out["backbone_fpn"][0] = (
                 self.model.inst_interactive_predictor.model.sam_mask_decoder.conv_s0(
@@ -73,7 +74,6 @@ class Sam3Processor:
     @torch.inference_mode()
     def set_image_batch(self, images: List[np.ndarray], state=None):
         """Sets the image batch on which we want to do predictions."""
-        # TODO: clean this up. Decide whether to merge with set_image or not.
         if state is None:
             state = {}
 
@@ -92,10 +92,9 @@ class Sam3Processor:
             for image in images
         ]
         images = torch.stack(images, dim=0)
-        print(images.shape)
         state["backbone_out"] = self.model.backbone.forward_image(images)
-        if "sam2_backbone_out" in state["backbone_out"]:
-            print("Adapting SAM2 backbone output for SAM3 mask decoder")
+        inst_interactivity_en = self.model.inst_interactive_predictor is not None
+        if inst_interactivity_en and "sam2_backbone_out" in state["backbone_out"]:
             sam2_backbone_out = state["backbone_out"]["sam2_backbone_out"]
             sam2_backbone_out["backbone_fpn"][0] = (
                 self.model.inst_interactive_predictor.model.sam_mask_decoder.conv_s0(

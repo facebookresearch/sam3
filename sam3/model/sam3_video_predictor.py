@@ -29,8 +29,8 @@ class Sam3VideoPredictor:
         self,
         checkpoint_path=None,
         bpe_path=None,
-        has_presence_token=False,
-        geo_encoder_use_img_cross_attn=False,
+        has_presence_token=True,
+        geo_encoder_use_img_cross_attn=True,
         strict_state_dict_loading=True,
         async_loading_frames=False,
         video_loader_type="cv2",
@@ -122,7 +122,7 @@ class Sam3VideoPredictor:
             "session_id": session_id,
             "start_time": time.time(),
         }
-        logger.info(
+        logger.debug(
             f"started new session {session_id}; {self._get_session_stats()}; "
             f"{self._get_torch_and_gpu_properties()}"
         )
@@ -140,7 +140,7 @@ class Sam3VideoPredictor:
         obj_id: Optional[int] = None,
     ):
         """Add text, box and/or point prompt on a specific video frame."""
-        logger.info(
+        logger.debug(
             f"add prompt on frame {frame_idx} in session {session_id}: "
             f"{text=}, {points=}, {point_labels=}, "
             f"{bounding_boxes=}, {bounding_box_labels=}"
@@ -167,7 +167,7 @@ class Sam3VideoPredictor:
         is_user_action: bool = True,
     ):
         """Remove an object from tracking."""
-        logger.info(
+        logger.debug(
             f"remove object {obj_id} in session {session_id}: " f"{is_user_action=}"
         )
         session = self._get_session(session_id)
@@ -188,7 +188,7 @@ class Sam3VideoPredictor:
         max_frame_num_to_track,
     ):
         """Propagate the added prompts to get grounding results on all video frames."""
-        logger.info(
+        logger.debug(
             f"propagate in video in session {session_id}: "
             f"{propagation_direction=}, {start_frame_idx=}, {max_frame_num_to_track=}"
         )
@@ -221,13 +221,13 @@ class Sam3VideoPredictor:
         finally:
             # Log upon completion (so that e.g. we can see if two propagations happen in parallel).
             # Using `finally` here to log even when the tracking is aborted with GeneratorExit.
-            logger.info(
+            logger.debug(
                 f"propagation ended in session {session_id}; {self._get_session_stats()}"
             )
 
     def reset_session(self, session_id):
         """Reset the session to its initial state (as when it's initial opened)."""
-        logger.info(f"reset session {session_id}")
+        logger.debug(f"reset session {session_id}")
         session = self._get_session(session_id)
         inference_state = session["state"]
         self.model.reset_state(inference_state)
@@ -415,7 +415,7 @@ class Sam3VideoPredictorMultiGPU(Sam3VideoPredictor):
         if world_size == 1:
             return
 
-        logger.info(f"starting NCCL process group on {rank=} with {world_size=}")
+        logger.debug(f"starting NCCL process group on {rank=} with {world_size=}")
         assert not torch.distributed.is_initialized()
         # use the "env://" init method with environment variables set in start_worker_processes
         # a short 3-min timeout to quickly detect any synchronization failures
@@ -430,7 +430,7 @@ class Sam3VideoPredictorMultiGPU(Sam3VideoPredictor):
         # warm-up the NCCL process group by running a dummy all-reduce
         tensor = torch.ones(1024, 1024).cuda()
         torch.distributed.all_reduce(tensor)
-        logger.info(f"started NCCL process group on {rank=} with {world_size=}")
+        logger.debug(f"started NCCL process group on {rank=} with {world_size=}")
 
     def _find_free_port(self) -> int:
         """
@@ -486,7 +486,7 @@ class Sam3VideoPredictorMultiGPU(Sam3VideoPredictor):
                     result_queue.put(("shutdown", True))  # acknowledge the shutdown
                     sys.exit(0)
 
-                logger.info(f"worker {rank=} received request {request['type']=}")
+                logger.debug(f"worker {rank=} received request {request['type']=}")
                 if is_stream_request:
                     for _ in predictor.handle_stream_request(request):
                         pass  # handle stream requests in a generator fashion

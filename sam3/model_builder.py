@@ -340,7 +340,7 @@ def _load_checkpoint(model, checkpoint_path):
     if model.inst_interactive_predictor is not None:
         sam3_image_ckpt.update(
             {
-                k.replace("tracker.", "inst_interactive_predictor."): v
+                k.replace("tracker.", "inst_interactive_predictor.model."): v
                 for k, v in ckpt.items()
                 if "tracker" in k
             }
@@ -416,7 +416,9 @@ def build_sam3_image_model(
     # Create geometry encoder
     input_geometry_encoder = _create_geometry_encoder()
     if enable_inst_interactivity:
-        sam3_pvs_base = build_sam3_tracking_predictor(with_backbone=False)
+        sam3_pvs_base = build_sam3_tracking_predictor(
+            load_from_HF=False, with_backbone=False
+        )
         inst_predictor = SAM3InteractiveImagePredictor(sam3_pvs_base)
     else:
         inst_predictor = None
