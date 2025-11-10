@@ -23,14 +23,14 @@ def generate_colors(n_colors=256, n_samples=5000):
     np.random.seed(42)
     rgb = np.random.rand(n_samples, 3)
     # Step 2: Convert to LAB for perceptual uniformity
-    print(f"Converting {n_samples} RGB samples to LAB color space...")
+    # print(f"Converting {n_samples} RGB samples to LAB color space...")
     lab = rgb2lab(rgb.reshape(1, -1, 3)).reshape(-1, 3)
-    print("Conversion to LAB complete.")
+    # print("Conversion to LAB complete.")
     # Step 3: k-means clustering in LAB
     kmeans = KMeans(n_clusters=n_colors, n_init=10)
-    print(f"Fitting KMeans with {n_colors} clusters on {n_samples} samples...")
+    # print(f"Fitting KMeans with {n_colors} clusters on {n_samples} samples...")
     kmeans.fit(lab)
-    print("KMeans fitting complete.")
+    # print("KMeans fitting complete.")
     centers_lab = kmeans.cluster_centers_
     # Step 4: Convert LAB back to RGB
     colors_rgb = lab2rgb(centers_lab.reshape(1, -1, 3)).reshape(-1, 3)

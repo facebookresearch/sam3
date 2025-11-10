@@ -1388,7 +1388,7 @@ class Sam3VideoBase(nn.Module):
                 ) or (obj_first_frame_idx[obj_id] < hotstart_diff and reverse)
                 if is_within_hotstart:
                     obj_ids_newly_removed.add(obj_id)
-                    logger.info(
+                    logger.debug(
                         f"Removing object {obj_id} at frame {frame_idx} "
                         f"since it is unmatched for frames: {frame_indices}"
                     )
@@ -1430,7 +1430,7 @@ class Sam3VideoBase(nn.Module):
             ):
                 if len(frame_indices) >= self.hotstart_dup_thresh:
                     obj_ids_newly_removed.add(obj_id)
-                    logger.info(
+                    logger.debug(
                         f"Removing object {obj_id} at frame {frame_idx} "
                         f"since it overlaps with another track {first_obj_id} at frames: {frame_indices}"
                     )

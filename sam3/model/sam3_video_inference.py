@@ -850,7 +850,7 @@ class Sam3VideoInference(Sam3VideoBase):
         Note that text prompts are NOT associated with a particular frame (i.e. they apply
         to all frames). However, we only run inference on the frame specified in `frame_idx`.
         """
-        logger.info("Running add_prompt on frame %d", frame_idx)
+        logger.debug("Running add_prompt on frame %d", frame_idx)
 
         num_frames = inference_state["num_frames"]
         assert (
@@ -1011,7 +1011,7 @@ class Sam3VideoInferenceWithInstanceInteractivity(Sam3VideoInference):
 
         # step 2: run full VG propagation
         if propagation_type == "propagation_full":
-            logger.info(f"Running full VG propagation (reverse={reverse}).")
+            logger.debug(f"Running full VG propagation (reverse={reverse}).")
             yield from super().propagate_in_video(
                 inference_state,
                 start_frame_idx=start_frame_idx,
@@ -1022,7 +1022,7 @@ class Sam3VideoInferenceWithInstanceInteractivity(Sam3VideoInference):
 
         # step 3: run Tracker partial propagation or direct fetch existing predictions
         assert propagation_type in ["propagation_partial", "propagation_fetch"]
-        logger.info(
+        logger.debug(
             f"Running Tracker propagation for objects {obj_ids} and merging it with existing VG predictions (reverse={reverse})."
             if propagation_type == "propagation_partial"
             else f"Fetching existing VG predictions without running any propagation (reverse={reverse})."
@@ -1432,7 +1432,7 @@ class Sam3VideoInferenceWithInstanceInteractivity(Sam3VideoInference):
             and not object_has_been_refined
         ):
             # The first time we start refinement on the object, we remove it.
-            logger.info(
+            logger.debug(
                 f"[rank={self.rank}] Removing object {obj_id} before refinement."
             )
             self.remove_object(inference_state, obj_id, is_user_action=False)
@@ -1481,7 +1481,7 @@ class Sam3VideoInferenceWithInstanceInteractivity(Sam3VideoInference):
             )
             tracker_metadata["max_obj_id"] = max(tracker_metadata["max_obj_id"], obj_id)
 
-            logger.info(
+            logger.debug(
                 f"[rank={self.rank}] Adding new object with id {obj_id} at frame {frame_idx}."
             )
             self.add_action_history(
@@ -1499,7 +1499,7 @@ class Sam3VideoInferenceWithInstanceInteractivity(Sam3VideoInference):
                 tracker_state = tracker_states[0]
 
             # log
-            logger.info(
+            logger.debug(
                 f"[rank={self.rank}] Refining existing object with id {obj_id} at frame {frame_idx}."
             )
             self.add_action_history(
@@ -1702,7 +1702,7 @@ class Sam3VideoInferenceWithInstanceInteractivity(Sam3VideoInference):
                     self.tracker.clear_all_points_in_frame(
                         tracker_state, frame_idx, obj_id2, need_output=False
                     )
-            logger.info(
+            logger.debug(
                 f"Cleared detector mask only conditioning frames ({mask_only_cond_frame_indices}) in Tracker."
             )
         return

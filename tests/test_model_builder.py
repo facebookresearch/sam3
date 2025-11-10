@@ -37,7 +37,7 @@ class TestModelBuilder(unittest.TestCase):
         from sam3.model.sam3_video_inference import (
             Sam3VideoInferenceWithInstanceInteractivity,
         )
-        from sam3.sam3_video_model_builder import build_sam3_video_model
+        from sam3.model_builder import build_sam3_video_model
 
         # Test that the function exists
         self.assertTrue(callable(build_sam3_video_model))
