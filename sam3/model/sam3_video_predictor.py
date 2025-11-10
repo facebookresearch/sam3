@@ -16,7 +16,7 @@ import psutil
 import torch
 
 from sam3.logger import get_logger
-from sam3.sam3_video_model_builder import build_sam3_video_model
+from sam3.model_builder import build_sam3_video_model
 
 logger = get_logger(__name__)
 

@@ -836,27 +836,13 @@ class SequenceGeometryEncoder(nn.Module):
 
         if self.encode is not None:
             for lay in self.encode:
-                # Hard-coded checks to pass correct args
-                # TODO: Explore having a two-way fusion encoder and remove this part from prompt encoder.
-                if isinstance(lay, TransformerEncoderLayerSimple):
-                    final_embeds = activation_ckpt_wrapper(lay)(
-                        src=final_embeds,
-                        src_key_padding_mask=final_mask,
-                        act_ckpt_enable=self.training and self.use_act_ckpt,
-                    )
-                elif isinstance(lay, TransformerEncoderLayer):
-                    final_embeds = activation_ckpt_wrapper(lay)(
-                        tgt=final_embeds,
-                        memory=seq_first_img_feats,
-                        tgt_key_padding_mask=final_mask,
-                        pos=seq_first_img_pos_embeds,
-                        act_ckpt_enable=self.training and self.use_act_ckpt,
-                    )
-                else:
-                    raise NotImplementedError(
-                        f"Only `TransformerEncoderLayer` or `TransformerDecoderLayer` are supported. Got {type(lay)}"
-                    )
-
+                final_embeds = activation_ckpt_wrapper(lay)(
+                    tgt=final_embeds,
+                    memory=seq_first_img_feats,
+                    tgt_key_padding_mask=final_mask,
+                    pos=seq_first_img_pos_embeds,
+                    act_ckpt_enable=self.training and self.use_act_ckpt,
+                )
             final_embeds = self.encode_norm(final_embeds)
         # Finally, concat mask embeddings if any
         if masks is not None and self.mask_encoder is not None:
