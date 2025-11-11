@@ -506,9 +506,6 @@ def agent_inference(
                     "content": [{"type": "text", "text": generated_text}],
                 }
             )
-
-            # Clean up debug files before successful return
-            cleanup_debug_files()
             return messages, final_outputs, rendered_final_output
 
         else:
