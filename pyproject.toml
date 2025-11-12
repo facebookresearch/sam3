@@ -44,8 +44,14 @@ dev = [
     "ruff-api==0.1.0",
     "usort==1.0.2",
     "gitpython==3.1.31",
+    "yt-dlp",
+    "pandas",
+    "opencv-python",
+    "pycocotools",
+    "numba",
+    "python-rapidjson",
 ]
-examples = [
+notebooks = [
     "matplotlib",
     "jupyter",
     "notebook",
@@ -56,6 +62,8 @@ examples = [
     "decord",
     "opencv-python",
     "einops",
+    "scikit-image",
+    "scikit-learn",
 ]
 train = [
     "hydra-core",
@@ -68,16 +76,6 @@ train = [
     "fairscale",
     "scikit-image",
     "scikit-learn",
-    #"cc_torch @ git+https://github.com/ronghanghu/cc_torch.git",
-    #"torch_generic_nms @ git+https://github.com/ronghanghu/torch_generic_nms.git",
-]
-veval = [
-    "yt-dlp",
-    "pandas",
-    "opencv-python",
-    "pycocotools",
-    "numba",
-    "python-rapidjson",
 ]
 
 [project.urls]

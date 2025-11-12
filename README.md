@@ -1,6 +1,15 @@
-# SAM3
+# SAM 3: Segment Anything with Concepts
 
-SAM3 is a foundational visual grounding model that detects, segments and tracks objects in images and videos. SAM3 supports object category detection and instance segmentation using text and visual example prompts, as well as vocabulary-free promptable segmentation using point, mask or box prompts as in SAM2. SAM3 can detect objects based on open-vocabulary noun phrases1, and allows the user to interactively refine the output with additional points or boxes.
+**Meta Superintelligence Labs (TODO: Is there a link?)**
+
+[TODO: Add authors -- if too long add at the end]
+
+[[`Paper`](LINK_TO_PAPER)] [[`Project`](LINK_TO_PROJECT)] [[`Demo`](LINK_TO_DEMO)] [[`Dataset`](LINK_TO_DATASET)] [[`Blog`](LINK_TO_BLOG)] [[`BibTeX`](HOW_TO_CITE)]
+
+![SAM 3 architecture](assets/model_diagram.png?raw=true)
+SAM 3 is a unified foundation model for visual grounding in images and videos. SAM 3 detects, segments, and tracks objects using text and geometric prompts such as points, boxes, and masks. We build a scalable a data engine that leverages SAM 3, human annotators, and AI models in the loop, which allows dramatic speed-ups in annotation. This allowed us to create SA-Co training dataset set with over **4 million unique concepts**, the largest high-quality open-vocab segmentation dataset to date. (TODO: We might need to set the tone here because we don't release the training set)
+
+![SA-Co dataset](assets/sa_co_dataset.jpg?raw=true)
 
 ## Installation
 
@@ -10,7 +19,6 @@ SAM3 is a foundational visual grounding model that detects, segments and tracks 
 - PyTorch 2.7 or higher
 - CUDA-compatible GPU with CUDA 12.6 or higher
 
-### Option 1: Using Conda (Recommended)
 
 1. **Create a new Conda environment:**
 
@@ -23,7 +31,6 @@ conda activate sam3
 2. **Install PyTorch with CUDA support:**
 
 ```bash
-
 pip install torch==2.7.0 torchvision torchaudio --index-url https://download.pytorch.org/whl/cu126
 ```
 
@@ -35,79 +42,230 @@ cd sam3
 pip install -e .
 ```
 
-4. **Install additional dependencies for examples and interactive usage:**
+4. **Install additional dependencies for example notebooks or development:**
 
 ```bash
-# For running examples
-pip install -e ".[examples]"
+# For running example notebooks
+pip install -e ".[notebooks]"
 
 # For development
-pip install -e ".[dev]"
+pip install -e ".[train,dev]"
 ```
 
-
-
-## Usage
+## Getting Started
 
 ### Basic Usage
 
 ```python
 import torch
-from sam3 import build_sam3_image_model
-from sam3.model.sam3_image_processor import Sam3Processor
+#################################### For Image ####################################
 from PIL import Image
-import numpy as np
-
+from sam3.model_builder import build_sam3_image_model
+from sam3.model.sam3_image_processor import Sam3Processor
 # Load the model
-model = build_sam3_image_model(bpe_path="path/to/bpe/vocabulary.txt", checkpoint_path="path/to/checkpoint.pth")
-processor = Sam3Processor()
-
+model = build_sam3_image_model()
+processor = Sam3Processor(model)
 # Load an image
-image = Image.open("your_image_path.jpg")
-inference_state = processor(image, instance_prompt=False)
-
-# Pass your text prompt to the model
-processor.add_prompt(inference_state, text_str="YOUR CONCEPT",  instance_prompt=False)
-outputs = processor.postprocess_output(inference_state ,output_prob_thresh=0.5)
+image = Image.open("<YOUR_IMAGE_PATH.jpg>")
+inference_state = processor.set_image(image)
+# Prompt the model with text
+output = processor.set_text_prompt(state=inference_state, prompt="<YOUR_TEXT_PROMPT>")
 
 # Get the masks, bounding boxes, and scores
-masks, boxes, scores = outputs["out_binary_masks"], outputs["out_boxes_xywh"], outputs["out_probs"]
+masks, boxes, scores = output["masks"], output["boxes"], output["scores"]
 
-# For point-to-mask and box-to-mask inference, please checkout the examples directory
+#################################### For Video ####################################
+
+from sam3.model_builder import build_sam3_video_predictor
+
+video_predictor = build_sam3_video_predictor()
+video_path = "<YOUR_VIDEO_PATH>" # a JPEG folder or an MP4 video file
+# Start a session
+response = video_predictor.handle_request(
+    request=dict(
+        type="start_session",
+        resource_path=video_path,
+    )
+)
+response = video_predictor.handle_request(
+    request=dict(
+        type="add_prompt",
+        session_id=response["session_id"],
+        frame_index=0, # Arbitrary frame index
+        text="<YOUR_TEXT_PROMPT>",
+    )
+)
+output = response["outputs"]
 ```
-
-### Interactive Segmentation
-
-SAM3 supports various types of prompts:
-- Point prompts (foreground and background)
-- Box prompts
-- Mask prompts
-- Text prompts
-
-Check out the examples directory for more detailed usage examples.
 
 ## Examples
 
-The `examples` directory contains scripts and notebooks demonstrating how to use SAM3:
+The `examples` directory contains notebooks demonstrating how to use SAM3 with various types of prompts:
 
-- `sam3_image_multiway_prompting.ipynb`: Jupyter notebook demonstrating various prompt types
+- [`sam3_image_predictor_example.ipynb`](examples/sam3_image_predictor_example.ipynb) : Demonstrates how to prompt SAM 3 with text and visual box prompts on images.
+- [`sam3_video_predictor_example.ipynb`](examples/sam3_video_predictor_example.ipynb) : Demonstrates how to prompt SAM 3 with text prompts on videos, and doing further interactive refinements with points.
+- [`sam3_image_batched_inference.ipynb`](examples/sam3_image_batched_inference.ipynb) : Demonstrates how to run batched inference with SAM 3 on images.
+- [`saco_gold_silver_vis_example.ipynb`](examples/saco_gold_silver_vis_example.ipynb) : Shows a few examples from SA-Co image evaluation set.
+- [`saco_veval_vis_example.ipynb`](examples/saco_veval_vis_example.ipynb) : Shows a few examples from SA-Co video evaluation set.
+
+There are additional notebooks in the examples directory that demonstrate how to use SAM 3 for interactive instance segmentation in images and videos (SAM 1/2 tasks), or as a tool for an MLLM, and how to run evaluations on the SA-Co dataset.
 
 To run the Jupyter notebook examples:
 
 ```bash
-# Make sure you have the interactive dependencies installed
-pip install -e ".[examples]"
+# Make sure you have the notebooks dependencies installed
+pip install -e ".[notebooks]"
 
 # Start Jupyter notebook
-jupyter notebook examples/sam3_image_multiway_prompting.ipynb
+jupyter notebook examples/sam3_image_predictor_example.ipynb
 ```
 
-## Features
+## Model
+SAM 3 consists of a detector and a tracker that share a vision encoder. The detector is a DETR-based model conditioned on text, geometry, and image exemplars. The tracker inherits the SAM 2 transformer encoder-decoder architecture, supporting video segmentation and interactive refinement.
 
-- Multi-modal prompting (points, boxes, masks, text)
-- High-quality segmentation masks
-- Fast inference
-- Support for interactive segmentation workflows
+## Image Results (TODO: Select few baselines/metrics, or screenshot table from paper)
+
+<div align="center">
+<table style="min-width: 80%; border: 2px solid #ddd; border-collapse: collapse">
+  <thead>
+    <tr>
+      <th rowspan="3" style="border-right: 2px solid #ddd; padding: 12px 20px">Model</th>
+      <th colspan="3" style="text-align: center; border-right: 2px solid #ddd; padding: 12px 20px">Instance Segmentation</th>
+      <th colspan="5" style="text-align: center; padding: 12px 20px">Box Detection</th>
+    </tr>
+    <tr>
+      <th colspan="2" style="text-align: center; border-right: 1px solid #eee; padding: 12px 20px">LVIS</th>
+      <th style="text-align: center; border-right: 2px solid #ddd; padding: 12px 20px">SA-Co</th>
+      <th colspan="2" style="text-align: center; border-right: 1px solid #eee; padding: 12px 20px">LVIS</th>
+      <th colspan="2" style="text-align: center; border-right: 1px solid #eee; padding: 12px 20px">COCO</th>
+      <th style="text-align: center; padding: 12px 20px">SA-Co</th>
+    </tr>
+    <tr>
+      <th style="text-align: center; padding: 12px 20px">cgF1</th>
+      <th style="text-align: center; border-right: 1px solid #eee; padding: 12px 20px">AP</th>
+      <th style="text-align: center; border-right: 2px solid #ddd; padding: 12px 20px">cgF1</th>
+      <th style="text-align: center; padding: 12px 20px">cgF1</th>
+      <th style="text-align: center; border-right: 1px solid #eee; padding: 12px 20px">AP</th>
+      <th style="text-align: center; padding: 12px 20px">AP</th>
+      <th style="text-align: center; border-right: 1px solid #eee; padding: 12px 20px">AP<sub>o</sub>
+</th>
+      <th style="text-align: center; padding: 12px 20px">cgF1</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td style="border-right: 2px solid #ddd; padding: 10px 20px">Human</td>
+      <td style="text-align: center; padding: 10px 20px">0.0</td>
+      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">0.0</td>
+      <td style="text-align: center; border-right: 2px solid #ddd; padding: 10px 20px">0.0</td>
+      <td style="text-align: center; padding: 10px 20px">0.0</td>
+      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">0.0</td>
+      <td style="text-align: center; padding: 10px 20px">0.0</td>
+      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">0.0</td>
+      <td style="text-align: center; padding: 10px 20px">0.0</td>
+    </tr>
+    <tr>
+      <td style="border-right: 2px solid #ddd; padding: 10px 20px">OWLv2*</td>
+      <td style="text-align: center; padding: 10px 20px">0.0</td>
+      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">0.0</td>
+      <td style="text-align: center; border-right: 2px solid #ddd; padding: 10px 20px">0.0</td>
+      <td style="text-align: center; padding: 10px 20px">0.0</td>
+      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">0.0</td>
+      <td style="text-align: center; padding: 10px 20px">0.0</td>
+      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">0.0</td>
+      <td style="text-align: center; padding: 10px 20px">0.0</td>
+    </tr>
+    <tr>
+      <td style="border-right: 2px solid #ddd; padding: 10px 20px">DINO-X</td>
+      <td style="text-align: center; padding: 10px 20px">0.0</td>
+      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">0.0</td>
+      <td style="text-align: center; border-right: 2px solid #ddd; padding: 10px 20px">0.0</td>
+      <td style="text-align: center; padding: 10px 20px">0.0</td>
+      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">0.0</td>
+      <td style="text-align: center; padding: 10px 20px">0.0</td>
+      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">0.0</td>
+      <td style="text-align: center; padding: 10px 20px">0.0</td>
+    </tr>
+    <tr>
+      <td style="border-right: 2px solid #ddd; padding: 10px 20px">Gemini 2.5</td>
+      <td style="text-align: center; padding: 10px 20px">0.0</td>
+      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">0.0</td>
+      <td style="text-align: center; border-right: 2px solid #ddd; padding: 10px 20px">0.0</td>
+      <td style="text-align: center; padding: 10px 20px">0.0</td>
+      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">0.0</td>
+      <td style="text-align: center; padding: 10px 20px">0.0</td>
+      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">0.0</td>
+      <td style="text-align: center; padding: 10px 20px">0.0</td>
+    </tr>
+    <tr>
+      <td style="border-right: 2px solid #ddd; padding: 10px 20px">SAM 3</td>
+      <td style="text-align: center; padding: 10px 20px">0.0</td>
+      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">0.0</td>
+      <td style="text-align: center; border-right: 2px solid #ddd; padding: 10px 20px">0.0</td>
+      <td style="text-align: center; padding: 10px 20px">0.0</td>
+      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">0.0</td>
+      <td style="text-align: center; padding: 10px 20px">0.0</td>
+      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">0.0</td>
+      <td style="text-align: center; padding: 10px 20px">0.0</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+## Video Results
+
+<div align="center">
+<table style="min-width: 80%; border: 2px solid #ddd; border-collapse: collapse">
+  <thead>
+    <tr>
+      <th rowspan="2" style="border-right: 2px solid #ddd; padding: 12px 20px">Model</th>
+      <th colspan="2" style="text-align: center; border-right: 1px solid #eee; padding: 12px 20px">SA-V test</th>
+      <th colspan="2" style="text-align: center; border-right: 1px solid #eee; padding: 12px 20px">YT-Temporal-1B test</th>
+      <th colspan="2" style="text-align: center; border-right: 1px solid #eee; padding: 12px 20px">SmartGlasses test</th>
+      <th style="text-align: center; border-right: 1px solid #eee; padding: 12px 20px">LVVIS test</th>
+      <th style="text-align: center; padding: 12px 20px">BURST test</th>
+    </tr>
+    <tr>
+      <th style="text-align: center; padding: 12px 20px">cgF1</th>
+      <th style="text-align: center; border-right: 1px solid #eee; padding: 12px 20px">pHOTA</th>
+      <th style="text-align: center; padding: 12px 20px">cgF1</th>
+      <th style="text-align: center; border-right: 1px solid #eee; padding: 12px 20px">pHOTA</th>
+      <th style="text-align: center; padding: 12px 20px">cgF1</th>
+      <th style="text-align: center; border-right: 1px solid #eee; padding: 12px 20px">pHOTA</th>
+      <th style="text-align: center; border-right: 1px solid #eee; padding: 12px 20px">mAP</th>
+      <th style="text-align: center; padding: 12px 20px">HOTA</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td style="border-right: 2px solid #ddd; padding: 10px 20px">Human</td>
+      <td style="text-align: center; padding: 10px 20px">0.0</td>
+      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">0.0</td>
+      <td style="text-align: center; padding: 10px 20px">0.0</td>
+      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">0.0</td>
+      <td style="text-align: center; padding: 10px 20px">0.0</td>
+      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">0.0</td>
+      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">0.0</td>
+      <td style="text-align: center; padding: 10px 20px">0.0</td>
+    </tr>
+    <tr>
+      <td style="border-right: 2px solid #ddd; padding: 10px 20px">SAM 3</td>
+      <td style="text-align: center; padding: 10px 20px">0.0</td>
+      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">0.0</td>
+      <td style="text-align: center; padding: 10px 20px">0.0</td>
+      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">0.0</td>
+      <td style="text-align: center; padding: 10px 20px">0.0</td>
+      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">0.0</td>
+      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">0.0</td>
+      <td style="text-align: center; padding: 10px 20px">0.0</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+## SA-Co Dataset
+
+We release 2 image benchmarks, [SA-Co gold](scripts/eval/gold/README.md) and [SA-Co silver](scripts/eval/silver/README.md), and a video benchmark [SA-Co/VEval](scripts/eval/veval/README.md). See the linked READMEs for more details.
 
 ## Development
 
@@ -115,24 +273,22 @@ To set up the development environment:
 
 ```bash
 # Make sure you have the development dependencies installed
-pip install -e ".[dev]"
+pip install -e ".[dev,train]"
 ```
 
-To formwat the code:
+To format the code:
 ```bash
 ufmt format .
 ```
 
-To run tests:
+## Contributing
 
-```bash
-pytest
-```
+See [contributing](CONTRIBUTING.md) and the [code of conduct](CODE_OF_CONDUCT.md).
 
 ## License
 
-This project is licensed under the TODO License - see the LICENSE file for details.
+This project is licensed under the TODO License - see the [LICENSE](LICENSE) file for details.
 
 ## Acknowledgements
 
-This implementation is based on the research and work done by Meta AI Research.
+TODO
