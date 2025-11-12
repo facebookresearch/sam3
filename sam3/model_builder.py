@@ -38,6 +38,7 @@ from sam3.model.sam1_task_predictor import SAM3InteractiveImagePredictor
 from sam3.model.sam3_image import Sam3Image, Sam3ImageOnVideoMultiGPU
 from sam3.model.sam3_tracking_predictor import Sam3TrackerPredictor
 from sam3.model.sam3_video_inference import Sam3VideoInferenceWithInstanceInteractivity
+from sam3.model.sam3_video_predictor import Sam3VideoPredictorMultiGPU
 from sam3.model.text_encoder_ve import VETextEncoder
 from sam3.model.tokenizer_ve import SimpleTokenizer
 from sam3.model.vitdet import ViT
@@ -559,7 +560,7 @@ def _setup_device_and_mode(model, device, eval_mode):
 
 
 def build_sam3_image_model(
-    bpe_path,
+    bpe_path=None,
     device="cuda" if torch.cuda.is_available() else "cpu",
     eval_mode=True,
     checkpoint_path=None,
@@ -583,6 +584,10 @@ def build_sam3_image_model(
     Returns:
         A SAM3 image model
     """
+    if bpe_path is None:
+        bpe_path = os.path.join(
+            os.path.dirname(__file__), "..", "assets", "bpe_simple_vocab_16e6.txt.gz"
+        )
     # Create visual components
     compile_mode = "default" if compile else None
     vision_encoder = _create_vision_backbone(compile_mode=compile_mode)
@@ -778,3 +783,9 @@ def build_sam3_video_model(
 
     model.to(device=device)
     return model
+
+
+def build_sam3_video_predictor(*model_args, gpus_to_use=None, **model_kwargs):
+    return Sam3VideoPredictorMultiGPU(
+        *model_args, gpus_to_use=gpus_to_use, **model_kwargs
+    )

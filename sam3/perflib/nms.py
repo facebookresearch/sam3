@@ -13,8 +13,8 @@ try:
 
     GENERIC_NMS_AVAILABLE = True
 except ImportError:
-    logging.warning(
-        "Falling back to CPU mask NMS implementation -- please install `torch_generic_nms` via\n\t"
+    logging.debug(
+        "Falling back to triton or CPU mask NMS implementation -- please install `torch_generic_nms` via\n\t"
         'pip uninstall -y torch_generic_nms; TORCH_CUDA_ARCH_LIST="8.0 9.0" pip install git+https://github.com/ronghanghu/torch_generic_nms'
     )
     GENERIC_NMS_AVAILABLE = False

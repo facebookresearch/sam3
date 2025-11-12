@@ -22,6 +22,7 @@ from iopath.common.file_io import g_pathmgr
 
 from sam3.model.data_misc import BatchedDatapoint
 from sam3.model.model_misc import SAM3Output
+from sam3.model.utils.misc import copy_data_to_device
 
 from sam3.train.optim.optimizer import construct_optimizer
 
@@ -38,7 +39,6 @@ from sam3.train.utils.logger import Logger, setup_logging
 from sam3.train.utils.train_utils import (
     AverageMeter,
     collect_dict_keys,
-    copy_data_to_device,
     DurationMeter,
     get_amp_type,
     get_machine_local_and_dist_rank,
