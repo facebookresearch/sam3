@@ -1,13 +1,20 @@
 # SAM 3: Segment Anything with Concepts
 
-**Meta Superintelligence Labs (TODO: Is there a link?)**
+Meta Superintelligence Labs
 
-[TODO: Add authors -- if too long add at the end]
+Nicolas Carion $^{\*}$, Laura Gustafson $^{\*}$, Yuan-Ting Hu $^{\*}$, Shoubhik Debnath $^{\*}$, Ronghang Hu $^{\*}$, Didac Suris $^{\*}$,
+Chaitanya Ryali $^{\*}$, Kalyan Vasudev Alwala $^{\*}$, Haitham Khedr $^{\*}$, Andrew Huang, Jie Lei, Tengyu Ma, Baishan
+Guo, Arpit Kalla, Markus Marks, Joseph Greer, Meng Wang, Peize Sun, Roman Rädle, Triantafyllos
+Afouras, Effrosyni Mavroudi, Katherine Xu $^{◦}$, Tsung-Han Wu $^{◦}$, Yu Zhou $^{◦}$, Liliane Momeni $^{◦}$, Rishi Hazra $^{◦}$,
+Shuangrui Ding $^{◦}$, Sagar Vaze $^{◦}$, Francois Porcher $^{◦}$, Feng Li $^{◦}$, Siyuan Li $^{◦}$, Aishwarya Kamath $^{◦}$, Ho Kei
+Cheng $^{◦}$, Piotr Dollar $^{\dagger}$, Nikhila Ravi $^{\dagger}$, Kate Saenko $^{\dagger}$, Pengchuan Zhang $^{\dagger}$, Christoph Feichtenhofer $^{\dagger}$
+
+$^{\*}$ core contributor, $^{◦}$ intern, $^{\dagger}$ project lead, order is random within groups
 
 [[`Paper`](LINK_TO_PAPER)] [[`Project`](LINK_TO_PROJECT)] [[`Demo`](LINK_TO_DEMO)] [[`Dataset`](LINK_TO_DATASET)] [[`Blog`](LINK_TO_BLOG)] [[`BibTeX`](HOW_TO_CITE)]
 
 ![SAM 3 architecture](assets/model_diagram.png?raw=true)
-SAM 3 is a unified foundation model for visual grounding in images and videos. SAM 3 detects, segments, and tracks objects using text and geometric prompts such as points, boxes, and masks. We build a scalable a data engine that leverages SAM 3, human annotators, and AI models in the loop, which allows dramatic speed-ups in annotation. This allowed us to create SA-Co training dataset set with over **4 million unique concepts**, the largest high-quality open-vocab segmentation dataset to date. (TODO: We might need to set the tone here because we don't release the training set)
+SAM 3 is a unified foundation model for visual grounding in images and videos. SAM 3 detects, segments, and tracks objects using text and geometric prompts such as points, boxes, and masks. We build a scalable a data engine that leverages SAM 3, human annotators, and AI models in the loop, which allows dramatic speed-ups in annotation. This allowed us to create SA-Co training dataset set with over **4 million unique concepts*<sup>*</sup>, the largest high-quality open-vocab segmentation dataset to date. (TODO: We might need to set the tone here because we don't release the training set)
 
 ![SA-Co dataset](assets/sa_co_dataset.jpg?raw=true)
 
