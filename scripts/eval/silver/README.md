@@ -19,13 +19,15 @@ The README contains instructions on how to download and setup the annotations, i
 
 ## Download annotations
 
-The GT annotations can be downloaded from [Hugging Face](https://huggingface.co/datasets/facebook/SACo-Silver)
+The GT annotations can be downloaded from [Hugging Face](https://huggingface.co/datasets/facebook/SACo-Silver) or [Roboflow](https://sa-co.roboflow.com/silver/gt-annotations.zip)
 
 ## Download images and video frames
 
 ### Image Datasets
 
 #### GeoDE
+
+The processed images needed for evaluation can be downloaded from [Roboflow](https://sa-co.roboflow.com/silver/geode.zip) OR follow the below steps to prepare the processed images.
 
 1. Download dataset with raw images from [GeoDE](https://geodiverse-data-collection.cs.princeton.edu/).
 2. Extract the downloaded file to a location, say `<RAW_GEODE_IMAGES_FOLDER>`
@@ -37,12 +39,16 @@ The GT annotations can be downloaded from [Hugging Face](https://huggingface.co/
 
 #### National Gallery of Art (NGA)
 
+The processed images needed for evaluation can be downloaded from [Roboflow](https://sa-co.roboflow.com/silver/nga.zip) OR follow the below steps to prepare the processed images.
+
 1. Run the below command to download raw images and pre-process the images to prepare for evaluation. The proceesed images will be saved to the location specified in `<PROCESSED_NGA_IMAGES_FOLDER>`.
     ```
     python download_preprocess_nga.py --annotation_file <FOLDER_WITH_SILVER_ANNOTATIONS>/silver_nga_art_merged_test.json --raw_images_folder <RAW_NGA_IMAGES_FOLDER> --processed_images_folder <PROCESSED_NGA_IMAGES_FOLDER>
     ```
 
 #### Berkeley Driving Dataset (BDD) 100k
+
+The processed images needed for evaluation can be downloaded from [Roboflow](https://sa-co.roboflow.com/silver/bdd100k.zip) OR follow the below steps to prepare the processed images.
 
 1. Download data with raw images from the `100K Images` dataset in [BDD100k](http://bdd-data.berkeley.edu/download.html)
 2. Extract the downloaded file to a location, say `<RAW_BDD_IMAGES_FOLDER>`
@@ -62,12 +68,16 @@ The GT annotations can be downloaded from [Hugging Face](https://huggingface.co/
 
 #### iNaturalist
 
+The processed images needed for evaluation can be downloaded from [Roboflow](https://sa-co.roboflow.com/silver/inaturalist.zip) OR follow the below steps to prepare the processed images.
+
 1. Run the below command to download, extract images in `<RAW_INATURALIST_IMAGES_FOLDER>` and prepare them for evaluation. The proceesed images will be saved to the location specified in `<PROCESSED_INATURALIST_IMAGES_FOLDER>`
     ```
     python download_inaturalist.py --raw_images_folder <RAW_INATURALIST_IMAGES_FOLDER> --processed_images_folder <PROCESSED_INATURALIST_IMAGES_FOLDER>
     ```
 
 #### Fathomnet
+
+The processed images needed for evaluation can be downloaded from [Roboflow](https://sa-co.roboflow.com/silver/fathomnet.zip) OR follow the below steps to prepare the processed images.
 
 1. Install the FathomNet API
     ```
@@ -86,6 +96,8 @@ These datasets correspond to annotations for individual frames coming from video
 Before following the other dataset steps, update `CONFIG_FRAMES.yaml` with the correct `path_annotations` path where the annotation files are.
 
 #### DROID
+
+The processed frames needed for evaluation can be downloaded from [Roboflow](https://sa-co.roboflow.com/silver/droid.zip) OR follow the below steps to prepare the processed frames.
 
 1. Install the gsutil package:
     ```bash
@@ -106,6 +118,8 @@ See the [DROID website](https://droid-dataset.github.io/droid/the-droid-dataset#
 
 #### SA-V
 
+The processed frames needed for evaluation can be downloaded from [Roboflow](https://sa-co.roboflow.com/silver/sav.zip) OR follow the below steps to prepare the processed frames.
+
 1. Follow instructions in the [Segment Anything official website](https://ai.meta.com/datasets/segment-anything-video-downloads/) to obtain access to the download links (they are dynamic links).
 2. Update `CONFIG_FRAMES.yaml`:
     - Update the `sav_path` variable, where the frames will be saved.
@@ -121,6 +135,8 @@ See the [DROID website](https://droid-dataset.github.io/droid/the-droid-dataset#
     ```
 
 #### Ego4D
+
+The processed frames needed for evaluation can be downloaded from [Roboflow](https://sa-co.roboflow.com/silver/ego4d.zip) OR follow the below steps to prepare the processed frames.
 
 1. Review and accept the license agreement in the [official Ego4D website](https://ego4d-data.org/docs/start-here/#license-agreement).
 2. Configure AWS credentials. Run:
@@ -152,6 +168,9 @@ See the [DROID website](https://droid-dataset.github.io/droid/the-droid-dataset#
 See the [official CLI](https://ego4d-data.org/docs/CLI/) and the [explanation about the videos](https://ego4d-data.org/docs/data/videos/) for more information.
 
 #### YT1B
+
+The processed frames needed for evaluation can be downloaded from [Roboflow](https://sa-co.roboflow.com/silver/yt1b.zip) OR follow the below steps to prepare the processed frames.
+
 1. Install the yt-dlp library:
     ```bash
     python3 -m pip install -U "yt-dlp[default]"

@@ -6,10 +6,10 @@ defaults:
 # Paths Configuration (Chage this to your own paths)
 # ============================================================================
 paths:
-  checkpoint_path: /fsx-onevision/shoubhikdn/sam3_ckpts/paper_image_only_checkpoint_presence_0.35_completed_model_only.pt
-  experiment_log_dir: /fsx-onevision/shoubhikdn/omnivision_onevision/release_experiments/silver_inaturalist_n16/
-  coco_gt : /fsx-onevision/shoubhikdn/release_silver/annotations/silver_inaturalist_merged_test.json
-  img_path: /fsx-onevision/shoubhikdn/release_silver/images/inaturalist/
+  checkpoint_path: /fsx-onevision/shoubhikdn/sam3_ckpts/sam3_v2_rc2/sam3_v2_rc2.pt
+  experiment_log_dir: /fsx-onevision/shoubhikdn/omnivision_onevision/release_experiments/silver_inaturalist_release_arxiv_sam3_v2_rc2/
+  coco_gt : /fsx-onevision/shoubhikdn/release/roboflow/silver/gt-annotations/silver_inaturalist_merged_test.json
+  img_path: /fsx-onevision/shoubhikdn/release/roboflow/silver/inaturalist/
   bpe_path: /fsx-onevision/chayryali/ve/bpe_simple_vocab_16e6.txt.gz
 
 # ============================================================================
@@ -284,7 +284,7 @@ trainer:
 # ============================================================================
 
 launcher:
-  num_nodes: 8
+  num_nodes: 32
   gpus_per_node: 8
   experiment_log_dir: ${paths.experiment_log_dir}
   multiprocessing_context: forkserver
