@@ -2,7 +2,7 @@
 
 SA-Co/Silver is a benchmark for promptable concept segmentation (PCS) in images. The benchmark contains images paired with text labels (also referred as Noun Phrases aka NPs), each annotated exhaustively with masks on all object instances that match the label.
 
-SA-Co/Silver comprises 10 subsets, covering a diverse array of domains including food, art, robotics, driving etc.
+SA-Co/Silver comprises 10 subsets, covering a diverse array of domains including food, art, robotics, driving etc. Unlike SA-Co/Gold, there is only a single ground-truth for each datapoint, which means the results may have a bit more variance and tend to underestimate model performance, since they don't account for possible different interpretations of each query.
 
 - BDD100k
 - DROID
@@ -17,6 +17,7 @@ SA-Co/Silver comprises 10 subsets, covering a diverse array of domains including
 
 The README contains instructions on how to download and setup the annotations, image data to prepare them for evaluation on SA-Co/Silver.
 
+# Preparation
 ## Download annotations
 
 The GT annotations can be downloaded from [Hugging Face](https://huggingface.co/datasets/facebook/SACo-Silver) or [Roboflow](https://sa-co.roboflow.com/silver/gt-annotations.zip)
@@ -189,31 +190,149 @@ The processed frames needed for evaluation can be downloaded from [Roboflow](htt
     python extract_frames.py yt1b
     ```
 
+# Usage
 ## Visualization
 
 - Visualize GT annotations: [saco_gold_silver_vis_example.ipynb](https://github.com/facebookresearch/sam3/blob/main/examples/saco_gold_silver_vis_example.ipynb)
 
-## Run online evaluation
+## Run evaluation
 
-Update the path for GT annotation and images and run the below command for online evaluation.
+The official metric for SA-Co/Silver is cgF1. Please refer to the SAM3 paper for details.
+Unlike Gold, the silver subset only has a single annotation per image. Therefore, the performance may be underestimated, because the model may be wrongly penalized for choosing an interpretation which is valid but different from that of the human annotator.
+
+### Evaluate SAM3
+
+We provide inference configurations to reproduce the evaluation of SAM3.
+First, please edit the file [eval_base.yaml](https://github.com/facebookresearch/sam3/blob/main/sam3/train/configs/eval_base.yaml) with the paths where you downloaded the images and annotations above.
+
+There are 10 subsets and as many configurations to be run.
+Let's take the first subset as an example. The inference can be run locally using the following command (you can adjust the number of gpus):
+```bash
+python sam3/train/train.py -c configs/silver_image_evals/sam3_gold_image_bdd100k.yaml --use-cluster 0 --num-gpus 1
+```
+The predictions will be dumped in the folder specified in eval_base.yaml.
+
+We also provide support for SLURM-based cluster inference. Edit the eval_base.yaml file to reflect your slurm configuration (partition, qos, ...), then run
 
 ```bash
-python sam3/train/train.py -c configs/silver_image_evals/sam3_silver_image_bdd100k.yaml --use-cluster 1
+python sam3/train/train.py -c configs/silver_image_evals/sam3_gold_image_bdd100k.yaml --use-cluster 1
 ```
 
-## Annotation format
+### Offline evaluation
+
+If you have the predictions in the COCO result format (see [here](https://cocodataset.org/#format-results)), then we provide scripts to easily run the evaluation.
+
+For an example on how to run the evaluator on all subsets and aggregate results, see the following notebook: [saco_gold_silver_eval_example.ipynb](https://github.com/facebookresearch/sam3/blob/main/examples/saco_gold_silver_eval_example.ipynb)
+
+If you have a prediction file for a given subset, you can run the evaluator specifically for that one using the standalone script. Example:
+```bash
+python scripts/eval/standalone_cgf1.py --pred_file /path/to/coco_predictions_segm.json --gt_files /path/to/annotations/silver_bdd100k_merged_test.json
+```
+
+# Results
+<table style="border-color:black;border-style:solid;border-width:1px;border-collapse:collapse;border-spacing:0;text-align:right" class="tg"><thead>
+  <tr style="text-align:center">
+    <th></th>
+    <th colspan="3">Average</th>
+    <th colspan="3">BDD100k</th>
+    <th colspan="3">Droids</th>
+    <th colspan="3">Ego4d</th>
+    <th colspan="3">Food Rec</th>
+    <th colspan="3">Geode</th>
+    <th colspan="3">iNaturalist</th>
+    <th colspan="3">Nga Art</th>
+    <th colspan="3">SAV</th>
+    <th colspan="3">YT1B</th>
+    <th colspan="3">Fathomnet</th>
+  </tr></thead>
+<tbody>
+  <tr>
+    <td></td>
+    <td>cgF1</td>
+    <td>IL_MCC</td>
+    <td>PmF1</td>
+    <td>CGF1</td>
+    <td>IL_MCC</td>
+    <td>pmF1</td>
+    <td>CGF1</td>
+    <td>IL_MCC</td>
+    <td>pmF1</td>
+    <td>CGF1</td>
+    <td>IL_MCC</td>
+    <td>pmF1</td>
+    <td>CGF1</td>
+    <td>IL_MCC</td>
+    <td>pmF1</td>
+    <td>CGF1</td>
+    <td>IL_MCC</td>
+    <td>pmF1</td>
+    <td>CGF1</td>
+    <td>IL_MCC</td>
+    <td>pmF1</td>
+    <td>CGF1</td>
+    <td>IL_MCC</td>
+    <td>pmF1</td>
+    <td>CGF1</td>
+    <td>IL_MCC</td>
+    <td>pmF1</td>
+    <td>CGF1</td>
+    <td>IL_MCC</td>
+    <td>pmF1</td>
+    <td>CGF1</td>
+    <td>IL_MCC</td>
+    <td>pmF1</td>
+  </tr>
+  <tr>
+    <td>gDino-T</td> <td>3.09</td> <td>0.12</td> <td>19.75</td> <td>3.33</td> <td>0.17</td> <td>19.54</td> <td>4.26</td> <td>0.15</td> <td>28.38</td> <td>2.87</td> <td>0.1</td>
+    <td>28.72</td> <td>0.69</td> <td>0.05</td> <td>13.88</td> <td>9.61</td> <td>0.24</td> <td>40.03</td> <td>0</td> <td>0</td> <td>1.97</td> <td>1.31</td> <td>0.09</td>
+    <td>14.57</td> <td>5.18</td> <td>0.19</td> <td>27.25</td> <td>3.6</td> <td>0.16</td> <td>22.5</td> <td>0</td> <td>0</td> <td>0.64</td>
+  </tr>
+  <tr>
+    <td>OWLv2*</td> <td>11.23</td> <td>0.32</td> <td>31.18</td> <td>14.97</td> <td>0.46</td> <td>32.34</td> <td>10.84</td> <td>0.36</td> <td>30.1</td> <td>7.36</td> <td>0.23</td>
+    <td>31.99</td> <td>19.35</td> <td>0.44</td> <td>43.98</td> <td>27.04</td> <td>0.5</td> <td>54.07</td> <td>3.92</td> <td>0.14</td> <td>27.98</td> <td>8.05</td> <td>0.31</td>
+    <td>25.98</td> <td>10.59</td> <td>0.32</td> <td>33.1</td> <td>10.15</td> <td>0.38</td> <td>26.7</td> <td>0.04</td> <td>0.01</td> <td>5.57</td>
+  </tr>
+  <tr>
+    <td>OWLv2</td> <td>8.18</td> <td>0.23</td> <td>32.55</td> <td>8.5</td> <td>0.31</td> <td>27.79</td> <td>7.21</td> <td>0.25</td> <td>28.84</td> <td>5.64</td> <td>0.18</td>
+    <td>31.35</td> <td>14.18</td> <td>0.32</td> <td>44.32</td> <td>13.04</td> <td>0.28</td> <td>46.58</td> <td>3.62</td> <td>0.1</td> <td>36.23</td> <td>7.22</td> <td>0.25</td>
+    <td>28.88</td> <td>10.86</td> <td>0.32</td> <td>33.93</td> <td>11.7</td> <td>0.35</td> <td>33.43</td> <td>-0.14</td> <td>-0.01</td> <td>14.15</td>
+  </tr>
+  <tr>
+    <td>LLMDet-L</td> <td>6.73</td> <td>0.17</td> <td>28.19</td> <td>1.69</td> <td>0.08</td> <td>19.97</td> <td>2.56</td> <td>0.1</td> <td>25.59</td> <td>2.39</td>
+    <td>0.08</td> <td>29.92</td> <td>0.98</td> <td>0.06</td> <td>16.26</td> <td>20.82</td> <td>0.37</td> <td>56.26</td> <td>27.37</td> <td>0.46</td> <td>59.5</td>
+    <td>2.17</td> <td>0.13</td> <td>16.68</td> <td>5.37</td> <td>0.19</td> <td>28.26</td> <td>3.73</td> <td>0.16</td> <td>23.32</td> <td>0.24</td> <td>0.04</td> <td>6.1</td>
+  </tr>
+  <tr>
+    <td>Gemini 2.5</td> <td>9.67</td> <td>0.19</td> <td>45.51</td> <td>5.83</td> <td>0.19</td> <td>30.66</td> <td>5.61</td> <td>0.14</td> <td>40.07</td>
+    <td>0.38</td> <td>0.01</td> <td>38.14</td> <td>10.92</td> <td>0.24</td> <td>45.52</td> <td>18.28</td> <td>0.26</td> <td>70.29</td> <td>26.57</td> <td>0.36</td>
+    <td>73.81</td> <td>8.18</td> <td>0.2</td> <td>40.91</td> <td>9.48</td> <td>0.22</td> <td>43.1</td> <td>8.66</td> <td>0.23</td> <td>37.65</td> <td>2.8</td>
+    <td>0.08</td> <td>34.99</td>
+  </tr>
+  <tr> <td>SAM3</td> <td>49.57</td> <td>0.76</td> <td>65.17</td> <td>46.61</td> <td>0.78</td> <td>60.13</td> <td>45.58</td> <td>0.76</td>
+    <td>60.35</td> <td>38.64</td> <td>0.62</td> <td>62.56</td> <td>52.96</td> <td>0.79</td> <td>67.21</td> <td>70.07</td> <td>0.89</td>
+    <td>78.73</td> <td>65.8</td> <td>0.82</td> <td>80.67</td> <td>38.06</td> <td>0.66</td> <td>57.62</td> <td>44.36</td> <td>0.67</td>
+    <td>66.05</td> <td>42.07</td> <td>0.72</td> <td>58.36</td> <td>51.53</td> <td>0.86</td> <td>59.98</td>
+  </tr>
+</tbody></table>
+
+# Annotation format
 
 The annotation format is derived from [COCO format](https://cocodataset.org/#format-data). Notable data fields are:
 
 - `images`: a `list` of `dict` features, contains a list of all image-NP pairs. Each entry is related to an image-NP pair and has the following items.
-  - `id`: a `string` feature, unique identifier for the image-NP pair
+  - `id`: an `int` feature, unique identifier for the image-NP pair
   - `text_input`: a `string` feature, the noun phrase for the image-NP pair
   - `file_name`: a `string` feature, the relative image path in the corresponding data folder.
+  - `height`/`width`: dimension of the image
+  - `is_instance_exhaustive`: Boolean (0 or 1). If it's 1 then all the instances are correctly annotated. For instance segmentation, we only use those datapoints. Otherwise, there may be either missing instances or crowd segments (a segment covering multiple instances)
+  - `is_pixel_exhaustive`: Boolean (0 or 1). If it's 1, then the union of all masks cover all pixels corresponding to the prompt. This is weaker than instance_exhaustive since it allows crowd segments. It can be used for semantic segmentation evaluations.
 
 - `annotations`: a `list` of `dict` features, containing a list of all annotations including bounding box, segmentation mask, area etc.
-  - `image_id`: a `string` feature, maps to the identifier for the image-np pair in images
-  - `bbox`: a `list` of float features, containing bounding box in [x,y,w,h] format
+  - `image_id`: an `int` feature, maps to the identifier for the image-np pair in images
+  - `bbox`: a `list` of float features, containing bounding box in [x,y,w,h] format, normalized by the image dimensions
   - `segmentation`: a dict feature, containing segmentation mask in RLE format
+  - `category_id`: For compatibility with the coco format. Will always be 1 and is unused.
+  - `is_crowd`: Boolean (0 or 1). If 1, then the segment overlaps several instances (used in cases where instances are not separable, for e.g. due to poor image quality)
 
 - `categories`: a `list` of `dict` features, containing a list of all categories. Here, we provide  the category key for compatibility with the COCO format, but in open-vocabulary detection we do not use it. Instead, the text prompt is stored directly in each image (text_input in images). Note that in our setting, a unique image (id in images) actually corresponds to an (image, text prompt) combination.
 

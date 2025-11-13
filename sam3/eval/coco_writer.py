@@ -17,7 +17,6 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any, Optional
 
-import numpy as np
 import pycocotools.mask as mask_utils
 import torch
 from iopath.common.file_io import g_pathmgr
@@ -75,7 +74,7 @@ class PredictionDumper:
             dump_dir: Directory to dump predictions.
             postprocessor: Module to convert the model's output into COCO format.
             maxdets: Maximum number of detections per image.
-            iou_type: IoU type to evaluate. Can include "bbox", "segm", "keypoints".
+            iou_type: IoU type to evaluate. Can include "bbox", "segm"
             gather_pred_via_filesys: If True, use the filesystem for collective gathers across
                 processes (requires a shared filesystem). Otherwise, use torch collective ops.
             merge_predictions: If True, merge predictions from all processes and dump to a single file.
@@ -120,9 +119,7 @@ class PredictionDumper:
         """
         dumped_results = copy.deepcopy(results)
         for r in dumped_results:
-            if "bbox" != self.iou_type and "bbox" in r:
-                del r["bbox"]
-            elif "bbox" in r:
+            if "bbox" in r:
                 r["bbox"] = [round(coord, 5) for coord in r["bbox"]]
             r["score"] = round(r["score"], 5)
         self.dump.extend(dumped_results)
@@ -249,7 +246,7 @@ class PredictionDumper:
 
         Args:
             predictions: Dictionary mapping image IDs to prediction dictionaries.
-            iou_type: Type of evaluation ("bbox", "segm", or "keypoints").
+            iou_type: Type of evaluation ("bbox", "segm").
 
         Returns:
             List of COCO-format prediction dictionaries.
@@ -258,8 +255,6 @@ class PredictionDumper:
             return self.prepare_for_coco_detection(predictions)
         elif iou_type == "segm":
             return self.prepare_for_coco_segmentation(predictions)
-        elif iou_type == "keypoints":
-            return self.prepare_for_coco_keypoint(predictions)
         else:
             raise ValueError(f"Unknown iou type: {iou_type}")
 
@@ -317,13 +312,12 @@ class PredictionDumper:
 
             scores = prediction["scores"].tolist()
             labels = prediction["labels"].tolist()
-            boundaries, dilated_boundaries = None, None
 
-            if "boundaries" in prediction:
-                boundaries = prediction["boundaries"]
-                dilated_boundaries = prediction["dilated_boundaries"]
-                assert dilated_boundaries is not None
-                assert len(scores) == len(boundaries)
+            boxes = None
+            if "boxes" in prediction:
+                boxes = prediction["boxes"]
+                boxes = convert_to_xywh(boxes).tolist()
+                assert len(boxes) == len(scores)
 
             if "masks_rle" in prediction:
                 rles = prediction["masks_rle"]
@@ -356,46 +350,9 @@ class PredictionDumper:
                     "score": scores[k],
                     "area": areas[k],
                 }
-                if boundaries is not None:
-                    payload["boundary"] = boundaries[k]
-                    payload["dilated_boundary"] = dilated_boundaries[k]
+                if boxes is not None:
+                    payload["bbox"] = boxes[k]
 
                 coco_results.append(payload)
 
-        return coco_results
-
-    def prepare_for_coco_keypoint(self, predictions):
-        """
-        Convert predictions to COCO keypoint format.
-
-        Args:
-            predictions: Dictionary mapping image IDs to prediction dictionaries
-                containing "boxes", "scores", "labels", and "keypoints".
-
-        Returns:
-            List of COCO-format keypoint dictionaries.
-        """
-        coco_results = []
-        for original_id, prediction in predictions.items():
-            if len(prediction) == 0:
-                continue
-
-            boxes = prediction["boxes"]
-            boxes = convert_to_xywh(boxes).tolist()
-            scores = prediction["scores"].tolist()
-            labels = prediction["labels"].tolist()
-            keypoints = prediction["keypoints"]
-            keypoints = keypoints.flatten(start_dim=1).tolist()
-
-            coco_results.extend(
-                [
-                    {
-                        "image_id": original_id,
-                        "category_id": labels[k],
-                        "keypoints": keypoint,
-                        "score": scores[k],
-                    }
-                    for k, keypoint in enumerate(keypoints)
-                ]
-            )
         return coco_results
