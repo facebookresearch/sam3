@@ -233,7 +233,7 @@ scratch:
   # Box processing
   use_presence_eval: True
   original_box_postprocessor:
-    _target_: sam3.train.eval.postprocessors.PostProcessImage
+    _target_: sam3.eval.postprocessors.PostProcessImage
     max_dets_per_img: -1  # infinite detections
     use_original_ids: true
     use_original_sizes: true
@@ -333,7 +333,7 @@ trainer:
         use_caching: False
         img_folder: ${paths.odinw_data_root}/${odinw_train.supercategory_tuple.train.img_folder}
         ann_file:
-          _target_: sam3.train.eval.coco_reindex.reindex_coco_to_temp
+          _target_: sam3.eval.coco_reindex.reindex_coco_to_temp
           input_json_path: ${paths.odinw_data_root}/${odinw_train.supercategory_tuple.train.json}
         coco_json_loader:
           _target_: sam3.train.data.coco_json_loaders.COCO_FROM_JSON
@@ -363,7 +363,7 @@ trainer:
           _partial_: true
         img_folder: ${paths.odinw_data_root}/${odinw_train.supercategory_tuple.val.img_folder}
         ann_file:
-          _target_: sam3.train.eval.coco_reindex.reindex_coco_to_temp
+          _target_: sam3.eval.coco_reindex.reindex_coco_to_temp
           input_json_path: ${paths.odinw_data_root}/${odinw_train.supercategory_tuple.val.json}
         transforms: ${odinw_train.val_transforms}
         max_ann_per_img: 100000
@@ -394,7 +394,7 @@ trainer:
     val:
       odinw35:
         detection:
-          _target_: sam3.train.eval.coco_writer.PredictionDumper
+          _target_: sam3.eval.coco_writer.PredictionDumper
           iou_type: "bbox"
           dump_dir: ${launcher.experiment_log_dir}/dumps/roboflow/${odinw_train.supercategory_tuple.name}
           merge_predictions: True
@@ -402,9 +402,9 @@ trainer:
           gather_pred_via_filesys: ${scratch.gather_pred_via_filesys}
           maxdets: 100
           pred_file_evaluators:
-            - _target_: sam3.train.eval.coco_eval_offline.CocoEvaluatorOfflineWithPredFileEvaluators
+            - _target_: sam3.eval.coco_eval_offline.CocoEvaluatorOfflineWithPredFileEvaluators
               gt_path:
-                _target_: sam3.train.eval.coco_reindex.reindex_coco_to_temp
+                _target_: sam3.eval.coco_reindex.reindex_coco_to_temp
                 input_json_path: ${paths.odinw_data_root}/${odinw_train.supercategory_tuple.val.json}
               tide: False
               iou_type: "bbox"

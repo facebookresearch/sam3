@@ -5,7 +5,7 @@ from collections import defaultdict
 
 from iopath.common.file_io import g_pathmgr
 
-from sam3.train.eval.saco_veval_evaluators import (
+from sam3.eval.saco_veval_evaluators import (
     VideoDemoF1Evaluator,
     VideoPhraseApEvaluator,
     VideoPhraseHotaEvaluator,

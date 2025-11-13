@@ -7,16 +7,16 @@ from typing import Dict, Optional, Sequence, Tuple
 import numpy as np
 import pycocotools.mask
 
-from sam3.train.eval.conversion_util import (
+from sam3.eval.conversion_util import (
     convert_ytbvis_to_cocovid_gt,
     convert_ytbvis_to_cocovid_pred,
 )
-from sam3.train.eval.demo_eval import DEMO_METRICS
-from sam3.train.eval.hota_eval_toolkit.run_ytvis_eval import run_ytvis_eval
-from sam3.train.eval.teta_eval_toolkit import config, Evaluator, metrics
-from sam3.train.eval.teta_eval_toolkit.datasets import COCO, TAO
-from sam3.train.eval.ytvis_coco_wrapper import YTVIS
-from sam3.train.eval.ytvis_eval import VideoDemoF1Eval, YTVISeval
+from sam3.eval.demo_eval import DEMO_METRICS
+from sam3.eval.hota_eval_toolkit.run_ytvis_eval import run_ytvis_eval
+from sam3.eval.teta_eval_toolkit import config, Evaluator, metrics
+from sam3.eval.teta_eval_toolkit.datasets import COCO, TAO
+from sam3.eval.ytvis_coco_wrapper import YTVIS
+from sam3.eval.ytvis_eval import VideoDemoF1Eval, YTVISeval
 from sam3.train.nms_helper import process_frame_level_nms, process_track_level_nms
 
 

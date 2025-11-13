@@ -215,7 +215,7 @@ An example notebook and an eval script have been provided for offline evaluation
 sam3/
 ├── examples/
 │   └── saco_veval_eval_example.ipynb  # this notebook will load eval res or run the eval on the fly, and print the results
-└── sam3/train/eval/
+└── sam3/eval/
     └── saco_veval_eval.py  # this script will run the offline evaluator
 ```
 `saco_veval_eval.py` supports two modes, `one` and `all`.

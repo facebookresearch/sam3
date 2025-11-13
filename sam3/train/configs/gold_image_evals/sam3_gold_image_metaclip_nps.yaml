@@ -48,21 +48,21 @@ scratch:
 
   # Box processing
   original_box_postprocessor:
-    _target_: sam3.train.eval.postprocessors.PostProcessImage
+    _target_: sam3.eval.postprocessors.PostProcessImage
     max_dets_per_img: -1  # infinite detections
     use_original_ids: true
     use_original_sizes: true
     use_presence: ${scratch.use_presence_eval}
 
   box_postprocessor:
-    _target_: sam3.train.eval.postprocessors.PostProcessImage
+    _target_: sam3.eval.postprocessors.PostProcessImage
     max_dets_per_img: -1 #infinite detections
     use_original_ids: false
     use_original_sizes: false
     use_presence: ${scratch.use_presence_eval}
 
   box_postprocessor_thresholded:
-    _target_: sam3.train.eval.postprocessors.PostProcessImage
+    _target_: sam3.eval.postprocessors.PostProcessImage
     max_dets_per_img: -1 #infinite detections
     use_original_ids: false
     use_original_sizes: false
@@ -70,7 +70,7 @@ scratch:
     use_presence: ${scratch.use_presence_eval}
 
   mask_postprocessor_thresholded:
-    _target_: sam3.train.eval.postprocessors.PostProcessImage
+    _target_: sam3.eval.postprocessors.PostProcessImage
     max_dets_per_img: -1 #infinite detections
     iou_type: "segm"
     use_original_ids: false
@@ -80,7 +80,7 @@ scratch:
     use_presence: ${scratch.use_presence_eval}
 
   mask_postprocessor_w_boundary_thresholded:
-    _target_: sam3.train.eval.postprocessors.PostProcessImage
+    _target_: sam3.eval.postprocessors.PostProcessImage
     max_dets_per_img: -1 #infinite detections
     iou_type: "segm"
     use_original_ids: false
@@ -188,7 +188,7 @@ trainer:
     val:
       gold_epsilon_merged_test:
         demo:
-          _target_: sam3.train.eval.demo_eval.DemoEvaluator
+          _target_: sam3.eval.demo_eval.DemoEvaluator
           iou_types:
             - "bbox"
           dump_dir: null
@@ -198,7 +198,7 @@ trainer:
           gather_pred_via_filesys: ${scratch.gather_pred_via_filesys}
           exhaustive_only: true
         demo_segm:
-          _target_: sam3.train.eval.demo_eval.DemoEvaluator
+          _target_: sam3.eval.demo_eval.DemoEvaluator
           compute_JnF: False
           iou_types:
             - "segm"
