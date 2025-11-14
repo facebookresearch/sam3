@@ -39,8 +39,19 @@ data/
     └── saco_yt1b
         └── JPEGImages_6fps
 ```
+### Download ready-to-use data
+The following links provide ready-to-use data, hosted on Roboflow, after completing the pre-processing steps outlined in the next section.
 
-### Download annotations
+For each domain:
+- https://sa-co.roboflow.com/veval/saco_sav.zip
+- https://sa-co.roboflow.com/veval/saco_yt1b.zip
+- https://sa-co.roboflow.com/veval/saco_sg.zip
+
+For full bundle:
+- https://sa-co.roboflow.com/veval/all.zip
+
+### Download via preprocessing steps
+#### Download annotations
 The GT annotations are available at Hugging Face:
 * [SA-Co/VEval](https://huggingface.co/datasets/facebook/SACo-VEval/tree/main)
     * SA-Co/VEval SA-V
@@ -53,8 +64,8 @@ The GT annotations are available at Hugging Face:
         * Test: `annotation/saco_veval_smartglasses_test.json`
         * Val: `annotation/saco_veval_smartglasses_val.json`
 
-### Download videos or frames
-#### SA-Co/VEval - SAV
+#### Download videos or frames
+##### SA-Co/VEval - SAV
 Follow instructions in [SA-V dataset](https://ai.meta.com/datasets/segment-anything-video/). Only the following two datasets are needed:
 * sav_test.tar
 * sav_val.tar
@@ -88,7 +99,7 @@ mv sav_test/JPEGImages_24fps/* JPEGImages_24fps/
 mv sav_val/JPEGImages_24fps/* JPEGImages_24fps/
 ```
 
-#### SA-Co/VEval - YT-Temporal-1B
+##### SA-Co/VEval - YT-Temporal-1B
 Two files are needed to download the SA-Co/VEval - YT-Temporal-1B Youtube videos.
 * Download `media/yt1b_start_end_time.json` from [SA-Co/VEval](https://huggingface.co/datasets/facebook/SACo-VEval/tree/main), which contains the Youtube video ids and the start and end time used in SA-Co/VEval - YT-Temporal-1B.
 * Prepare the `cookies.txt` file. Follow instruction in yt-dlp [exporting-youtube-cookies](https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies) and [pass-cookies-to-yt-dlp](https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp) to prepare the cookies_file.
@@ -120,7 +131,7 @@ python saco_yt1b_annot_update.py \
 * Not all Youtube videos might be available as Youtube videos can be deleted or become private. The script `saco_yt1b_annot_update.py` is used to remove the annotations of the unavailable videos.
 * **Frame Shifting Alert!!** Even when the videos are still available, their specifications, such as fps and duration, may differ from those used during annotation when re-downloaded from YouTube. Additionally, sometimes `ffmpeg` seems to find it hard to guarantee consistent frame extraction from the same video across different environments. This may cause the re-downloaded and re-extracted frames to have alignment issues with our annotations due to frame shifting. Please be aware of this caveat when evaluating on SA-Co/VEval - YT-Temporal-1B.
 
-#### SA-Co/VEval - SmartGlasses
+##### SA-Co/VEval - SmartGlasses
 Go to [SACo-VEval](https://huggingface.co/datasets/facebook/SACo-VEval/tree/main) download `media/saco_sg.tar.gz`
 ```
 cd ../data
@@ -204,7 +215,7 @@ An example notebook and an eval script have been provided for offline evaluation
 sam3/
 ├── examples/
 │   └── saco_veval_eval_example.ipynb  # this notebook will load eval res or run the eval on the fly, and print the results
-└── sam3/train/eval/
+└── sam3/eval/
     └── saco_veval_eval.py  # this script will run the offline evaluator
 ```
 `saco_veval_eval.py` supports two modes, `one` and `all`.

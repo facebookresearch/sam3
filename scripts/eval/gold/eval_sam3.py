@@ -13,7 +13,7 @@ import os
 import numpy as np
 
 from pycocotools.coco import COCO
-from sam3.train.eval.demo_eval import DemoEvaluator
+from sam3.eval.demo_eval import DemoEvaluator
 
 all_files = {
     # MetaCLIP Captioner

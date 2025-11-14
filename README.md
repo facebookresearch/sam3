@@ -109,6 +109,7 @@ The `examples` directory contains notebooks demonstrating how to use SAM3 with v
 - [`sam3_image_predictor_example.ipynb`](examples/sam3_image_predictor_example.ipynb) : Demonstrates how to prompt SAM 3 with text and visual box prompts on images.
 - [`sam3_video_predictor_example.ipynb`](examples/sam3_video_predictor_example.ipynb) : Demonstrates how to prompt SAM 3 with text prompts on videos, and doing further interactive refinements with points.
 - [`sam3_image_batched_inference.ipynb`](examples/sam3_image_batched_inference.ipynb) : Demonstrates how to run batched inference with SAM 3 on images.
+- [`sam3_agent.ipynb`](examples/sam3_agent.ipynb): Demonsterates the use of SAM 3 Agent to segment complex text prompt on images.
 - [`saco_gold_silver_vis_example.ipynb`](examples/saco_gold_silver_vis_example.ipynb) : Shows a few examples from SA-Co image evaluation set.
 - [`saco_veval_vis_example.ipynb`](examples/saco_veval_vis_example.ipynb) : Shows a few examples from SA-Co video evaluation set.
 

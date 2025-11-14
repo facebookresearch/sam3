@@ -197,7 +197,7 @@ scratch:
   # Box processing
   use_presence_eval: True
   original_box_postprocessor:
-    _target_: sam3.train.eval.postprocessors.PostProcessImage
+    _target_: sam3.eval.postprocessors.PostProcessImage
     max_dets_per_img: -1  # infinite detections
     use_original_ids: true
     use_original_sizes: true
@@ -293,7 +293,7 @@ trainer:
           _partial_: true
         img_folder: ${paths.odinw_data_root}/${odinw_train.supercategory_tuple.val.img_folder}
         ann_file:
-          _target_: sam3.train.eval.coco_reindex.reindex_coco_to_temp
+          _target_: sam3.eval.coco_reindex.reindex_coco_to_temp
           input_json_path: ${paths.odinw_data_root}/${odinw_train.supercategory_tuple.val.json}
         transforms: ${odinw_train.val_transforms}
         max_ann_per_img: 100000
@@ -324,13 +324,13 @@ trainer:
     val:
       odinw35:
         detection:
-          _target_: sam3.train.eval.coco_eval_offline.CocoEvaluatorOffline
+          _target_: sam3.eval.coco_eval_offline.CocoEvaluatorOffline
           positive_split: true
           iou_type: "bbox"
           tide: False
           dump_dir: ${launcher.experiment_log_dir}/dumps/roboflow/${odinw_train.supercategory_tuple.name}
           gt_path:
-            _target_: sam3.train.eval.coco_reindex.reindex_coco_to_temp
+            _target_: sam3.eval.coco_reindex.reindex_coco_to_temp
             input_json_path: ${paths.odinw_data_root}/${odinw_train.supercategory_tuple.val.json}
           postprocessor: ${scratch.original_box_postprocessor}
           gather_pred_via_filesys: ${scratch.gather_pred_via_filesys}

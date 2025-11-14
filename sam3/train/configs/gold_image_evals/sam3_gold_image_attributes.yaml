@@ -6,8 +6,7 @@ defaults:
 # Paths Configuration (Chage this to your own paths)
 # ============================================================================
 paths:
-  checkpoint_path: /fsx-onevision/shoubhikdn/sam3_ckpts/sam3_v2_rc2/sam3_v2_rc2.pt
-  experiment_log_dir: /fsx-onevision/shoubhikdn/omnivision_onevision/release_experiments/gold_attributes_launch_arxiv_sam3_v2_rc2/
+  experiment_log_dir: /fsx-onevision/shoubhikdn/omnivision_onevision/release_experiments/gold_attributes_launch_hf/
   coco_gt_attr : /fsx-onevision/shoubhikdn/release/roboflow/gt-annotations/gold_attributes_merged_a_release_test.json
   coco_gts_attr :
     - /fsx-onevision/shoubhikdn/release/roboflow/gt-annotations/gold_attributes_merged_a_release_test.json
@@ -48,21 +47,21 @@ scratch:
 
   # Box processing
   original_box_postprocessor:
-    _target_: sam3.train.eval.postprocessors.PostProcessImage
+    _target_: sam3.eval.postprocessors.PostProcessImage
     max_dets_per_img: -1  # infinite detections
     use_original_ids: true
     use_original_sizes: true
     use_presence: ${scratch.use_presence_eval}
 
   box_postprocessor:
-    _target_: sam3.train.eval.postprocessors.PostProcessImage
+    _target_: sam3.eval.postprocessors.PostProcessImage
     max_dets_per_img: -1 #infinite detections
     use_original_ids: false
     use_original_sizes: false
     use_presence: ${scratch.use_presence_eval}
 
   box_postprocessor_thresholded:
-    _target_: sam3.train.eval.postprocessors.PostProcessImage
+    _target_: sam3.eval.postprocessors.PostProcessImage
     max_dets_per_img: -1 #infinite detections
     use_original_ids: false
     use_original_sizes: false
@@ -70,7 +69,7 @@ scratch:
     use_presence: ${scratch.use_presence_eval}
 
   mask_postprocessor_thresholded:
-    _target_: sam3.train.eval.postprocessors.PostProcessImage
+    _target_: sam3.eval.postprocessors.PostProcessImage
     max_dets_per_img: -1 #infinite detections
     iou_type: "segm"
     use_original_ids: false
@@ -80,7 +79,7 @@ scratch:
     use_presence: ${scratch.use_presence_eval}
 
   mask_postprocessor_w_boundary_thresholded:
-    _target_: sam3.train.eval.postprocessors.PostProcessImage
+    _target_: sam3.eval.postprocessors.PostProcessImage
     max_dets_per_img: -1 #infinite detections
     iou_type: "segm"
     use_original_ids: false
@@ -182,13 +181,12 @@ trainer:
     device: cpus
     eval_mode: true
     enable_segmentation: true # Warning: Enable this if using segmentation.
-    checkpoint_path: ${paths.checkpoint_path}
 
   meters:
     val:
       gold_attributes_merged_test:
         demo:
-          _target_: sam3.train.eval.demo_eval.DemoEvaluator
+          _target_: sam3.eval.demo_eval.DemoEvaluator
           iou_types:
             - "bbox"
           dump_dir: null
@@ -198,7 +196,7 @@ trainer:
           gather_pred_via_filesys: ${scratch.gather_pred_via_filesys}
           exhaustive_only: true
         demo_segm:
-          _target_: sam3.train.eval.demo_eval.DemoEvaluator
+          _target_: sam3.eval.demo_eval.DemoEvaluator
           compute_JnF: False
           iou_types:
             - "segm"

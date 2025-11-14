@@ -13,12 +13,12 @@ import pycocotools.mask as mask_util
 import torch
 from pycocotools.cocoeval import COCOeval
 
+from sam3.eval.coco_eval import CocoEvaluator, convert_to_xywh
+from sam3.eval.demo_eval import DemoEval
+
+from sam3.eval.ytvis_coco_wrapper import YTVIS
+
 from sam3.model.box_ops import box_xywh_inter_union
-
-from sam3.train.eval.coco_eval import CocoEvaluator, convert_to_xywh
-from sam3.train.eval.demo_eval import DemoEval
-
-from sam3.train.eval.ytvis_coco_wrapper import YTVIS
 
 from sam3.train.masks_ops import rle_encode
 from sam3.train.utils import distributed as dist
