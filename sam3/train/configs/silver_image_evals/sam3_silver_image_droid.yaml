@@ -6,8 +6,8 @@ defaults:
 # Paths Configuration (Chage this to your own paths)
 # ============================================================================
 paths:
-  experiment_log_dir: /fsx-onevision/shoubhikdn/omnivision_onevision/release_experiments/silver_droids_release_hf/
-  coco_gt : /fsx-onevision/shoubhikdn/release/roboflow/silver/gt-annotations/silver_droids_merged_test.json
+  experiment_log_dir: /fsx-onevision/shoubhikdn/omnivision_onevision/release_experiments/silver_droid_release_hf/
+  coco_gt : /fsx-onevision/shoubhikdn/release/roboflow/silver/gt-annotations/silver_droid_merged_test.json
   img_path: /fsx-onevision/shoubhikdn/release/roboflow/silver/droid/
   bpe_path: /fsx-onevision/chayryali/ve/bpe_simple_vocab_16e6.txt.gz
 
@@ -169,7 +169,7 @@ trainer:
         _target_: sam3.train.data.collator.collate_fn_api
         _partial_: true
         repeats: ${scratch.hybrid_repeats}
-        dict_key: silver_droids_merged_test
+        dict_key: silver_droid_merged_test
 
   model:
     _target_: sam3.model_builder.build_sam3_image_model
@@ -180,7 +180,7 @@ trainer:
 
   meters:
     val:
-      silver_droids_merged_test:
+      silver_droid_merged_test:
         demo:
           _target_: sam3.eval.demo_eval.DemoEvaluator
           iou_types:
@@ -196,8 +196,8 @@ trainer:
           compute_JnF: False
           iou_types:
             - "segm"
-          dump_dir: ${launcher.experiment_log_dir}/dumps/silver_droids_merged_test/predictions
-          metrics_dump_dir:  ${launcher.experiment_log_dir}/dumps/silver_droids_merged_test/metrics
+          dump_dir: ${launcher.experiment_log_dir}/dumps/silver_droid_merged_test/predictions
+          metrics_dump_dir:  ${launcher.experiment_log_dir}/dumps/silver_droid_merged_test/metrics
           coco_gt: ${paths.coco_gt}
           postprocessor: ${scratch.mask_postprocessor_thresholded}
           average_by_rarity: False
