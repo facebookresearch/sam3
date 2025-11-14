@@ -14,8 +14,8 @@ Meta Superintelligence Labs
 SAM 3 is a unified foundation model for promptable segmentation in images and videos. SAM 3 detects, segments, and tracks objects using text and visual prompts such as points, boxes, and masks. Compared to its predecessor [SAM 2](https://github.com/facebookresearch/sam2), SAM 3 introduces the new ability to exhaustively segment all instances of an open-vocabulary concept specified with a short text prompt or exemplars. Compared to prior work, SAM 3 can handle many more open-vocabulary concepts. It reaches near human performance on our new SA-CO benchmark containing 270K unique concepts (>50 times more than existing benchmarks). This breakthrough is enabled by an innovative scalable a data engine that produces over **4 million unique concepts**, the largest high quality open-vocab segmentation dataset to date, as well as a model architecture that effectively scales with large amounts of hard negatives prompts.
 
 <p align="center">
-  <img src="assets/dog.gif" width="450" />
-  <img src="assets/player.gif" width="450" /> 
+  <img src="assets/dog.gif" style="width: 49%;" />
+  <img src="assets/player.gif" style="width: 49%;" />
 </p>
 
 
