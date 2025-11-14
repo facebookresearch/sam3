@@ -13,7 +13,8 @@ Meta Superintelligence Labs
 ![SAM 3 architecture](assets/model_diagram.png?raw=true)
 SAM 3 is a unified foundation model for visual grounding in images and videos. SAM 3 detects, segments, and tracks objects using text and geometric prompts such as points, boxes, and masks. We build a scalable a data engine that leverages SAM 3, human annotators, and AI models in the loop, which allows dramatic speed-ups in annotation. This allowed us to create SA-Co training dataset set with over **4 million unique concepts**, the largest high-quality open-vocab segmentation dataset to date. (TODO: We might need to set the tone here because we don't release the training set)
 
-![SAM 3 predictions](assets/sam3_predictions.mp4)
+https://github.com/user-attachments/assets/45ed1fe0-65b0-4b17-916b-a5fba88e457b
+
 A sample of SAM 3 predictions
 
 ## Installation
