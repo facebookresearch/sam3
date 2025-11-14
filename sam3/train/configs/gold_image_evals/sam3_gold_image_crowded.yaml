@@ -6,8 +6,7 @@ defaults:
 # Paths Configuration (Chage this to your own paths)
 # ============================================================================
 paths:
-  checkpoint_path: /fsx-onevision/shoubhikdn/sam3_ckpts/sam3_v2_rc2/sam3_v2_rc2.pt
-  experiment_log_dir: /fsx-onevision/shoubhikdn/omnivision_onevision/release_experiments/gold_crowded_launch_arxiv_sam3_v2_rc2/
+  experiment_log_dir: /fsx-onevision/shoubhikdn/omnivision_onevision/release_experiments/gold_crowded_launch_hf/
   coco_gt : /fsx-onevision/shoubhikdn/release/roboflow/gt-annotations/gold_crowded_merged_a_release_test.json
   coco_gts :
     - /fsx-onevision/shoubhikdn/release/roboflow/gt-annotations/gold_crowded_merged_a_release_test.json
@@ -182,7 +181,6 @@ trainer:
     device: cpus
     eval_mode: true
     enable_segmentation: true # Warning: Enable this if using segmentation.
-    checkpoint_path: ${paths.checkpoint_path}
 
   meters:
     val:
