@@ -11,16 +11,9 @@ Meta Superintelligence Labs
 [[`Paper`](LINK_TO_PAPER)] [[`Project`](LINK_TO_PROJECT)] [[`Demo`](LINK_TO_DEMO)] [[`Dataset`](LINK_TO_DATASET)] [[`Blog`](LINK_TO_BLOG)] [[`BibTeX`](HOW_TO_CITE)]
 
 ![SAM 3 architecture](assets/model_diagram.png?raw=true)
-SAM 3 is a unified foundation model for visual grounding in images and videos. SAM 3 detects, segments, and tracks objects using text and geometric prompts such as points, boxes, and masks. We build a scalable a data engine that leverages SAM 3, human annotators, and AI models in the loop, which allows dramatic speed-ups in annotation. This allowed us to create SA-Co training dataset set with over **4 million unique concepts**, the largest high-quality open-vocab segmentation dataset to date. (TODO: We might need to set the tone here because we don't release the training set)
+SAM 3 is a unified foundation model for promptable segmentation in images and videos. SAM 3 detects, segments, and tracks objects using text and visual prompts such as points, boxes, and masks. Compared to its predecessor [SAM 2](https://github.com/facebookresearch/sam2), SAM 3 introduces the new ability to exhaustively segment all instances of an open-vocabulary concept specified with a short text prompt or exemplars. Compared to prior work, SAM 3 can handle many more open-vocabulary concepts. It reaches near human performance on our new SA-CO benchmark containing 270K unique concepts (>50 times more than existing benchmarks). This breakthrough is enabled by an innovative scalable a data engine that produces over **4 million unique concepts**, the largest high quality open-vocab segmentation dataset to date, as well as a model architecture that effectively scales with large amounts of hard negatives prompts.  
 
-<!-- ![SAM3 Predictions](assets/dog.gif) ![SAM3 Predictions](assets/player.gif) -->
-
-
-<p align="center">
-  <img src="assets/dog.gif" width="460" />
-  <img src="assets/player.gif" width="460" /> 
-</p>
-
+![SAM3 Predictions](assets/sam3_predictions.gif)
 
 A sample of SAM 3 predictions
 
