@@ -8,19 +8,16 @@ defaults:
 #  python sam3/train/train.py -c configs/odinw_text_only.yaml --use-cluster 1 --partition h200 --account sam3 --qos h200_sam3_high
 
 paths:
-  #checkpoint_path: /checkpoint/onevision/kalyanv/sam3_ckpts/shuangrui_checkpoint_presence_0.35_completed.pt
-  checkpoint_path: /checkpoint/sam3/chayryali/omnivision_onevision/config/experiments/chayryali/sam3v1_stage3/final/paper_launch_model_oct/launch_stage3_v2.yaml/0/checkpoints/checkpoint.pt
+  checkpoint_path: /checkpoint/sam3/haithamkhedr/workspace/sam3/assets/sam3.pt
   odinw_data_root: /checkpoint/sam3/shared/data/odinw
-  experiment_log_dir: /checkpoint/sam3/kalyanv/odinw_text_only_chunked
-  bpe_path: /home/kalyanv/sam3/assets/bpe_simple_vocab_16e6.txt.gz
+  experiment_log_dir: /checkpoint/sam3/{oc.env:USER}/sam3_paper_repro/odinw_text_only
+  bpe_path: /checkpoint/sam3/haithamkhedr/workspace/sam3/assets/bpe_simple_vocab_16e6.txt.gz
 
 
 odinw_train:
   train_file: fewshot_train_shot10_seed300
   num_images: null
   supercategory_tuple: ${all_odinw_supercategories.${string:${submitit.job_array.task_index}}}
-  # supercategory_tuple: ${all_odinw_supercategories.${string:${submitit.task_index}}}
-
   # Training transforms pipeline
   train_transforms:
     - _target_: sam3.train.transforms.basic_for_api.ComposeAPI
@@ -61,24 +58,6 @@ odinw_train:
         _target_: sam3.train.transforms.filter_query_transforms.FilterFindQueriesWithTooManyOut
         max_num_objects: ${scratch.max_ann_per_img}
 
-  # Validation transforms pipeline
-  val_transforms:
-    - _target_: sam3.train.transforms.basic_for_api.ComposeAPI
-      transforms:
-        - _target_: sam3.train.transforms.basic_for_api.RandomResizeAPI
-          sizes: ${scratch.resolution}
-          max_size:
-            _target_: sam3.train.transforms.basic.get_random_resize_max_size
-            size: ${scratch.resolution}
-          square: true
-          consistent_transform: False
-        - _target_: sam3.train.transforms.basic_for_api.ToTensorAPI
-        - _target_: sam3.train.transforms.basic_for_api.NormalizeAPI
-          # mean: [0.485, 0.456, 0.406]
-          # std: [0.229, 0.224, 0.225]
-          mean: ${scratch.train_norm_mean}
-          std: ${scratch.train_norm_std}
-
   # loss config (no mask loss)
   loss:
     _target_: sam3.train.loss.sam3_loss.Sam3LossWrapper
@@ -89,7 +68,6 @@ odinw_train:
       alpha: 0.3
       threshold: 0.4
       topk: 4
-    # use one-to-one (instead of one-to-many) matcher on o2m auxiliary outputs (to be consistent with FA 1a_v4.5)
     use_o2m_matcher_on_o2m_aux: ${scratch.use_o2m_matcher_on_o2m_aux}
     loss_fns_find:
       - _target_: sam3.train.loss.loss_fns.Boxes
@@ -158,34 +136,6 @@ scratch:
         batch_first: False
     add_cls: true
     add_post_encode_proj: True
-    mask_encoder:
-      _target_: sam3.model.geometry_encoders.FusedMaskEncoder
-      out_dim: ${scratch.d_model}
-      position_encoding:
-        _target_: sam3.model.position_encoding.PositionEmbeddingSine
-        num_pos_feats: ${scratch.d_model}
-        normalize: true
-        scale: null
-        temperature: 10000
-        precompute_resolution: ${scratch.resolution}
-      mask_downsampler:
-        _target_: sam3.model.memory.SimpleMaskDownSampler
-        interpol_size: [288,288]
-        kernel_size: 3
-        stride: 2
-        padding: 1
-        # Mask downsmapling stride (Assuming 256x256 pred_masks)
-        total_stride: 4
-      fuser:
-        _target_: sam3.model.memory.SimpleFuser
-        layer:
-          _target_: sam3.model.memory.CXBlock
-          dim: ${scratch.d_model}
-          kernel_size: 7
-          padding: 3
-          layer_scale_init_value: 1e-6
-          use_dwconv: True  # depth-wise convs
-        num_layers: 2
 
   boxRPB: "log"
   dac: True
@@ -200,9 +150,9 @@ scratch:
     bpe_path: ${paths.bpe_path}
 
 
-  freeze_text_tower: False  # True, does NOT freeze the final projection to d_model dim
+  freeze_text_tower: False 
   freeze_image_tower: NoFreeze
-  vis_backbone_dp: 0.0 # TODO: As per chay's suggestions changed it from 0.1 to 0.0
+  vis_backbone_dp: 0.0
   # Activation checkpointing (Save memory)
   use_act_checkpoint_vision_backbone: True
   use_act_checkpoint_text_backbone: True
@@ -213,8 +163,8 @@ scratch:
   # Loss parameters
   num_queries: 200
   presence_weight: 20.0
-  loss_ce_weight: 20.0 # TODO: Sweep 100.0 and 20.0
-  iabce_pos_weight: 10.0 # TODO: Sweep 10.0 and 5.0
+  loss_ce_weight: 20.0
+  iabce_pos_weight: 10.0
   iabce_pos_focal: false
   iabce_alpha: 0.25
   instance_query_loss_pad_scale_pos: 1.0
@@ -243,7 +193,7 @@ scratch:
   # Matcher configuration
   matcher:
     _target_: sam3.train.matcher.BinaryHungarianMatcherV2
-    focal: true  # with `focal: true` it is equivalent to BinaryFocalHungarianMatcher
+    focal: true
     cost_class: 2.0
     cost_bbox: 5.0
     cost_giou: 2.0
@@ -351,64 +301,13 @@ trainer:
         dict_key: all
         with_seg_masks: true
 
-    val:
-      _target_: sam3.train.data.torch_dataset.TorchDataset
-      dataset:
-        _target_: sam3.train.data.sam3_image_dataset.Sam3ImageDataset
-        coco_json_loader:
-          _target_: sam3.train.data.coco_json_loaders.COCO_FROM_JSON
-          prompts: ${odinw35_prompts.${odinw_train.supercategory_tuple.name}}
-          include_negatives: True
-          category_chunk_size: 2 # Note: You can increase this based on the memory of your GPU.
-          _partial_: true
-        img_folder: ${paths.odinw_data_root}/${odinw_train.supercategory_tuple.val.img_folder}
-        ann_file:
-          _target_: sam3.eval.coco_reindex.reindex_coco_to_temp
-          input_json_path: ${paths.odinw_data_root}/${odinw_train.supercategory_tuple.val.json}
-        transforms: ${odinw_train.val_transforms}
-        max_ann_per_img: 100000
-        multiplier: 1
-        training: false
-
-      shuffle: False
-      batch_size: ${scratch.val_batch_size}
-      num_workers: ${scratch.num_val_workers}
-      pin_memory: False
-      drop_last: False
-      collate_fn:
-        _target_: sam3.train.data.collator.collate_fn_api
-        _partial_: true
-        repeats: ${scratch.hybrid_repeats}
-        dict_key: odinw35
-
   model:
     _target_: sam3.model_builder.build_sam3_image_model
-    bpe_path: /home/kalyanv/sam3/assets/bpe_simple_vocab_16e6.txt.gz
+    bpe_path: ${paths.bpe_path}
     device: cpus
-    eval_mode: false
+    eval_mode: true # Set to false if training
     enable_segmentation: ${scratch.enable_segmentation} # Warning: Enable this if using segmentation.
     checkpoint_path: ${paths.checkpoint_path}
-
-
-  meters:
-    val:
-      odinw35:
-        detection:
-          _target_: sam3.eval.coco_writer.PredictionDumper
-          iou_type: "bbox"
-          dump_dir: ${launcher.experiment_log_dir}/dumps/roboflow/${odinw_train.supercategory_tuple.name}
-          merge_predictions: True
-          postprocessor: ${scratch.original_box_postprocessor}
-          gather_pred_via_filesys: ${scratch.gather_pred_via_filesys}
-          maxdets: 100
-          pred_file_evaluators:
-            - _target_: sam3.eval.coco_eval_offline.CocoEvaluatorOfflineWithPredFileEvaluators
-              gt_path:
-                _target_: sam3.eval.coco_reindex.reindex_coco_to_temp
-                input_json_path: ${paths.odinw_data_root}/${odinw_train.supercategory_tuple.val.json}
-              tide: False
-              iou_type: "bbox"
-              positive_split: False
 
   optim:
     amp:
@@ -512,254 +411,149 @@ submitit:
 
 
 # ============================================================================
-# Available Roboflow Supercategories (for reference)
+# ODinW35 Supercategories
 # ============================================================================
 
 all_odinw_supercategories:
   - name: AerialMaritimeDrone_large
-    val:
-      img_folder: AerialMaritimeDrone/large/test/
-      json: AerialMaritimeDrone/large/test/annotations_without_background.json
     train:
       img_folder: AerialMaritimeDrone/large/train/
       json: AerialMaritimeDrone/large/train/${odinw_train.train_file}.json
 
   - name: AerialMaritimeDrone_tiled
-    val:
-      img_folder: AerialMaritimeDrone/tiled/test/
-      json: AerialMaritimeDrone/tiled/test/annotations_without_background.json
     train:
       img_folder: AerialMaritimeDrone/tiled/train/
       json: AerialMaritimeDrone/tiled/train/${odinw_train.train_file}.json
 
   - name: AmericanSignLanguageLetters
-    val:
-      img_folder:  AmericanSignLanguageLetters/American Sign Language Letters.v1-v1.coco/test/
-      json: AmericanSignLanguageLetters/American Sign Language Letters.v1-v1.coco/test/annotations_without_background.json
     train:
       img_folder: AmericanSignLanguageLetters/American Sign Language Letters.v1-v1.coco/train/
       json: AmericanSignLanguageLetters/American Sign Language Letters.v1-v1.coco/train/${odinw_train.train_file}.json
   - name: Aquarium
-    val:
-      img_folder: Aquarium/Aquarium Combined.v2-raw-1024.coco/test/
-      json: Aquarium/Aquarium Combined.v2-raw-1024.coco/test/annotations_without_background.json
     train:
       img_folder: Aquarium/Aquarium Combined.v2-raw-1024.coco/train/
       json: Aquarium/Aquarium Combined.v2-raw-1024.coco/train/${odinw_train.train_file}.json
   - name: BCCD
-    val:
-      img_folder: BCCD/BCCD.v3-raw.coco/test/
-      json: BCCD/BCCD.v3-raw.coco/test/annotations_without_background.json
     train:
       img_folder: BCCD/BCCD.v3-raw.coco/train/
       json: BCCD/BCCD.v3-raw.coco/train/${odinw_train.train_file}.json
   - name: ChessPieces
-    val:
-      img_folder: ChessPieces/Chess Pieces.v23-raw.coco/test/
-      json: ChessPieces/Chess Pieces.v23-raw.coco/test/annotations_without_background.json
     train:
       img_folder: ChessPieces/Chess Pieces.v23-raw.coco/train/
       json: ChessPieces/Chess Pieces.v23-raw.coco/train/${odinw_train.train_file}.json
   - name: CottontailRabbits
-    val:
-      img_folder: CottontailRabbits/test/
-      json: CottontailRabbits/test/annotations_without_background.json
     train:
       img_folder: CottontailRabbits/train/
       json: CottontailRabbits/train/${odinw_train.train_file}.json
   - name: DroneControl
-    val:
-      img_folder: DroneControl/Drone Control.v3-raw.coco/test/
-      json: DroneControl/Drone Control.v3-raw.coco/test/annotations_without_background.json
     train:
       img_folder: DroneControl/Drone Control.v3-raw.coco/train/
       json: DroneControl/Drone Control.v3-raw.coco/train/${odinw_train.train_file}.json
   - name: EgoHands_generic
-    val:
-      img_folder: EgoHands/generic/test/
-      json: EgoHands/generic/test/annotations_without_background.json
     train:
       img_folder: EgoHands/generic/train/
       json: EgoHands/generic/train/${odinw_train.train_file}.json
   - name: EgoHands_specific
-    val:
-      img_folder: EgoHands/specific/test/
-      json: EgoHands/specific/test/annotations_without_background.json
     train:
       img_folder: EgoHands/specific/train/
       json: EgoHands/specific/train/${odinw_train.train_file}.json
   - name: HardHatWorkers
-    val:
-      img_folder: HardHatWorkers/raw/test/
-      json: HardHatWorkers/raw/test/annotations_without_background.json
     train:
       img_folder: HardHatWorkers/raw/train/
       json: HardHatWorkers/raw/train/${odinw_train.train_file}.json
   - name: MaskWearing
-    val:
-      img_folder: MaskWearing/raw/test/
-      json: MaskWearing/raw/test/annotations_without_background.json
     train:
       img_folder: MaskWearing/raw/train/
       json: MaskWearing/raw/train/${odinw_train.train_file}.json
   - name: MountainDewCommercial
-    val:
-      img_folder: MountainDewCommercial/test/
-      json: MountainDewCommercial/test/annotations_without_background.json
     train:
       img_folder: MountainDewCommercial/train/
       json: MountainDewCommercial/train/${odinw_train.train_file}.json
   - name: NorthAmericaMushrooms
-    val:
-      img_folder: NorthAmericaMushrooms/North American Mushrooms.v1-416x416.coco/test/
-      json: NorthAmericaMushrooms/North American Mushrooms.v1-416x416.coco/test/annotations_without_background.json
     train:
       img_folder: NorthAmericaMushrooms/North American Mushrooms.v1-416x416.coco/train/
       json: NorthAmericaMushrooms/North American Mushrooms.v1-416x416.coco/train/${odinw_train.train_file}.json
   - name: OxfordPets_breed
-    val:
-      img_folder: OxfordPets/by-breed/test/
-      json: OxfordPets/by-breed/test/annotations_without_background.json
     train:
       img_folder: OxfordPets/by-breed/train/
       json: OxfordPets/by-breed/train/${odinw_train.train_file}.json
   - name: OxfordPets_species
-    val:
-      img_folder: OxfordPets/by-species/test/
-      json: OxfordPets/by-species/test/annotations_without_background.json
     train:
       img_folder: OxfordPets/by-species/train/
       json: OxfordPets/by-species/train/${odinw_train.train_file}.json
   - name: PKLot
-    val:
-      img_folder: PKLot/640/test/
-      json: PKLot/640/test/annotations_without_background.json
     train:
       img_folder: PKLot/640/train/
       json: PKLot/640/train/${odinw_train.train_file}.json
   - name: Packages
-    val:
-      img_folder: Packages/Raw/test/
-      json: Packages/Raw/test/annotations_without_background.json
     train:
       img_folder: Packages/Raw/train/
       json: Packages/Raw/train/${odinw_train.train_file}.json
   - name: PascalVOC
-    val:
-      img_folder: PascalVOC/valid/
-      json: PascalVOC/valid/annotations_without_background.json
     train:
       img_folder: PascalVOC/train/
       json:  PascalVOC/train/${odinw_train.train_file}.json
   - name: Raccoon
-    val:
-      img_folder: Raccoon/Raccoon.v2-raw.coco/test/
-      json: Raccoon/Raccoon.v2-raw.coco/test/annotations_without_background.json
     train:
       img_folder: Raccoon/Raccoon.v2-raw.coco/train/
       json: Raccoon/Raccoon.v2-raw.coco/train/${odinw_train.train_file}.json
   - name: ShellfishOpenImages
-    val:
-      img_folder: ShellfishOpenImages/raw/test/
-      json: ShellfishOpenImages/raw/test/annotations_without_background.json
     train:
       img_folder: ShellfishOpenImages/raw/train/
       json: ShellfishOpenImages/raw/train/${odinw_train.train_file}.json
   - name: ThermalCheetah
-    val:
-      img_folder: ThermalCheetah/test/
-      json: ThermalCheetah/test/annotations_without_background.json
     train:
       img_folder: ThermalCheetah/train/
       json: ThermalCheetah/train/${odinw_train.train_file}.json
   - name: UnoCards
-    val:
-      img_folder: UnoCards/raw/test/
-      json: UnoCards/raw/test/annotations_without_background.json
     train:
       img_folder: UnoCards/raw/train/
       json: UnoCards/raw/train/${odinw_train.train_file}.json
   - name: VehiclesOpenImages
-    val:
-      img_folder: VehiclesOpenImages/416x416/test/
-      json: VehiclesOpenImages/416x416/test/annotations_without_background.json
     train:
       img_folder: VehiclesOpenImages/416x416/train/
       json: VehiclesOpenImages/416x416/train/${odinw_train.train_file}.json
   - name: WildfireSmoke
-    val:
-      img_folder: WildfireSmoke/test/
-      json: WildfireSmoke/test/annotations_without_background.json
     train:
       img_folder: WildfireSmoke/train/
       json: WildfireSmoke/train/${odinw_train.train_file}.json
   - name: brackishUnderwater
-    val:
-      img_folder: brackishUnderwater/960x540/test/
-      json: brackishUnderwater/960x540/test/annotations_without_background.json
     train:
       img_folder: brackishUnderwater/960x540/train/
       json: brackishUnderwater/960x540/train/${odinw_train.train_file}.json
   - name: openPoetryVision
-    val:
-      img_folder: openPoetryVision/512x512/test/
-      json: openPoetryVision/512x512/test/annotations_without_background.json
     train:
       img_folder: openPoetryVision/512x512/train/
       json: openPoetryVision/512x512/train/${odinw_train.train_file}.json
   - name: plantdoc_416
-    val:
-      img_folder: plantdoc/416x416/test/
-      json: plantdoc/416x416/test/annotations_without_background.json
     train:
       img_folder: plantdoc/416x416/train/
       json: plantdoc/416x416/train/${odinw_train.train_file}.json
   - name: pothole
-    val:
-      img_folder: pothole/test/
-      json: pothole/test/annotations_without_background.json
     train:
       img_folder: pothole/train/
       json: pothole/train/${odinw_train.train_file}.json
   - name: thermalDogsAndPeople
-    val:
-      img_folder: thermalDogsAndPeople/test/
-      json: thermalDogsAndPeople/test/annotations_without_background.json
     train:
       img_folder: thermalDogsAndPeople/train/
       json: thermalDogsAndPeople/train/${odinw_train.train_file}.json
   - name: websiteScreenshots
-    val:
-      img_folder: websiteScreenshots/test/
-      json: websiteScreenshots/test/annotations_without_background.json
     train:
       img_folder: websiteScreenshots/train/
       json: websiteScreenshots/train/${odinw_train.train_file}.json
   - name: boggleBoards
-    val:
-      img_folder: boggleBoards/416x416AutoOrient/export/
-      json: boggleBoards/416x416AutoOrient/export/test_annotations_without_background.json
     train:
       img_folder: boggleBoards/416x416AutoOrient/export/
       json: boggleBoards/416x416AutoOrient/export/${odinw_train.train_file}.json
   - name: dice
-    val:
-      img_folder: dice/mediumColor/export/
-      json: dice/mediumColor/export/test_annotations_without_background.json
     train:
       img_folder: dice/mediumColor/export/
       json: dice/mediumColor/export/${odinw_train.train_file}.json
   - name: pistols
-    val:
-      img_folder: pistols/export/
-      json: pistols/export/test_annotations_without_background.json
     train:
       img_folder: pistols/export/
       json: pistols/export/${odinw_train.train_file}.json
   - name: selfdrivingCar
-    val:
-      img_folder: selfdrivingCar/fixedLarge/export/
-      json: selfdrivingCar/fixedLarge/export/test_annotations_without_background.json
     train:
       img_folder: selfdrivingCar/fixedLarge/export/
       json: selfdrivingCar/fixedLarge/export/${odinw_train.train_file}.json

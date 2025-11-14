@@ -6,9 +6,10 @@ defaults:
 # Paths Configuration (Chage this to your own paths)
 # ============================================================================
 paths:
-  checkpoint_path: /home/kalyanv/sam3/assets/checkpoints/checkpoint_model_only_presence_0_5.pt
+  checkpoint_path: /checkpoint/sam3/haithamkhedr/workspace/sam3/assets/sam3.pt
   roboflow_vl_100_root: /checkpoint/sam3/kalyanv/datasets/all_rf100/rf100-vl #/checkpoint/onevision/datasets/all_rf100/rf100-vl
-  experiment_log_dir:  /home/kalyanv/roboflow_dbg #/checkpoint/onevision/kalyanv/sam3_oss_train_dump_after_cleanup_lr_0_1
+  experiment_log_dir: /checkpoint/sam3/${oc.env:USER}/sam3_paper_repro/roboflow_v100_v2
+  bpe_path: /checkpoint/sam3/haithamkhedr/workspace/sam3/assets/bpe_simple_vocab_16e6.txt.gz
 
 # Roboflow dataset configuration
 roboflow_train:
@@ -219,7 +220,6 @@ scratch:
   scheduler_warmup: 20
   scheduler_cooldown: 20
 
-  train_batch_size : ${scratch.gradient_accumulation_steps}
   val_batch_size: 1
   collate_fn_val:
     _target_: sam3.train.data.collator.collate_fn_api
@@ -237,16 +237,6 @@ scratch:
     dict_key: all
     with_seg_masks: ${scratch.enable_segmentation} # Note: Set this to true if using segmentation masks!
 
-  # Note: usin this setting if using gradient accumulation
-  # gradient_accumulation_steps: 2
-  # collate_fn:
-  #   _target_: sam3.train.data.collator.collate_fn_api_with_chunking
-  #   _partial_: true
-  #   num_chunks: ${scratch.gradient_accumulation_steps}
-  #   repeats: ${scratch.hybrid_repeats}
-  #   dict_key: all
-  #   with_seg_masks:  ${scratch.enable_segmentation} # Note: Set this to true if using segmentation masks!
-
 # ============================================================================
 # Trainer Configuration
 # ============================================================================
@@ -261,7 +251,7 @@ trainer:
   accelerator: cuda
   seed_value: 123
   val_epoch_freq: 10
-  mode: train
+  mode: val
   gradient_accumulation_steps: ${scratch.gradient_accumulation_steps}
 
   distributed:
@@ -323,12 +313,11 @@ trainer:
       collate_fn: ${scratch.collate_fn_val}
 
 
-  # TODO (Kalyan): Expose more model parameters, droppath rate, dropout, etc
   model:
     _target_: sam3.model_builder.build_sam3_image_model
-    bpe_path: /home/kalyanv/sam3/assets/bpe_simple_vocab_16e6.txt.gz
+    bpe_path: ${paths.bpe_path}
     device: cpus
-    eval_mode: false
+    eval_mode: true
     enable_segmentation: ${scratch.enable_segmentation} # Warning: Enable this if using segmentation.
     checkpoint_path: ${paths.checkpoint_path}
 
