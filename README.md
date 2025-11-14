@@ -2,14 +2,11 @@
 
 Meta Superintelligence Labs
 
-Nicolas Carion $^{\*}$, Laura Gustafson $^{\*}$, Yuan-Ting Hu $^{\*}$, Shoubhik Debnath $^{\*}$, Ronghang Hu $^{\*}$, Didac Suris $^{\*}$,
-Chaitanya Ryali $^{\*}$, Kalyan Vasudev Alwala $^{\*}$, Haitham Khedr $^{\*}$, Andrew Huang, Jie Lei, Tengyu Ma, Baishan
-Guo, Arpit Kalla, Markus Marks, Joseph Greer, Meng Wang, Peize Sun, Roman Rädle, Triantafyllos
-Afouras, Effrosyni Mavroudi, Katherine Xu $^{◦}$, Tsung-Han Wu $^{◦}$, Yu Zhou $^{◦}$, Liliane Momeni $^{◦}$, Rishi Hazra $^{◦}$,
-Shuangrui Ding $^{◦}$, Sagar Vaze $^{◦}$, Francois Porcher $^{◦}$, Feng Li $^{◦}$, Siyuan Li $^{◦}$, Aishwarya Kamath $^{◦}$, Ho Kei
-Cheng $^{◦}$, Piotr Dollar $^{\dagger}$, Nikhila Ravi $^{\dagger}$, Kate Saenko $^{\dagger}$, Pengchuan Zhang $^{\dagger}$, Christoph Feichtenhofer $^{\dagger}$
+[Nicolas Carion](https://AUTHOR_WEBSITE)\*, [Laura Gustafson](https://AUTHOR_WEBSITE)\*, [Yuan-Ting Hu](https://AUTHOR_WEBSITE)\*, [Shoubhik Debnath](https://AUTHOR_WEBSITE)\*, [Ronghang Hu](https://AUTHOR_WEBSITE)\*, [Didac Suris](https://AUTHOR_WEBSITE)\*,
+[Chaitanya Ryali](https://AUTHOR_WEBSITE)\*, [Kalyan Vasudev Alwala](https://AUTHOR_WEBSITE)\*, [Haitham Khedr](https://AUTHOR_WEBSITE)\*, [Andrew Huang](https://AUTHOR_WEBSITE), [Jie Lei](https://AUTHOR_WEBSITE), [Tengyu Ma](https://AUTHOR_WEBSITE), [Baishan Guo](https://AUTHOR_WEBSITE), [Arpit Kalla](https://AUTHOR_WEBSITE), [Markus Marks](https://AUTHOR_WEBSITE), [Joseph Greer](https://AUTHOR_WEBSITE), [Meng Wang](https://AUTHOR_WEBSITE), [Peize Sun](https://AUTHOR_WEBSITE), [Roman Rädle](https://AUTHOR_WEBSITE), [Triantafyllos Afouras](https://AUTHOR_WEBSITE), [Effrosyni Mavroudi](https://AUTHOR_WEBSITE), [Katherine Xu](https://AUTHOR_WEBSITE)°, [Tsung-Han Wu](https://AUTHOR_WEBSITE)°, [Yu Zhou](https://AUTHOR_WEBSITE)°, [Liliane Momeni](https://AUTHOR_WEBSITE)°, [Rishi Hazra](https://AUTHOR_WEBSITE)°,
+[Shuangrui Ding](https://AUTHOR_WEBSITE)°, [Sagar Vaze](https://AUTHOR_WEBSITE)°, [Francois Porcher](https://AUTHOR_WEBSITE)°, [Feng Li](https://AUTHOR_WEBSITE)°, [Siyuan Li](https://AUTHOR_WEBSITE)°, [Aishwarya Kamath](https://AUTHOR_WEBSITE)°, [Ho Kei Cheng](https://AUTHOR_WEBSITE)°, [Piotr Dollar](https://AUTHOR_WEBSITE)†, [Nikhila Ravi](https://AUTHOR_WEBSITE)†, [Kate Saenko](https://AUTHOR_WEBSITE)†, [Pengchuan Zhang](https://AUTHOR_WEBSITE)†, [Christoph Feichtenhofer](https://AUTHOR_WEBSITE)†
 
-$^{\*}$ core contributor, $^{◦}$ intern, $^{\dagger}$ project lead, order is random within groups
+\* core contributor, ° intern, † project lead, order is random within groups
 
 [[`Paper`](LINK_TO_PAPER)] [[`Project`](LINK_TO_PROJECT)] [[`Demo`](LINK_TO_DEMO)] [[`Dataset`](LINK_TO_DATASET)] [[`Blog`](LINK_TO_BLOG)] [[`BibTeX`](HOW_TO_CITE)]
 
@@ -130,7 +127,7 @@ jupyter notebook examples/sam3_image_predictor_example.ipynb
 ## Model
 SAM 3 consists of a detector and a tracker that share a vision encoder. The detector is a DETR-based model conditioned on text, geometry, and image exemplars. The tracker inherits the SAM 2 transformer encoder-decoder architecture, supporting video segmentation and interactive refinement.
 
-## Image Results (TODO: Select few baselines/metrics, or screenshot table from paper)
+## Image Results
 
 <div align="center">
 <table style="min-width: 80%; border: 2px solid #ddd; border-collapse: collapse">
@@ -162,61 +159,64 @@ SAM 3 consists of a detector and a tracker that share a vision encoder. The dete
   <tbody>
     <tr>
       <td style="border-right: 2px solid #ddd; padding: 10px 20px">Human</td>
-      <td style="text-align: center; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; border-right: 2px solid #ddd; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; padding: 10px 20px">0.0</td>
+      <td style="text-align: center; padding: 10px 20px">-</td>
+      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">-</td>
+      <td style="text-align: center; border-right: 2px solid #ddd; padding: 10px 20px">72.8</td>
+      <td style="text-align: center; padding: 10px 20px">-</td>
+      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">-</td>
+      <td style="text-align: center; padding: 10px 20px">-</td>
+      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">-</td>
+      <td style="text-align: center; padding: 10px 20px">74.0</td>
     </tr>
     <tr>
       <td style="border-right: 2px solid #ddd; padding: 10px 20px">OWLv2*</td>
-      <td style="text-align: center; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; border-right: 2px solid #ddd; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; padding: 10px 20px">0.0</td>
+      <td style="text-align: center; padding: 10px 20px; color: #999">29.3</td>
+      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px; color: #999">43.4</td>
+      <td style="text-align: center; border-right: 2px solid #ddd; padding: 10px 20px">24.6</td>
+      <td style="text-align: center; padding: 10px 20px; color: #999">30.2</td>
+      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px; color: #999">45.5</td>
+      <td style="text-align: center; padding: 10px 20px">46.1</td>
+      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">23.9</td>
+      <td style="text-align: center; padding: 10px 20px">24.5</td>
     </tr>
     <tr>
       <td style="border-right: 2px solid #ddd; padding: 10px 20px">DINO-X</td>
-      <td style="text-align: center; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; border-right: 2px solid #ddd; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; padding: 10px 20px">0.0</td>
+      <td style="text-align: center; padding: 10px 20px">-</td>
+      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">38.5</td>
+      <td style="text-align: center; border-right: 2px solid #ddd; padding: 10px 20px">21.3</td>
+      <td style="text-align: center; padding: 10px 20px">-</td>
+      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">52.4</td>
+      <td style="text-align: center; padding: 10px 20px">56.0</td>
+      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">-</td>
+      <td style="text-align: center; padding: 10px 20px">22.5</td>
     </tr>
     <tr>
       <td style="border-right: 2px solid #ddd; padding: 10px 20px">Gemini 2.5</td>
-      <td style="text-align: center; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; border-right: 2px solid #ddd; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; padding: 10px 20px">0.0</td>
+      <td style="text-align: center; padding: 10px 20px">13.4</td>
+      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">-</td>
+      <td style="text-align: center; border-right: 2px solid #ddd; padding: 10px 20px">13.0</td>
+      <td style="text-align: center; padding: 10px 20px">16.1</td>
+      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">-</td>
+      <td style="text-align: center; padding: 10px 20px">-</td>
+      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">-</td>
+      <td style="text-align: center; padding: 10px 20px">14.4</td>
     </tr>
-    <tr>
+    <tr style="border-top: 2px solid #b19c9cff">
       <td style="border-right: 2px solid #ddd; padding: 10px 20px">SAM 3</td>
-      <td style="text-align: center; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; border-right: 2px solid #ddd; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; padding: 10px 20px">0.0</td>
+      <td style="text-align: center; padding: 10px 20px">37.2</td>
+      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">48.5</td>
+      <td style="text-align: center; border-right: 2px solid #ddd; padding: 10px 20px">53.9</td>
+      <td style="text-align: center; padding: 10px 20px">40.6</td>
+      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">53.6</td>
+      <td style="text-align: center; padding: 10px 20px">56.4</td>
+      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">55.7</td>
+      <td style="text-align: center; padding: 10px 20px">55.5</td>
     </tr>
   </tbody>
 </table>
+
+<p style="text-align: left; margin-top: 10px; font-size: 0.9em; color: #ddd;">* Partially trained on LVIS</p>
+
 </div>
 
 ## Video Results
@@ -246,25 +246,25 @@ SAM 3 consists of a detector and a tracker that share a vision encoder. The dete
   <tbody>
     <tr>
       <td style="border-right: 2px solid #ddd; padding: 10px 20px">Human</td>
-      <td style="text-align: center; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; padding: 10px 20px">0.0</td>
+      <td style="text-align: center; padding: 10px 20px">53.1</td>
+      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">70.5</td>
+      <td style="text-align: center; padding: 10px 20px">71.2</td>
+      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">78.4</td>
+      <td style="text-align: center; padding: 10px 20px">58.5</td>
+      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">72.3</td>
+      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">-</td>
+      <td style="text-align: center; padding: 10px 20px">-</td>
     </tr>
-    <tr>
+    <tr style="border-top: 2px solid #b19c9cff">
       <td style="border-right: 2px solid #ddd; padding: 10px 20px">SAM 3</td>
-      <td style="text-align: center; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; padding: 10px 20px">0.0</td>
+      <td style="text-align: center; padding: 10px 20px">30.3</td>
+      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">58.0</td>
+      <td style="text-align: center; padding: 10px 20px">50.8</td>
+      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">69.9</td>
+      <td style="text-align: center; padding: 10px 20px">36.4</td>
+      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">63.6</td>
+      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">36.3</td>
+      <td style="text-align: center; padding: 10px 20px">44.5</td>
     </tr>
   </tbody>
 </table>
