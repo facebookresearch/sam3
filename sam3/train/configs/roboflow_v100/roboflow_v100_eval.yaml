@@ -251,7 +251,7 @@ trainer:
   accelerator: cuda
   seed_value: 123
   val_epoch_freq: 10
-  mode: train
+  mode: val
   gradient_accumulation_steps: ${scratch.gradient_accumulation_steps}
 
   distributed:
@@ -317,7 +317,7 @@ trainer:
     _target_: sam3.model_builder.build_sam3_image_model
     bpe_path: ${paths.bpe_path}
     device: cpus
-    eval_mode: false
+    eval_mode: true
     enable_segmentation: ${scratch.enable_segmentation} # Warning: Enable this if using segmentation.
     checkpoint_path: ${paths.checkpoint_path}
 
