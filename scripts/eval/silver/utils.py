@@ -16,7 +16,7 @@ from tqdm import tqdm
 
 annotation_files = {
     "droid": [
-        "silver_droids_merged_test.json",
+        "silver_droid_merged_test.json",
     ],
     "sav": [
         "silver_sav_merged_test.json",
