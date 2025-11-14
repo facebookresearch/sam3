@@ -17,8 +17,8 @@ SAM 3 is a unified foundation model for visual grounding in images and videos. S
 
 
 <p align="center">
-  <img src="assets/dog.gif" width="480" />
-  <img src="assets/player.gif" width="480" /> 
+  <img src="assets/dog.gif" width="460" />
+  <img src="assets/player.gif" width="460" /> 
 </p>
 
 
