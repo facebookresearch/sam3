@@ -19,8 +19,6 @@ SAM 3 is a unified foundation model for promptable segmentation in images and vi
 </p>
 
 
-A sample of SAM 3 predictions
-
 ## Installation
 
 ### Prerequisites
