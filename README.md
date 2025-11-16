@@ -1,15 +1,58 @@
 # SAM 3: Segment Anything with Concepts
 
-**Meta Superintelligence Labs (TODO: Is there a link?)**
+Meta Superintelligence Labs
 
-[TODO: Add authors -- if too long add at the end]
+[Nicolas Carion](https://www.nicolascarion.com/)\*,
+[Laura Gustafson](https://scholar.google.com/citations?user=c8IpF9gAAAAJ&hl=en)\*,
+[Yuan-Ting Hu](https://scholar.google.com/citations?user=E8DVVYQAAAAJ&hl=en)\*,
+[Shoubhik Debnath](https://scholar.google.com/citations?user=fb6FOfsAAAAJ&hl=en)\*,
+[Ronghang Hu](https://ronghanghu.com/)\*,
+[Didac Suris](https://www.didacsuris.com/)\*,
+[Chaitanya Ryali](https://scholar.google.com/citations?user=4LWx24UAAAAJ&hl=en)\*,
+[Kalyan Vasudev Alwala](https://scholar.google.co.in/citations?user=m34oaWEAAAAJ&hl=en)\*,
+[Haitham Khedr](https://hkhedr.com/)\*, Andrew Huang,
+[Jie Lei](https://jayleicn.github.io/),
+[Tengyu Ma](https://scholar.google.com/citations?user=VeTSl0wAAAAJ&hl=en),
+[Baishan Guo](https://scholar.google.com/citations?user=BC5wDu8AAAAJ&hl=en),
+Arpit Kalla, [Markus Marks](https://damaggu.github.io/),
+[Joseph Greer](https://scholar.google.com/citations?user=guL96CkAAAAJ&hl=en),
+Meng Wang, [Peize Sun](https://peizesun.github.io/),
+[Roman Rädle](https://scholar.google.com/citations?user=Tpt57v0AAAAJ&hl=en),
+[Triantafyllos Afouras](https://www.robots.ox.ac.uk/~afourast/),
+[Effrosyni Mavroudi](https://scholar.google.com/citations?user=vYRzGGEAAAAJ&hl=en),
+[Katherine Xu](https://k8xu.github.io/)°,
+[Tsung-Han Wu](https://patrickthwu.com/)°,
+[Yu Zhou](https://yu-bryan-zhou.github.io/)°,
+[Liliane Momeni](https://scholar.google.com/citations?user=Lb-KgVYAAAAJ&hl=en)°,
+[Rishi Hazra](https://rishihazra.github.io/)°,
+[Shuangrui Ding](https://mark12ding.github.io/)°,
+[Sagar Vaze](https://sgvaze.github.io/)°,
+[Francois Porcher](https://scholar.google.com/citations?user=LgHZ8hUAAAAJ&hl=en)°,
+[Feng Li](https://fengli-ust.github.io/)°,
+[Siyuan Li](https://siyuanliii.github.io/)°,
+[Aishwarya Kamath](https://ashkamath.github.io/)°,
+[Ho Kei Cheng](https://hkchengrex.com/)°,
+[Piotr Dollar](https://pdollar.github.io/)†,
+[Nikhila Ravi](https://nikhilaravi.com/)†,
+[Kate Saenko](https://ai.bu.edu/ksaenko.html)†,
+[Pengchuan Zhang](https://pzzhang.github.io/pzzhang/)†,
+[Christoph Feichtenhofer](https://feichtenhofer.github.io/)†
 
-[[`Paper`](LINK_TO_PAPER)] [[`Project`](LINK_TO_PROJECT)] [[`Demo`](LINK_TO_DEMO)] [[`Dataset`](LINK_TO_DATASET)] [[`Blog`](LINK_TO_BLOG)] [[`BibTeX`](HOW_TO_CITE)]
+\* core contributor, ° intern, † project lead, order is random within groups
 
-![SAM 3 architecture](assets/model_diagram.png?raw=true)
-SAM 3 is a unified foundation model for visual grounding in images and videos. SAM 3 detects, segments, and tracks objects using text and geometric prompts such as points, boxes, and masks. We build a scalable a data engine that leverages SAM 3, human annotators, and AI models in the loop, which allows dramatic speed-ups in annotation. This allowed us to create SA-Co training dataset set with over **4 million unique concepts**, the largest high-quality open-vocab segmentation dataset to date. (TODO: We might need to set the tone here because we don't release the training set)
+[[`Paper`](LINK_TO_PAPER)] [[`Project`](LINK_TO_PROJECT)]
+[[`Demo`](https://www.aidemos.meta.com/segment-anything)]
+[[`Dataset`](LINK_TO_DATASET)] [[`Blog`](LINK_TO_BLOG)]
+[[`BibTeX`](#citing-sam-3)]
 
-![SA-Co dataset](assets/sa_co_dataset.jpg?raw=true)
+![SAM 3 architecture](assets/model_diagram.png?raw=true) SAM 3 is a unified foundation model for promptable segmentation in images and videos. It can detect, segment, and track objects using text or visual prompts such as points, boxes, and masks. Compared to its predecessor [SAM 2](https://github.com/facebookresearch/sam2), SAM 3 introduces the ability to exhaustively segment all instances of an open-vocabulary concept specified by a short text phrase or exemplars. Unlike prior work, SAM 3 can handle a vastly larger set of open-vocabulary prompts. It achieves 75-80% of human performance on our new [SA-CO benchmark](https://github.com/facebookresearch/sam3/edit/main_readme/README.md#sa-co-dataset) which contains 270K unique concepts, over 50 times more than existing benchmarks.
+
+This breakthrough is driven by an innovative data engine that has automatically annotated over 4 million unique concepts, creating the largest high-quality open-vocabulary segmentation dataset to date. In addition, SAM 3 introduces a new model architecture featuring a presence token that improves discrimination between closely related text prompts (e.g., “a player in white” vs. “a player in red”), as well as a decoupled detector–tracker design that minimizes task interference and scales efficiently with data.
+
+<p align="center">
+  <img src="assets/dog.gif" width=380 />
+  <img src="assets/player.gif" width=380 />
+</p>
 
 ## Installation
 
@@ -18,7 +61,6 @@ SAM 3 is a unified foundation model for visual grounding in images and videos. S
 - Python 3.12 or higher
 - PyTorch 2.7 or higher
 - CUDA-compatible GPU with CUDA 12.6 or higher
-
 
 1. **Create a new Conda environment:**
 
@@ -53,6 +95,12 @@ pip install -e ".[train,dev]"
 ```
 
 ## Getting Started
+
+⚠️ Before using SAM 3, please request access to the checkpoints on the SAM 3
+Hugging Face [repo](https://huggingface.co/facebook/sam3). Once accepted, you
+need to be authenticated to download the checkpoints. You can do this by running
+the following [steps](https://huggingface.co/docs/huggingface_hub/en/quick-start#authentication)
+(e.g. `hf auth login` after generating an access token.)
 
 ### Basic Usage
 
@@ -100,16 +148,27 @@ output = response["outputs"]
 
 ## Examples
 
-The `examples` directory contains notebooks demonstrating how to use SAM3 with various types of prompts:
+The `examples` directory contains notebooks demonstrating how to use SAM3 with
+various types of prompts:
 
-- [`sam3_image_predictor_example.ipynb`](examples/sam3_image_predictor_example.ipynb) : Demonstrates how to prompt SAM 3 with text and visual box prompts on images.
-- [`sam3_video_predictor_example.ipynb`](examples/sam3_video_predictor_example.ipynb) : Demonstrates how to prompt SAM 3 with text prompts on videos, and doing further interactive refinements with points.
-- [`sam3_image_batched_inference.ipynb`](examples/sam3_image_batched_inference.ipynb) : Demonstrates how to run batched inference with SAM 3 on images.
-- [`sam3_agent.ipynb`](examples/sam3_agent.ipynb): Demonsterates the use of SAM 3 Agent to segment complex text prompt on images.
-- [`saco_gold_silver_vis_example.ipynb`](examples/saco_gold_silver_vis_example.ipynb) : Shows a few examples from SA-Co image evaluation set.
-- [`saco_veval_vis_example.ipynb`](examples/saco_veval_vis_example.ipynb) : Shows a few examples from SA-Co video evaluation set.
+- [`sam3_image_predictor_example.ipynb`](examples/sam3_image_predictor_example.ipynb)
+  : Demonstrates how to prompt SAM 3 with text and visual box prompts on images.
+- [`sam3_video_predictor_example.ipynb`](examples/sam3_video_predictor_example.ipynb)
+  : Demonstrates how to prompt SAM 3 with text prompts on videos, and doing
+  further interactive refinements with points.
+- [`sam3_image_batched_inference.ipynb`](examples/sam3_image_batched_inference.ipynb)
+  : Demonstrates how to run batched inference with SAM 3 on images.
+- [`sam3_agent.ipynb`](examples/sam3_agent.ipynb): Demonsterates the use of SAM
+  3 Agent to segment complex text prompt on images.
+- [`saco_gold_silver_vis_example.ipynb`](examples/saco_gold_silver_vis_example.ipynb)
+  : Shows a few examples from SA-Co image evaluation set.
+- [`saco_veval_vis_example.ipynb`](examples/saco_veval_vis_example.ipynb) :
+  Shows a few examples from SA-Co video evaluation set.
 
-There are additional notebooks in the examples directory that demonstrate how to use SAM 3 for interactive instance segmentation in images and videos (SAM 1/2 tasks), or as a tool for an MLLM, and how to run evaluations on the SA-Co dataset.
+There are additional notebooks in the examples directory that demonstrate how to
+use SAM 3 for interactive instance segmentation in images and videos (SAM 1/2
+tasks), or as a tool for an MLLM, and how to run evaluations on the SA-Co
+dataset.
 
 To run the Jupyter notebook examples:
 
@@ -122,9 +181,13 @@ jupyter notebook examples/sam3_image_predictor_example.ipynb
 ```
 
 ## Model
-SAM 3 consists of a detector and a tracker that share a vision encoder. The detector is a DETR-based model conditioned on text, geometry, and image exemplars. The tracker inherits the SAM 2 transformer encoder-decoder architecture, supporting video segmentation and interactive refinement.
 
-## Image Results (TODO: Select few baselines/metrics, or screenshot table from paper)
+SAM 3 consists of a detector and a tracker that share a vision encoder. The
+detector is a DETR-based model conditioned on text, geometry, and image
+exemplars. The tracker inherits the SAM 2 transformer encoder-decoder
+architecture, supporting video segmentation and interactive refinement.
+
+## Image Results
 
 <div align="center">
 <table style="min-width: 80%; border: 2px solid #ddd; border-collapse: collapse">
@@ -156,61 +219,64 @@ SAM 3 consists of a detector and a tracker that share a vision encoder. The dete
   <tbody>
     <tr>
       <td style="border-right: 2px solid #ddd; padding: 10px 20px">Human</td>
-      <td style="text-align: center; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; border-right: 2px solid #ddd; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; padding: 10px 20px">0.0</td>
+      <td style="text-align: center; padding: 10px 20px">-</td>
+      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">-</td>
+      <td style="text-align: center; border-right: 2px solid #ddd; padding: 10px 20px">72.8</td>
+      <td style="text-align: center; padding: 10px 20px">-</td>
+      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">-</td>
+      <td style="text-align: center; padding: 10px 20px">-</td>
+      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">-</td>
+      <td style="text-align: center; padding: 10px 20px">74.0</td>
     </tr>
     <tr>
       <td style="border-right: 2px solid #ddd; padding: 10px 20px">OWLv2*</td>
-      <td style="text-align: center; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; border-right: 2px solid #ddd; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; padding: 10px 20px">0.0</td>
+      <td style="text-align: center; padding: 10px 20px; color: #999">29.3</td>
+      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px; color: #999">43.4</td>
+      <td style="text-align: center; border-right: 2px solid #ddd; padding: 10px 20px">24.6</td>
+      <td style="text-align: center; padding: 10px 20px; color: #999">30.2</td>
+      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px; color: #999">45.5</td>
+      <td style="text-align: center; padding: 10px 20px">46.1</td>
+      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">23.9</td>
+      <td style="text-align: center; padding: 10px 20px">24.5</td>
     </tr>
     <tr>
       <td style="border-right: 2px solid #ddd; padding: 10px 20px">DINO-X</td>
-      <td style="text-align: center; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; border-right: 2px solid #ddd; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; padding: 10px 20px">0.0</td>
+      <td style="text-align: center; padding: 10px 20px">-</td>
+      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">38.5</td>
+      <td style="text-align: center; border-right: 2px solid #ddd; padding: 10px 20px">21.3</td>
+      <td style="text-align: center; padding: 10px 20px">-</td>
+      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">52.4</td>
+      <td style="text-align: center; padding: 10px 20px">56.0</td>
+      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">-</td>
+      <td style="text-align: center; padding: 10px 20px">22.5</td>
     </tr>
     <tr>
       <td style="border-right: 2px solid #ddd; padding: 10px 20px">Gemini 2.5</td>
-      <td style="text-align: center; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; border-right: 2px solid #ddd; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; padding: 10px 20px">0.0</td>
+      <td style="text-align: center; padding: 10px 20px">13.4</td>
+      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">-</td>
+      <td style="text-align: center; border-right: 2px solid #ddd; padding: 10px 20px">13.0</td>
+      <td style="text-align: center; padding: 10px 20px">16.1</td>
+      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">-</td>
+      <td style="text-align: center; padding: 10px 20px">-</td>
+      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">-</td>
+      <td style="text-align: center; padding: 10px 20px">14.4</td>
     </tr>
-    <tr>
+    <tr style="border-top: 2px solid #b19c9cff">
       <td style="border-right: 2px solid #ddd; padding: 10px 20px">SAM 3</td>
-      <td style="text-align: center; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; border-right: 2px solid #ddd; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; padding: 10px 20px">0.0</td>
+      <td style="text-align: center; padding: 10px 20px">37.2</td>
+      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">48.5</td>
+      <td style="text-align: center; border-right: 2px solid #ddd; padding: 10px 20px">53.9</td>
+      <td style="text-align: center; padding: 10px 20px">40.6</td>
+      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">53.6</td>
+      <td style="text-align: center; padding: 10px 20px">56.4</td>
+      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">55.7</td>
+      <td style="text-align: center; padding: 10px 20px">55.5</td>
     </tr>
   </tbody>
 </table>
+
+<p style="text-align: center; margin-top: 10px; font-size: 0.9em; color: #ddd;">* Partially trained on LVIS, AP<sub>o</sub> refers to COCO-O accuracy</p>
+
 </div>
 
 ## Video Results
@@ -240,25 +306,25 @@ SAM 3 consists of a detector and a tracker that share a vision encoder. The dete
   <tbody>
     <tr>
       <td style="border-right: 2px solid #ddd; padding: 10px 20px">Human</td>
-      <td style="text-align: center; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; padding: 10px 20px">0.0</td>
+      <td style="text-align: center; padding: 10px 20px">53.1</td>
+      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">70.5</td>
+      <td style="text-align: center; padding: 10px 20px">71.2</td>
+      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">78.4</td>
+      <td style="text-align: center; padding: 10px 20px">58.5</td>
+      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">72.3</td>
+      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">-</td>
+      <td style="text-align: center; padding: 10px 20px">-</td>
     </tr>
-    <tr>
+    <tr style="border-top: 2px solid #b19c9cff">
       <td style="border-right: 2px solid #ddd; padding: 10px 20px">SAM 3</td>
-      <td style="text-align: center; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">0.0</td>
-      <td style="text-align: center; padding: 10px 20px">0.0</td>
+      <td style="text-align: center; padding: 10px 20px">30.3</td>
+      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">58.0</td>
+      <td style="text-align: center; padding: 10px 20px">50.8</td>
+      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">69.9</td>
+      <td style="text-align: center; padding: 10px 20px">36.4</td>
+      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">63.6</td>
+      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">36.3</td>
+      <td style="text-align: center; padding: 10px 20px">44.5</td>
     </tr>
   </tbody>
 </table>
@@ -266,30 +332,53 @@ SAM 3 consists of a detector and a tracker that share a vision encoder. The dete
 
 ## SA-Co Dataset
 
-We release 2 image benchmarks, [SA-Co gold](scripts/eval/gold/README.md) and [SA-Co silver](scripts/eval/silver/README.md), and a video benchmark [SA-Co/VEval](scripts/eval/veval/README.md). See the linked READMEs for more details.
+We release 2 image benchmarks, [SA-Co gold](scripts/eval/gold/README.md) and
+[SA-Co silver](scripts/eval/silver/README.md), and a video benchmark
+[SA-Co/VEval](scripts/eval/veval/README.md). See the linked READMEs for more
+details on how to download and run evaluations on the datasets.
+
+![SA-Co dataset](assets/sa_co_dataset.jpg?raw=true)
 
 ## Development
 
 To set up the development environment:
 
 ```bash
-# Make sure you have the development dependencies installed
 pip install -e ".[dev,train]"
 ```
 
 To format the code:
+
 ```bash
 ufmt format .
 ```
 
 ## Contributing
 
-See [contributing](CONTRIBUTING.md) and the [code of conduct](CODE_OF_CONDUCT.md).
+See [contributing](CONTRIBUTING.md) and the
+[code of conduct](CODE_OF_CONDUCT.md).
 
 ## License
 
-This project is licensed under the TODO License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the SAM License - see the [LICENSE](LICENSE) file
+for details.
 
 ## Acknowledgements
 
+We would like to thank the following people for their contributions to the SAM 3 project: Alex He, Alexander Kirillov,
+Alyssa Newcomb, Ana Paula Kirschner Mofarrej, Andrea Madotto, Andrew Westbury, Ashley Gabriel, Azita Shokpour,
+Ben Samples, Bernie Huang, Carleigh Wood, Ching-Feng Yeh, Christian Puhrsch, Claudette Ward, Daniel Bolya,
+Daniel Li, Facundo Figueroa, Fazila Vhora, George Orlin, Hanzi Mao, Helen Klein, Hu Xu, Ida Cheng, Jake Kinney,
+Jiale Zhi, Jo Sampaio, Joel Schlosser, Justin Johnson, Kai Brown, Karen Bergan, Karla Martucci, Kenny Lehmann,
+Maddie Mintz, Mallika Malhotra, Matt Ward, Michelle Chan, Michelle Restrepo, Miranda Hartley, Muhammad Maaz,
+Nisha Deo, Peter Park, Phillip Thomas, Raghu Nayani, Rene Martinez Doehner, Robbie Adkins, Ross Girshik, Sasha
+Mitts, Shashank Jain, Spencer Whitehead, Ty Toledano, Valentin Gabeur, Vincent Cho, Vivian Lee, William Ngan,
+Xuehai He, Yael Yungster, Ziqi Pang, Ziyi Dou, Zoe Quake.
+
+## Citing SAM 3
+
+If you use SAM 3 or the SA-Co dataset in your research, please use the following BibTeX entry.
+
+```bibtex
 TODO
+```
