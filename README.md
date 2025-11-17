@@ -339,8 +339,6 @@ details on how to download and run evaluations on the datasets.
 
 ![SA-Co dataset](assets/sa_co_dataset.jpg?raw=true)
 
-
-
 ## Development
 
 To set up the development environment:
