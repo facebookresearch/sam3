@@ -334,8 +334,11 @@ architecture, supporting video segmentation and interactive refinement.
 
 We release 2 image benchmarks, [SA-Co gold](scripts/eval/gold/README.md) and
 [SA-Co silver](scripts/eval/silver/README.md), and a video benchmark
-[SA-Co/VEval](scripts/eval/veval/README.md). See the linked READMEs for more
-details on how to download and run evaluations on the datasets.
+[SA-Co/VEval](scripts/eval/veval/README.md). The datasets 
+contain images (or videos) with annotated noun phrases. Each image/video 
+and noun phrase pair is annotated with instance masks and unique IDs of each object matching the phrase.
+Phrases that have no matching objects (negative prompts) have no masks, shown in red font in the figure. 
+See the linked READMEs for more details on how to download and run evaluations on the datasets. 
 
 ![SA-Co dataset](assets/sa_co_dataset.jpg?raw=true)
 
