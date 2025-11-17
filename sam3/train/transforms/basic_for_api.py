@@ -1334,7 +1334,6 @@ class MotionBlur:
         return F.to_pil_image(blurred_image.squeeze(0))
 
 
-# LSJ v1, #TODO: implement and test detectron style LSJ
 class LargeScaleJitter:
     def __init__(
         self,

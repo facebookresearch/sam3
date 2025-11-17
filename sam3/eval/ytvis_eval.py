@@ -84,8 +84,7 @@ class YTVISevalMixin:
             return []
 
         # For class mAP and phrase AP evaluation, we sort the detections in descending order of scores (as in COCOeval).
-        # For demo F1 evaluation, we DO NOT sort the detections (but match them with GTs via Hungarian matching,
-        # as in projects/onevision/data/datasets/demo_eval.py).
+        # For demo F1 evaluation, we DO NOT sort the detections (but match them with GTs via Hungarian matching).
         assert hasattr(self, "sort_inds_by_scores_in_iou"), (
             "subclasses that inherits YTVISevalMixin should set `self.sort_inds_by_scores_in_iou` "
             "(True for class mAP and phrase AP, False for demo F1)"
@@ -159,8 +158,7 @@ class YTVISeval(YTVISevalMixin, COCOeval):
 
 
 class VideoDemoF1Eval(YTVISevalMixin, DemoEval):
-    # For demo F1 evaluation, we DO NOT sort the detections (but match them with GTs via Hungarian matching,
-    # as in projects/onevision/data/datasets/demo_eval.py).
+    # For demo F1 evaluation, we DO NOT sort the detections (but match them with GTs via Hungarian matching).
     sort_inds_by_scores_in_iou = False
 
 
@@ -272,7 +270,6 @@ class YTVISResultsWriter:
     Expected flow of API calls: reset() -> N * update() -> compute_synced()
     """
 
-    # TODO: Extend/Use this class to run evaluation after gathering all results, in case we had to chunk datapoint
     def __init__(
         self,
         dump_file: str,

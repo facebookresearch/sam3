@@ -134,7 +134,6 @@ class YTVIS(COCO):
 
     @override
     def loadNumpyAnnotations(self, data):
-        # TODO: Support numpy anns
         raise NotImplementedError("We don't support numpy annotations for now")
 
     @override

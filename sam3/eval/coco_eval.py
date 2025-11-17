@@ -21,8 +21,6 @@ from typing import Any, List, Optional
 
 import numpy as np
 
-# import onevision_cpp_ops as _CPP
-
 import pycocotools.mask as mask_utils
 import torch
 from iopath.common.file_io import g_pathmgr
@@ -169,7 +167,6 @@ class CocoEvaluator:
 
     def update(self, *args, **kwargs):
         self._lazy_init()
-        # TODO: Kalya, check if this is the right design choice!
         predictions = self.postprocessor.process_results(*args, **kwargs)
 
         img_ids = list(np.unique(list(predictions.keys())))

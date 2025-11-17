@@ -570,7 +570,6 @@ class Sam3VideoInference(Sam3VideoBase):
 
     def _compile_model(self):
         """Compile the SAM model with torch.compile for speedup."""
-        # TODO: compile Tracker model components
         is_compiled = getattr(self, "_model_is_compiled", False)
         if is_compiled or not self.compile_model:
             return
@@ -584,7 +583,7 @@ class Sam3VideoInference(Sam3VideoBase):
         torch._dynamo.config.capture_scalar_outputs = True
         torch._dynamo.config.suppress_errors = True
 
-        # Compile module components following https://www.internalfb.com/diff/D70935785
+        # Compile module components
         # skip compilation of `_encode_prompt` since it sometimes tiggger SymInt errors
         # self._encode_prompt = clone_output_wrapper(
         #     torch.compile(self._encode_prompt, fullgraph=True, mode="max-autotune")
@@ -610,7 +609,7 @@ class Sam3VideoInference(Sam3VideoBase):
                 self.detector.transformer.decoder.forward,
                 fullgraph=True,
                 mode="max-autotune",
-                dynamic=False,  # note: FA decoder uses static shapes
+                dynamic=False,
             )
         )
 
@@ -1230,9 +1229,6 @@ class Sam3VideoInferenceWithInstanceInteractivity(Sam3VideoInference):
                 - "propagation_partial": run Tracker propagation for selected objects, useful for add/refine actions
                 - "propagation_fetch": fetch existing VG predictions without running any propagation
             obj_ids: list of object ids to run Tracker propagation on if propagation_type is "propagation_partial".
-
-        TODO: (Jie) this function works for our current workflows, but may need more tests to ensure it works
-        correctly with different action histories for future workflows.
         """
         action_history = inference_state["action_history"]
         if len(action_history) == 0:
@@ -1553,7 +1549,6 @@ class Sam3VideoInferenceWithInstanceInteractivity(Sam3VideoInference):
                     remove_sprinkles=True,
                 )
 
-            # TODO: will this cause issue when user switching to refine another object?
             # Since the mem encoder has already run for the current input points?
             self.tracker.propagate_in_video_preflight(
                 tracker_state, run_mem_encoder=True

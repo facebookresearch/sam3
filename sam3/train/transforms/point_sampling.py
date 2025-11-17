@@ -162,7 +162,7 @@ class RandomGeometricInputsAPI:
     Will sample points and boxes in XYXY format in absolute pixel space.
 
     Geometry queries are currently determined by taking any query whose
-    query text is a set value. TODO: Maybe there are better strategies.
+    query text is a set value.
 
     Args:
       num_points (int or (int, int)): how many points to sample. If a tuple,
@@ -333,7 +333,6 @@ class RandomizeInputBbox:
                 assert isinstance(img, torch.Tensor)
                 h, w = img.shape[-2:]
 
-            # TODO could make noise_box vectorized
             for box_id in range(query.input_bbox.shape[0]):
                 query.input_bbox[box_id, :] = noise_box(
                     query.input_bbox[box_id, :].view(4),

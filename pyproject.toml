@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.8"
 license = {file = "LICENSE"}
 authors = [
-    {name = "Meta AI Research", email = "kalyanv@meta.com"}
+    {name = "Meta AI Research"}
 ]
 classifiers = [
     "Development Status :: 4 - Beta",

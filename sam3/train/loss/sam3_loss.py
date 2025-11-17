@@ -2,8 +2,6 @@
 
 import torch
 
-# from onevision.models.detr.sam3_utils import SAM3Output
-
 from sam3.model.model_misc import SAM3Output
 
 from sam3.train.utils.distributed import get_world_size
@@ -60,7 +58,6 @@ class Sam3LossWrapper(torch.nn.Module):
         self.o2m_matcher = o2m_matcher
         self.o2m_weight = o2m_weight
         # whether to use the o2m matcher on the o2m queries in auxiliary outputs
-        # (the FA 1a_v4.5 implementation does NOT use the o2m matcher on aux)
         self.use_o2m_matcher_on_o2m_aux = use_o2m_matcher_on_o2m_aux
         self.loss_fn_semantic_seg = loss_fn_semantic_seg
         self.scale_by_find_batch_size = scale_by_find_batch_size

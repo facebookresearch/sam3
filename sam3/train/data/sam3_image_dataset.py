@@ -490,7 +490,6 @@ class Sam3ImageDataset(CustomCocoDetectionAPI):
             try:
                 datapoint = super(Sam3ImageDataset, self).__getitem__(idx)
 
-                # TODO Temporary: Filter find_queries with too many outputs
                 # This can be done better by filtering the offending find queries
                 # However, this requires care:
                 # - Delete any find/get query that may depend on the deleted one
@@ -501,7 +500,6 @@ class Sam3ImageDataset(CustomCocoDetectionAPI):
                             f"Too many outputs ({len(q.object_ids_output)})"
                         )
 
-                # TODO Temporary: Filter datapoints with too many find or queries
                 max_queries = (
                     self.max_train_queries if self.training else self.max_val_queries
                 )

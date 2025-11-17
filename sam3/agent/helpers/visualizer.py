@@ -370,8 +370,6 @@ class Visualizer:
     designed to be used for real-time applications.
     """
 
-    # TODO implement a fast, rasterized version using OpenCV
-
     def __init__(
         self,
         img_rgb,
@@ -749,7 +747,6 @@ class Visualizer:
         if num_instances == 0:
             return labels, [], []
         if boxes is not None and boxes.shape[1] == 5:
-            # TODO: fix the output of rotated boxes
             return self.overlay_rotated_instances(
                 boxes=boxes, labels=labels, assigned_colors=assigned_colors
             )
@@ -1278,7 +1275,6 @@ class Visualizer:
                     segment, color=color, edge_color=edge_color, alpha=alpha
                 )
         else:
-            # TODO: Use Path/PathPatch to draw vector graphics:
             # https://stackoverflow.com/questions/8919719/how-to-plot-a-complex-polygon
             rgba = np.zeros(shape2d + (4,), dtype="float32")
             rgba[:, :, :3] = color
@@ -1347,7 +1343,6 @@ class Visualizer:
                         segment, color=color, edge_color=edge_color, alpha=alpha
                     )
             else:
-                # TODO: Use Path/PathPatch to draw vector graphics:
                 # https://stackoverflow.com/questions/8919719/how-to-plot-a-complex-polygon
                 rgba = np.zeros(shape2d + (4,), dtype="float32")
                 rgba[:, :, :3] = color
@@ -1616,7 +1611,6 @@ class Visualizer:
 
         return str(text), text_position
 
-        # TODO sometimes drawn on wrong objects. the heuristics here can improve.
         # _num_cc, cc_labels, stats, centroids = cv2.connectedComponentsWithStats(binary_mask, 8)
         # if stats[1:, -1].size == 0:
         #     return
@@ -1636,7 +1630,6 @@ class Visualizer:
         """
         Find proper places to draw text given a binary mask.
         """
-        # TODO sometimes drawn on wrong objects. the heuristics here can improve.
         _num_cc, cc_labels, stats, centroids = cv2.connectedComponentsWithStats(
             binary_mask, 8
         )

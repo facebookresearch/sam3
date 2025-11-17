@@ -1353,7 +1353,6 @@ class Sam3TrackerPredictor(Sam3TrackerBase):
         """
         Applies non-overlapping constraints object wise (i.e. only one object can claim the overlapping region)
         """
-        # TODO: Try suppression based on IoM here as well.
         # Replace pixel scores with object scores
         pred_masks_single_score = torch.where(
             pred_masks > 0, obj_scores[..., None, None], background_value

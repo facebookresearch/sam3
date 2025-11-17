@@ -461,8 +461,6 @@ class Attention(nn.Module):
             return q, k
 
         assert self.freqs_cis is not None
-        # TODO: allow recomputation of freqs_cis on the fly
-
         return apply_rotary_enc(q, k, freqs_cis=self.freqs_cis)
 
     def forward(self, x: Tensor) -> Tensor:

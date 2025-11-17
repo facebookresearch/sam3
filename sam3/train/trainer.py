@@ -139,7 +139,6 @@ class LoggingConf:
     log_visual_frequency: int = 100
     scalar_keys_to_log: Optional[Dict[str, Any]] = None
     log_batch_stats: bool = False
-    # TODO: Add support for this
     wandb_writer: Optional[Any] = None
 
 

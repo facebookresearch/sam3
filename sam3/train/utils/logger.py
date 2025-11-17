@@ -1,6 +1,5 @@
 # Copyright (c) Meta, Inc. and its affiliates. All Rights Reserved
 
-# Code borrowed from TLC - https://www.internalfb.com/code/fbsource/fbcode/pytorch/tlc/torchtlc/loggers/tensorboard.py
 import atexit
 import functools
 import logging
