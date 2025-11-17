@@ -43,12 +43,12 @@ data/
 The following links provide ready-to-use data, hosted on Roboflow, after completing the pre-processing steps outlined in the next section.
 
 For each domain:
-- https://sa-co.roboflow.com/veval/saco_sav.zip
-- https://sa-co.roboflow.com/veval/saco_yt1b.zip
-- https://sa-co.roboflow.com/veval/saco_sg.zip
+- https://universe.roboflow.com/veval/saco_sav.zip
+- https://universe.roboflow.com/veval/saco_yt1b.zip
+- https://universe.roboflow.com/veval/saco_sg.zip
 
 For full bundle:
-- https://sa-co.roboflow.com/veval/all.zip
+- https://universe.roboflow.com/veval/all.zip
 
 ### Download via preprocessing steps
 #### Download annotations
