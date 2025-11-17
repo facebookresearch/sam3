@@ -244,7 +244,7 @@ odinw35_prompts:
   CottontailRabbits: null
   EgoHands_generic: null
   NorthAmericaMushrooms: '[{''id'': 1, ''name'':
-    ''chicken of wood'', ''supercategory'': ''mushroom''}, {''id'': 2, ''name'': ''chanterelle'', ''supercategory'': ''mushroom''}]'
+    ''chicken of the woods'', ''supercategory'': ''mushroom''}, {''id'': 2, ''name'': ''chanterelle'', ''supercategory'': ''mushroom''}]'
   Packages: null
   PascalVOC: null
   Raccoon: null

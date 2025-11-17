@@ -502,7 +502,7 @@ def _create_text_encoder(bpe_path: str) -> VETextEncoder:
     )
 
 
-def _create_vision_backbone(compile_mode=None) -> Sam3DualViTDetNeck:
+def _create_vision_backbone(compile_mode=None, enable_inst_interactivity=True) -> Sam3DualViTDetNeck:
     """Create SAM3 visual backbone with ViT and neck."""
     # Position encoding
     position_encoding = _create_position_encoding(precompute_resolution=1008)
@@ -511,7 +511,7 @@ def _create_vision_backbone(compile_mode=None) -> Sam3DualViTDetNeck:
     vit_neck: Sam3DualViTDetNeck = _create_vit_neck(
         position_encoding,
         vit_backbone,
-        enable_inst_interactivity=True,
+        enable_inst_interactivity=enable_inst_interactivity,
     )
     # Visual neck
     return vit_neck
@@ -590,7 +590,7 @@ def build_sam3_image_model(
         )
     # Create visual components
     compile_mode = "default" if compile else None
-    vision_encoder = _create_vision_backbone(compile_mode=compile_mode)
+    vision_encoder = _create_vision_backbone(compile_mode=compile_mode, enable_inst_interactivity=enable_inst_interactivity)
 
     # Create text components
     text_encoder = _create_text_encoder(bpe_path)
