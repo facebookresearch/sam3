@@ -1,8 +1,12 @@
 # SA-Co/Gold benchmark
 
-SA-Co/Gold is a benchmark for promptable concept segmentation (PCS) in images. The benchmark contains images paired with text labels (also referred as Noun Phrases aka NPs), each annotated exhaustively with masks on all object instances that match the label. SA-Co/Gold comprises 7 subsets, each targeting a different annotation domain. For each subset, the annotations are multi-reviewed and agreed by 3 human annotators resulting in a high-quality benchmark.
+SA-Co/Gold is a benchmark for promptable concept segmentation (PCS) in images. The benchmark contains images paired with text labels, also referred as Noun Phrases (NPs), each annotated exhaustively with masks on all object instances that match the label. SA-Co/Gold comprises 7 subsets, each targeting a different annotation domain: MetaCLIP captioner NPs, SA-1B captioner NPs, Attributes, Crowded Scenes, Wiki-Common1K, Wiki-Food/Drink, Wiki-Sports Equipment. The images are originally from the MetaCLIP and SA-1B datasets.
 
-This dataset covers 2 image sources and 7 annotation domains. The image sources are: MetaCLIP and SA-1B. The annotation domains are: MetaCLIP captioner NPs, SA-1B captioner NPs, Attributes, Crowded Scenes, Wiki-Common1K, Wiki-Food/Drink, Wiki-Sports Equipment.
+For each subset, the annotations are multi-reviewed by 3 human annotators. Each row in the figure shows an image and noun phrase pair from
+three of the domains with masks from the 3 annotators overlayed. Dashed borders indicate special group masks that cover more than a single instance, used when separating into instances is deemed too difficult. Annotators sometimes disagree on precise mask borders, the number of instances, and whether the phrase exists. Having 3 independent annotations allow us to measure the human agreement on the task, to serve as an upper bound for model performance.
+
+![SA-Co dataset](assets/saco_gold_annotation.png?raw=true)
+
 
 ## Usage
 
