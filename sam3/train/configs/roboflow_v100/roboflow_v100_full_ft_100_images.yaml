@@ -6,9 +6,10 @@ defaults:
 # Paths Configuration (Chage this to your own paths)
 # ============================================================================
 paths:
-  checkpoint_path: /home/kalyanv/sam3/assets/checkpoints/checkpoint_model_only_presence_0_5.pt
+  checkpoint_path: /checkpoint/sam3/haithamkhedr/workspace/sam3/assets/sam3.pt
   roboflow_vl_100_root: /checkpoint/sam3/kalyanv/datasets/all_rf100/rf100-vl #/checkpoint/onevision/datasets/all_rf100/rf100-vl
-  experiment_log_dir:  /home/kalyanv/roboflow_dbg #/checkpoint/onevision/kalyanv/sam3_oss_train_dump_after_cleanup_lr_0_1
+  experiment_log_dir: /checkpoint/sam3/${oc.env:USER}/sam3_paper_repro/roboflow_v100_v3
+  bpe_path: /checkpoint/sam3/haithamkhedr/workspace/sam3/assets/bpe_simple_vocab_16e6.txt.gz
 
 # Roboflow dataset configuration
 roboflow_train:
@@ -219,7 +220,6 @@ scratch:
   scheduler_warmup: 20
   scheduler_cooldown: 20
 
-  train_batch_size : ${scratch.gradient_accumulation_steps}
   val_batch_size: 1
   collate_fn_val:
     _target_: sam3.train.data.collator.collate_fn_api
@@ -236,16 +236,6 @@ scratch:
     repeats: ${scratch.hybrid_repeats}
     dict_key: all
     with_seg_masks: ${scratch.enable_segmentation} # Note: Set this to true if using segmentation masks!
-
-  # Note: usin this setting if using gradient accumulation
-  # gradient_accumulation_steps: 2
-  # collate_fn:
-  #   _target_: sam3.train.data.collator.collate_fn_api_with_chunking
-  #   _partial_: true
-  #   num_chunks: ${scratch.gradient_accumulation_steps}
-  #   repeats: ${scratch.hybrid_repeats}
-  #   dict_key: all
-  #   with_seg_masks:  ${scratch.enable_segmentation} # Note: Set this to true if using segmentation masks!
 
 # ============================================================================
 # Trainer Configuration
@@ -323,10 +313,9 @@ trainer:
       collate_fn: ${scratch.collate_fn_val}
 
 
-  # TODO (Kalyan): Expose more model parameters, droppath rate, dropout, etc
   model:
     _target_: sam3.model_builder.build_sam3_image_model
-    bpe_path: /home/kalyanv/sam3/assets/bpe_simple_vocab_16e6.txt.gz
+    bpe_path: ${paths.bpe_path}
     device: cpus
     eval_mode: false
     enable_segmentation: ${scratch.enable_segmentation} # Warning: Enable this if using segmentation.
@@ -336,13 +325,18 @@ trainer:
     val:
       roboflow100:
         detection:
-          _target_: sam3.eval.coco_eval_offline.CocoEvaluatorOffline
+          _target_: sam3.eval.coco_writer.PredictionDumper
           iou_type: "bbox"
-          tide: False
           dump_dir: ${launcher.experiment_log_dir}/dumps/roboflow/${roboflow_train.supercategory}
-          gt_path: ${paths.roboflow_vl_100_root}/${roboflow_train.supercategory}/test/_annotations.coco.json
+          merge_predictions: True
           postprocessor: ${scratch.original_box_postprocessor}
           gather_pred_via_filesys: ${scratch.gather_pred_via_filesys}
+          maxdets: 100
+          pred_file_evaluators:
+            - _target_: sam3.eval.coco_eval_offline.CocoEvaluatorOfflineWithPredFileEvaluators
+              gt_path: ${paths.roboflow_vl_100_root}/${roboflow_train.supercategory}/test/_annotations.coco.json
+              tide: False
+              iou_type: "bbox"
 
   optim:
     amp:

@@ -184,7 +184,7 @@ class Trainer:
         self.max_epochs = max_epochs
         self.mode = mode
         self.val_epoch_freq = val_epoch_freq
-        self.optim_conf = OptimConf(**optim) if optim is not None else None
+        self.optim_conf = OptimConf(**optim) if optim is not None else OptimConf()
         self.meters_conf = meters
         self.loss_conf = loss
         self.gradient_accumulation_steps = gradient_accumulation_steps
