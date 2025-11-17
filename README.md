@@ -332,8 +332,7 @@ architecture, supporting video segmentation and interactive refinement.
 
 ## SA-Co Dataset
 
-We release 2 image benchmarks, [SA-Co gold](scripts/eval/gold/README.md) and [SA-Co silver](scripts/eval/silver/README.md), and a video benchmark [SA-Co/VEval](scripts/eval/veval/README.md). See the linked READMEs for more
-details on how to download and run evaluations on the datasets.
+We release 2 image benchmarks, [SA-Co gold](scripts/eval/gold/README.md) and [SA-Co silver](scripts/eval/silver/README.md), and a video benchmark [SA-Co/VEval](scripts/eval/veval/README.md). See the linked READMEs for more details on how to download and run evaluations on the datasets.
 * HuggingFace host: [SA-Co gold](https://huggingface.co/datasets/facebook/SACo-Gold), [SA-Co silver](https://huggingface.co/datasets/facebook/SACo-Silver) and [SA-Co/VEval](https://huggingface.co/datasets/facebook/SACo-VEval)
 * Roboflow host: [SA-Co gold](https://sa-co.roboflow.com/gold/gt-annotations.zip), [SA-Co silver](https://sa-co.roboflow.com/silver/gt-annotations.zip) and [SA-Co/VEval](https://sa-co.roboflow.com/veval/all.zip)
 
