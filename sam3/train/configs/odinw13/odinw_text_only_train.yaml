@@ -57,6 +57,22 @@ odinw_train:
         _target_: sam3.train.transforms.filter_query_transforms.FilterFindQueriesWithTooManyOut
         max_num_objects: ${scratch.max_ann_per_img}
 
+  # Validation transforms pipeline
+  val_transforms:
+    - _target_: sam3.train.transforms.basic_for_api.ComposeAPI
+      transforms:
+        - _target_: sam3.train.transforms.basic_for_api.RandomResizeAPI
+          sizes: ${scratch.resolution}
+          max_size:
+            _target_: sam3.train.transforms.basic.get_random_resize_max_size
+            size: ${scratch.resolution}
+          square: true
+          consistent_transform: False
+        - _target_: sam3.train.transforms.basic_for_api.ToTensorAPI
+        - _target_: sam3.train.transforms.basic_for_api.NormalizeAPI
+          mean: ${scratch.val_norm_mean}
+          std: ${scratch.val_norm_std}
+
   # loss config (no mask loss)
   loss:
     _target_: sam3.train.loss.sam3_loss.Sam3LossWrapper
@@ -94,7 +110,7 @@ odinw_train:
 # Different helper parameters and functions
 # ============================================================================
 scratch:
-  enable_segmentation: True
+  enable_segmentation: False
   use_act_checkpoint_geo_encoder: True
   input_geometry_encoder:
     _target_: sam3.model.geometry_encoders.SequenceGeometryEncoder
@@ -163,7 +179,7 @@ scratch:
   num_queries: 200
   presence_weight: 20.0
   loss_ce_weight: 20.0
-  iabce_pos_weight: 10.0
+  iabce_pos_weight: 5.0
   iabce_pos_focal: false
   iabce_alpha: 0.25
   instance_query_loss_pad_scale_pos: 1.0
@@ -214,10 +230,10 @@ scratch:
 
   # Training parameters
   train_batch_size: 1
-  val_batch_size: 8
+  val_batch_size: 1
   num_train_workers: 0
   num_val_workers: 0
-  max_data_epochs: 20
+  max_data_epochs: 40
   target_epoch_size: 1500
   hybrid_repeats: 1
   context_length: 2
@@ -252,7 +268,7 @@ trainer:
   accelerator: cuda
   seed_value: 123
   val_epoch_freq: 10
-  mode: val
+  mode: train
 
   distributed:
     backend: nccl
@@ -271,13 +287,11 @@ trainer:
         _target_: sam3.train.data.sam3_image_dataset.Sam3ImageDataset
         limit_ids: ${odinw_train.num_images}
         transforms: ${odinw_train.train_transforms}
-        load_segmentation: false
+        load_segmentation: ${scratch.enable_segmentation}
         max_ann_per_img: 500000
         multiplier: 1
         max_train_queries: 50000
-        max_train_get_queries: 50000
         max_val_queries: 50000
-        max_val_get_queries: 50000
         training: true
         use_caching: False
         img_folder: ${paths.odinw_data_root}/${odinw_train.supercategory_tuple.train.img_folder}
@@ -298,14 +312,66 @@ trainer:
         _partial_: true
         repeats: ${scratch.hybrid_repeats}
         dict_key: all
-        with_seg_masks: true
+        with_seg_masks: ${scratch.enable_segmentation}
+
+    val:
+      _target_: sam3.train.data.torch_dataset.TorchDataset
+      dataset:
+        _target_: sam3.train.data.sam3_image_dataset.Sam3ImageDataset
+        load_segmentation: ${scratch.enable_segmentation}
+        coco_json_loader:
+          _target_: sam3.train.data.coco_json_loaders.COCO_FROM_JSON
+          prompts: ${odinw35_prompts.${odinw_train.supercategory_tuple.name}}
+          include_negatives: true
+          category_chunk_size: 20 # Note: Since we are doing AP +ve we need to include all categories!
+          _partial_: true
+        img_folder: ${paths.odinw_data_root}/${odinw_train.supercategory_tuple.val.img_folder}
+        ann_file:
+          _target_: sam3.eval.coco_reindex.reindex_coco_to_temp
+          input_json_path: ${paths.odinw_data_root}/${odinw_train.supercategory_tuple.val.json}
+        transforms: ${odinw_train.val_transforms}
+        max_ann_per_img: 100000
+        multiplier: 1
+        training: false
+
+      shuffle: False
+      batch_size: ${scratch.val_batch_size}
+      num_workers: ${scratch.num_val_workers}
+      pin_memory: False
+      drop_last: False
+      collate_fn:
+        _target_: sam3.train.data.collator.collate_fn_api
+        _partial_: true
+        repeats: 1
+        dict_key: odinw35
+        with_seg_masks: ${scratch.enable_segmentation}
 
   model:
     _target_: sam3.model_builder.build_sam3_image_model
     bpe_path: ${paths.bpe_path}
     device: cpus
-    eval_mode: true # Set to false if training
+    eval_mode: false # Set to false if training
     enable_segmentation: ${scratch.enable_segmentation} # Warning: Enable this if using segmentation.
+
+  meters:
+    val:
+      odinw35:
+        detection:
+          _target_: sam3.eval.coco_writer.PredictionDumper
+          iou_type: "bbox"
+          dump_dir: ${launcher.experiment_log_dir}/dumps/odinw/${odinw_train.supercategory_tuple.name}
+          merge_predictions: True
+          postprocessor: ${scratch.original_box_postprocessor}
+          gather_pred_via_filesys: ${scratch.gather_pred_via_filesys}
+          maxdets: 100
+          pred_file_evaluators:
+            - _target_: sam3.eval.coco_eval_offline.CocoEvaluatorOfflineWithPredFileEvaluators
+              gt_path:
+                _target_: sam3.eval.coco_reindex.reindex_coco_to_temp
+                input_json_path: ${paths.odinw_data_root}/${odinw_train.supercategory_tuple.val.json}
+              tide: False
+              iou_type: "bbox"
+              positive_split: False
 
   optim:
     amp:
@@ -403,158 +469,106 @@ submitit:
   # task_index: 2
   # Uncomment for job array configuration
   job_array:
-    num_tasks: 35
+    num_tasks: 13
     task_index: 0
 
 
-
 # ============================================================================
-# ODinW35 Supercategories
+# ODinW13 Supercategories
 # ============================================================================
 
 all_odinw_supercategories:
   - name: AerialMaritimeDrone_large
+    val:
+      img_folder: AerialMaritimeDrone/large/test/
+      json: AerialMaritimeDrone/large/test/annotations_without_background.json
     train:
       img_folder: AerialMaritimeDrone/large/train/
       json: AerialMaritimeDrone/large/train/${odinw_train.train_file}.json
-
-  - name: AerialMaritimeDrone_tiled
-    train:
-      img_folder: AerialMaritimeDrone/tiled/train/
-      json: AerialMaritimeDrone/tiled/train/${odinw_train.train_file}.json
-
-  - name: AmericanSignLanguageLetters
-    train:
-      img_folder: AmericanSignLanguageLetters/American Sign Language Letters.v1-v1.coco/train/
-      json: AmericanSignLanguageLetters/American Sign Language Letters.v1-v1.coco/train/${odinw_train.train_file}.json
   - name: Aquarium
+    val:
+      img_folder: Aquarium/Aquarium Combined.v2-raw-1024.coco/test/
+      json: Aquarium/Aquarium Combined.v2-raw-1024.coco/test/annotations_without_background.json
     train:
       img_folder: Aquarium/Aquarium Combined.v2-raw-1024.coco/train/
       json: Aquarium/Aquarium Combined.v2-raw-1024.coco/train/${odinw_train.train_file}.json
-  - name: BCCD
-    train:
-      img_folder: BCCD/BCCD.v3-raw.coco/train/
-      json: BCCD/BCCD.v3-raw.coco/train/${odinw_train.train_file}.json
-  - name: ChessPieces
-    train:
-      img_folder: ChessPieces/Chess Pieces.v23-raw.coco/train/
-      json: ChessPieces/Chess Pieces.v23-raw.coco/train/${odinw_train.train_file}.json
   - name: CottontailRabbits
+    val:
+      img_folder: CottontailRabbits/test/
+      json: CottontailRabbits/test/annotations_without_background.json
     train:
       img_folder: CottontailRabbits/train/
       json: CottontailRabbits/train/${odinw_train.train_file}.json
-  - name: DroneControl
-    train:
-      img_folder: DroneControl/Drone Control.v3-raw.coco/train/
-      json: DroneControl/Drone Control.v3-raw.coco/train/${odinw_train.train_file}.json
   - name: EgoHands_generic
+    val:
+      img_folder: EgoHands/generic/test/
+      json: EgoHands/generic/test/annotations_without_background.json
     train:
       img_folder: EgoHands/generic/train/
       json: EgoHands/generic/train/${odinw_train.train_file}.json
-  - name: EgoHands_specific
-    train:
-      img_folder: EgoHands/specific/train/
-      json: EgoHands/specific/train/${odinw_train.train_file}.json
-  - name: HardHatWorkers
-    train:
-      img_folder: HardHatWorkers/raw/train/
-      json: HardHatWorkers/raw/train/${odinw_train.train_file}.json
-  - name: MaskWearing
-    train:
-      img_folder: MaskWearing/raw/train/
-      json: MaskWearing/raw/train/${odinw_train.train_file}.json
-  - name: MountainDewCommercial
-    train:
-      img_folder: MountainDewCommercial/train/
-      json: MountainDewCommercial/train/${odinw_train.train_file}.json
   - name: NorthAmericaMushrooms
+    val:
+      img_folder: NorthAmericaMushrooms/North American Mushrooms.v1-416x416.coco/test/
+      json: NorthAmericaMushrooms/North American Mushrooms.v1-416x416.coco/test/annotations_without_background.json
     train:
       img_folder: NorthAmericaMushrooms/North American Mushrooms.v1-416x416.coco/train/
       json: NorthAmericaMushrooms/North American Mushrooms.v1-416x416.coco/train/${odinw_train.train_file}.json
-  - name: OxfordPets_breed
-    train:
-      img_folder: OxfordPets/by-breed/train/
-      json: OxfordPets/by-breed/train/${odinw_train.train_file}.json
-  - name: OxfordPets_species
-    train:
-      img_folder: OxfordPets/by-species/train/
-      json: OxfordPets/by-species/train/${odinw_train.train_file}.json
-  - name: PKLot
-    train:
-      img_folder: PKLot/640/train/
-      json: PKLot/640/train/${odinw_train.train_file}.json
   - name: Packages
+    val:
+      img_folder: Packages/Raw/test/
+      json: Packages/Raw/test/annotations_without_background.json
     train:
       img_folder: Packages/Raw/train/
       json: Packages/Raw/train/${odinw_train.train_file}.json
   - name: PascalVOC
+    val:
+      img_folder: PascalVOC/valid/
+      json: PascalVOC/valid/annotations_without_background.json
     train:
       img_folder: PascalVOC/train/
       json:  PascalVOC/train/${odinw_train.train_file}.json
   - name: Raccoon
+    val:
+      img_folder: Raccoon/Raccoon.v2-raw.coco/test/
+      json: Raccoon/Raccoon.v2-raw.coco/test/annotations_without_background.json
     train:
       img_folder: Raccoon/Raccoon.v2-raw.coco/train/
       json: Raccoon/Raccoon.v2-raw.coco/train/${odinw_train.train_file}.json
   - name: ShellfishOpenImages
+    val:
+      img_folder: ShellfishOpenImages/raw/test/
+      json: ShellfishOpenImages/raw/test/annotations_without_background.json
     train:
       img_folder: ShellfishOpenImages/raw/train/
       json: ShellfishOpenImages/raw/train/${odinw_train.train_file}.json
-  - name: ThermalCheetah
-    train:
-      img_folder: ThermalCheetah/train/
-      json: ThermalCheetah/train/${odinw_train.train_file}.json
-  - name: UnoCards
-    train:
-      img_folder: UnoCards/raw/train/
-      json: UnoCards/raw/train/${odinw_train.train_file}.json
   - name: VehiclesOpenImages
+    val:
+      img_folder: VehiclesOpenImages/416x416/test/
+      json: VehiclesOpenImages/416x416/test/annotations_without_background.json
     train:
       img_folder: VehiclesOpenImages/416x416/train/
       json: VehiclesOpenImages/416x416/train/${odinw_train.train_file}.json
-  - name: WildfireSmoke
+  - name: pistols
+    val:
+      img_folder: pistols/export/
+      json: pistols/export/test_annotations_without_background.json
     train:
-      img_folder: WildfireSmoke/train/
-      json: WildfireSmoke/train/${odinw_train.train_file}.json
-  - name: brackishUnderwater
-    train:
-      img_folder: brackishUnderwater/960x540/train/
-      json: brackishUnderwater/960x540/train/${odinw_train.train_file}.json
-  - name: openPoetryVision
-    train:
-      img_folder: openPoetryVision/512x512/train/
-      json: openPoetryVision/512x512/train/${odinw_train.train_file}.json
-  - name: plantdoc_416
-    train:
-      img_folder: plantdoc/416x416/train/
-      json: plantdoc/416x416/train/${odinw_train.train_file}.json
+      img_folder: pistols/export/
+      json: pistols/export/${odinw_train.train_file}.json
   - name: pothole
+    val:
+      img_folder: pothole/test/
+      json: pothole/test/annotations_without_background.json
     train:
       img_folder: pothole/train/
       json: pothole/train/${odinw_train.train_file}.json
   - name: thermalDogsAndPeople
+    val:
+      img_folder: thermalDogsAndPeople/test/
+      json: thermalDogsAndPeople/test/annotations_without_background.json
     train:
       img_folder: thermalDogsAndPeople/train/
       json: thermalDogsAndPeople/train/${odinw_train.train_file}.json
-  - name: websiteScreenshots
-    train:
-      img_folder: websiteScreenshots/train/
-      json: websiteScreenshots/train/${odinw_train.train_file}.json
-  - name: boggleBoards
-    train:
-      img_folder: boggleBoards/416x416AutoOrient/export/
-      json: boggleBoards/416x416AutoOrient/export/${odinw_train.train_file}.json
-  - name: dice
-    train:
-      img_folder: dice/mediumColor/export/
-      json: dice/mediumColor/export/${odinw_train.train_file}.json
-  - name: pistols
-    train:
-      img_folder: pistols/export/
-      json: pistols/export/${odinw_train.train_file}.json
-  - name: selfdrivingCar
-    train:
-      img_folder: selfdrivingCar/fixedLarge/export/
-      json: selfdrivingCar/fixedLarge/export/${odinw_train.train_file}.json
 
 
 odinw35_prompts:
@@ -562,70 +576,16 @@ odinw35_prompts:
     {"id": 2, "name": "car", "supercategory": "movable-objects"}, {"id": 3, "name": "dock",
     "supercategory": "movable-objects"}, {"id": 4, "name": "jet ski", "supercategory": "movable-objects"},
     {"id": 5, "name": "boat lift", "supercategory": "movable-objects"}]'
-  AerialMaritimeDrone_tiled: null
-  AmericanSignLanguageLetters: null
   Aquarium: null
-  BCCD: null
-  ChessPieces: null
   CottontailRabbits: null
-  DroneControl: null
-  EgoHands_specific: null
-  HardHatWorkers: null
-  MaskWearing: null
-  MountainDewCommercial: null
+  EgoHands_generic: null
   NorthAmericaMushrooms: '[{''id'': 1, ''name'':
-    ''chicken of wood'', ''supercategory'': ''mushroom''}, {''id'': 2, ''name'': ''chanterelle'', ''supercategory'': ''mushroom''}]'
-  # NorthAmericaMushrooms: '[{''id'': 1, ''name'':
-  #   ''chicken mushroom'', ''supercategory'': ''mushroom''}, {''id'': 2, ''name'': ''yellow
-  #   mushroom'', ''supercategory'': ''mushroom''}]'
-  OxfordPets_breed: '[{"id": 1, "name": "cat-Abyssinian head", "supercategory": "pets"},
-    {"id": 2, "name": "cat-Bengal head", "supercategory": "pets"}, {"id": 3, "name": "cat-Birman head",
-    "supercategory": "pets"}, {"id": 4, "name": "cat-Bombay head", "supercategory": "pets"},
-    {"id": 5, "name": "cat-British_Shorthair head", "supercategory": "pets"}, {"id": 6, "name":
-    "cat-Egyptian_Mau head", "supercategory": "pets"}, {"id": 7, "name": "cat-Maine_Coon head",
-    "supercategory": "pets"}, {"id": 8, "name": "cat-Persian head", "supercategory": "pets"},
-    {"id": 9, "name": "cat-Ragdoll head", "supercategory": "pets"}, {"id": 10, "name": "cat-Russian_Blue head",
-    "supercategory": "pets"}, {"id": 11, "name": "cat-Siamese head", "supercategory": "pets"},
-    {"id": 12, "name": "cat-Sphynx head", "supercategory": "pets"}, {"id": 13, "name": "dog-american_bulldog head",
-    "supercategory": "pets"}, {"id": 14, "name": "dog-american_pit_bull_terrier head", "supercategory":
-    "pets"}, {"id": 15, "name": "dog-basset_hound head", "supercategory": "pets"}, {"id":
-    16, "name": "dog-beagle head", "supercategory": "pets"}, {"id": 17, "name": "dog-boxer head",
-    "supercategory": "pets"}, {"id": 18, "name": "dog-chihuahua head", "supercategory": "pets"},
-    {"id": 19, "name": "dog-english_cocker_spaniel head", "supercategory": "pets"}, {"id":
-    20, "name": "dog-english_setter head", "supercategory": "pets"}, {"id": 21, "name": "dog-german_shorthaired head",
-    "supercategory": "pets"}, {"id": 22, "name": "dog-great_pyrenees head", "supercategory":
-    "pets"}, {"id": 23, "name": "dog-havanese head", "supercategory": "pets"}, {"id": 24,
-    "name": "dog-japanese_chin head", "supercategory": "pets"}, {"id": 25, "name": "dog-keeshond head",
-    "supercategory": "pets"}, {"id": 26, "name": "dog-leonberger head", "supercategory":
-    "pets"}, {"id": 27, "name": "dog-miniature_pinscher head", "supercategory": "pets"},
-    {"id": 28, "name": "dog-newfoundland head", "supercategory": "pets"}, {"id": 29, "name":
-    "dog-pomeranian head", "supercategory": "pets"}, {"id": 30, "name": "dog-pug head", "supercategory":
-    "pets"}, {"id": 31, "name": "dog-saint_bernard head", "supercategory": "pets"}, {"id":
-    32, "name": "dog-samoyed head", "supercategory": "pets"}, {"id": 33, "name": "dog-scottish_terrier head",
-    "supercategory": "pets"}, {"id": 34, "name": "dog-shiba_inu head", "supercategory": "pets"},
-    {"id": 35, "name": "dog-staffordshire_bull_terrier head", "supercategory": "pets"}, {"id":
-    36, "name": "dog-wheaten_terrier head", "supercategory": "pets"}, {"id": 37, "name":
-    "dog-yorkshire_terrier head", "supercategory": "pets"}]'
-  OxfordPets_species: '[{"id": 1, "name": "cat head", "supercategory": "pets"}, {"id":
-    2, "name": "dog head", "supercategory": "pets"}]'
-  PKLot: null
+    ''chicken of the woods'', ''supercategory'': ''mushroom''}, {''id'': 2, ''name'': ''chanterelle'', ''supercategory'': ''mushroom''}]'
   Packages: null
   PascalVOC: null
   Raccoon: null
   ShellfishOpenImages: null
-  ThermalCheetah: null
-  UnoCards: null
   VehiclesOpenImages: null
-  WildfireSmoke: null
-  boggleBoards: null
-  brackishUnderwater: null
-  dice: null
-  openPoetryVision: null
   pistols: null
-  plantdoc_100x100: null
-  plantdoc_416: null
   pothole: null
-  selfdrivingCar: null
   thermalDogsAndPeople: null
-  websiteScreenshots: null
-  EgoHands_generic: null

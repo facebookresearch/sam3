@@ -121,7 +121,7 @@ trainer:
         detection:
           _target_: sam3.eval.coco_writer.PredictionDumper
           iou_type: "bbox"
-          dump_dir: ${launcher.experiment_log_dir}/dumps/roboflow/${supercategory_tuple.name}
+          dump_dir: ${launcher.experiment_log_dir}/dumps/odinw/${supercategory_tuple.name}
           merge_predictions: True
           postprocessor: ${scratch.original_box_postprocessor}
           gather_pred_via_filesys: ${scratch.gather_pred_via_filesys}
@@ -242,7 +242,7 @@ odinw35_prompts:
   CottontailRabbits: null
   EgoHands_generic: null
   NorthAmericaMushrooms: '[{''id'': 1, ''name'':
-    ''chicken of wood'', ''supercategory'': ''mushroom''}, {''id'': 2, ''name'': ''chanterelle'', ''supercategory'': ''mushroom''}]'
+    ''chicken of the woods'', ''supercategory'': ''mushroom''}, {''id'': 2, ''name'': ''chanterelle'', ''supercategory'': ''mushroom''}]'
   Packages: null
   PascalVOC: null
   Raccoon: null
