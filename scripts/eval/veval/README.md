@@ -43,12 +43,12 @@ data/
 The following links provide ready-to-use data, hosted on Roboflow, after completing the pre-processing steps outlined in the next section.
 
 For each domain:
-- https://universe.roboflow.com/veval/saco_sav.zip
-- https://universe.roboflow.com/veval/saco_yt1b.zip
-- https://universe.roboflow.com/veval/saco_sg.zip
+- [SA-Co/VEval - SA-V](https://universe.roboflow.com/sa-co-veval/sa-v-test/)
+- [SA-Co/VEval - YT-Temporal-1B](https://universe.roboflow.com/sa-co-veval/yt-temporal-1b-test/)
+- [SA-Co/VEval - SmartGlasses](https://universe.roboflow.com/sa-co-veval/smartglasses-test/)
 
-For full bundle:
-- https://universe.roboflow.com/veval/all.zip
+For all three domains:
+- [SA-Co/VEval](https://universe.roboflow.com/sa-co-veval)
 
 ### Download via preprocessing steps
 #### Download annotations
