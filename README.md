@@ -337,7 +337,7 @@ We release 2 image benchmarks, [SA-Co gold](scripts/eval/gold/README.md) and
 [SA-Co/VEval](scripts/eval/veval/README.md). See the linked READMEs for more
 details on how to download and run evaluations on the datasets.
 * HuggingFace host: [SA-Co gold](https://huggingface.co/datasets/facebook/SACo-Gold), [SA-Co silver](https://huggingface.co/datasets/facebook/SACo-Silver) and [SA-Co/VEval](https://huggingface.co/datasets/facebook/SACo-VEval)
-* Roboflow host: [SA-Co gold](https://sa-co.roboflow.com/gold/gt-annotations.zip), [SA-Co silver](https://sa-co.roboflow.com/silver/gt-annotations.zip) and [SA-Co/VEval](https://sa-co.roboflow.com/veval/all.zip)
+* Roboflow host: [SA-Co gold](https://universe.roboflow.com/sa-co-gold), [SA-Co silver](https://universe.roboflow.com/sa-co-silver) and [SA-Co/VEval](https://universe.roboflow.com/sa-co-veval)
 
 ![SA-Co dataset](assets/sa_co_dataset.jpg?raw=true)
 
