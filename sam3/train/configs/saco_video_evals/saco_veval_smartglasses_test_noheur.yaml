@@ -119,7 +119,6 @@ trainer:
   model:
     _target_: sam3.model_builder.build_sam3_video_model
     bpe_path: ${paths.bpe_path}
-    checkpoint_path: ${paths.checkpoint_path}
     has_presence_token: True
     geo_encoder_use_img_cross_attn: True
     apply_temporal_disambiguation: False

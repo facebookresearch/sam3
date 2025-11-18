@@ -114,7 +114,6 @@ trainer:
     device: cpus
     eval_mode: true # Set to false if training
     enable_segmentation: ${scratch.enable_segmentation} # Warning: Enable this if using segmentation.
-    checkpoint_path: ${paths.checkpoint_path}
 
   meters:
     val:
