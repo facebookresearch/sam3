@@ -1,4 +1,4 @@
-# Copyright (c) Meta, Inc. and its affiliates. All Rights Reserved
+# Copyright (c) Meta Platforms, Inc. and affiliates. All Rights Reserved
 
 from dataclasses import dataclass, field as field_ptr_behaviour, fields, is_dataclass
 from typing import Any, get_args, get_origin, List, Union

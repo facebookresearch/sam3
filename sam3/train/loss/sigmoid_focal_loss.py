@@ -1,4 +1,4 @@
-# Copyright (c) Meta, Inc. and its affiliates. All Rights Reserved
+# Copyright (c) Meta Platforms, Inc. and affiliates. All Rights Reserved
 
 """Triton kernel for faster and memory efficient sigmoid focal loss"""
 

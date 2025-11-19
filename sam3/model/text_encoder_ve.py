@@ -1,4 +1,4 @@
-# Copyright (c) Meta, Inc. and its affiliates. All Rights Reserved
+# Copyright (c) Meta Platforms, Inc. and affiliates. All Rights Reserved
 
 from collections import OrderedDict
 from typing import Callable, List, Optional, Tuple, Union

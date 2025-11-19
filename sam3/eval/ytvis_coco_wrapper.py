@@ -1,3 +1,4 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates. All Rights Reserved
 # (c) Meta Platforms, Inc. and affiliates. Confidential and proprietary.
 
 import copy

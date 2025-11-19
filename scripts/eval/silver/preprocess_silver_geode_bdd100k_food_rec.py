@@ -1,3 +1,4 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates. All Rights Reserved
 import argparse
 from multiprocessing import Pool
 from pathlib import Path

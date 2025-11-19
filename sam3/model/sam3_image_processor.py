@@ -1,3 +1,4 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates. All Rights Reserved
 from typing import Dict, List
 
 import numpy as np
