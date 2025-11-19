@@ -1,7 +1,5 @@
 import json
 import os
-import os.path as osp
-
 from collections import defaultdict
 
 from tqdm import tqdm

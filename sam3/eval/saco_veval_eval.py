@@ -4,9 +4,8 @@ import os
 from collections import defaultdict
 
 from iopath.common.file_io import g_pathmgr
-
 from sam3.eval.saco_veval_evaluators import (
-    VideoDemoF1Evaluator,
+    VideoCGF1Evaluator,
     VideoPhraseApEvaluator,
     VideoPhraseHotaEvaluator,
     VideoTetaEvaluator,
@@ -27,8 +26,8 @@ class VEvalEvaluator:
             VideoTetaEvaluator(gt_annot_file, use_mask=True, is_exhaustive=True),
             # HOTA
             VideoPhraseHotaEvaluator(gt_annot_file),
-            # Demo F1
-            VideoDemoF1Evaluator(gt_annot_file),
+            # cgF1
+            VideoCGF1Evaluator(gt_annot_file),
         ]
 
     def run_eval(self, pred_file: str):

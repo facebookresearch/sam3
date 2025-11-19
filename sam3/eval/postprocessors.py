@@ -9,18 +9,9 @@ from typing import Dict, List, Optional
 
 import numpy as np
 import torch
-
 from sam3.model import box_ops
-
 from sam3.model.data_misc import BatchedInferenceMetadata, interpolate
-
-from sam3.train.masks_ops import (
-    compute_boundary,
-    dilation,
-    rle_encode,
-    robust_rle_encode,
-)
-
+from sam3.train.masks_ops import rle_encode, robust_rle_encode
 from torch import nn
 
 
@@ -45,10 +36,10 @@ class PostProcessImage(nn.Module):
         iou_type="bbox",
         to_cpu: bool = True,
         use_original_ids: bool = False,
-        use_original_sizes: bool = False,
+        use_original_sizes_box: bool = False,
+        use_original_sizes_mask: bool = False,
         convert_mask_to_rle: bool = False,
         always_interpolate_masks_on_gpu: bool = True,
-        compute_boundaries: bool = False,
         use_presence: bool = True,
         detection_threshold: float = -1.0,
     ) -> None:
@@ -58,18 +49,19 @@ class PostProcessImage(nn.Module):
         self.to_cpu = to_cpu
         self.convert_mask_to_rle = convert_mask_to_rle
         self.always_interpolate_masks_on_gpu = always_interpolate_masks_on_gpu
-        self.compute_boundaries = compute_boundaries
 
         self.use_presence = use_presence
         self.detection_threshold = detection_threshold
         self.use_original_ids = use_original_ids
-        self.use_original_sizes = use_original_sizes
+        self.use_original_sizes_box = use_original_sizes_box
+        self.use_original_sizes_mask = use_original_sizes_mask
 
     @torch.no_grad()
     def forward(
         self,
         outputs,
-        target_sizes,
+        target_sizes_boxes,
+        target_sizes_masks,
         forced_labels=None,
         consistent=False,
         ret_tensordict: bool = False,  # This is experimental
@@ -77,9 +69,10 @@ class PostProcessImage(nn.Module):
         """Perform the computation
         Parameters:
             outputs: raw outputs of the model
-            target_sizes: tensor of dimension [batch_size x 2] containing the size of each images of the batch
+            target_sizes_boxes: tensor of dimension [batch_size x 2] containing the size of each images of the batch
                           For evaluation, this must be the original image size (before any data augmentation)
                           For visualization, this should be the image size after data augment, but before padding
+            target_sizes_masks: same but used to resize masks
             forced_labels: tensor of dimension [batch_size] containing the label to force for each image of the batch
                            This is useful when evaluating the model using standard metrics (eg on COCO, LVIS). In that case,
                            we query the model with every possible class label, so we when we pass the predictions to the evaluator,
@@ -108,15 +101,16 @@ class PostProcessImage(nn.Module):
             presence_score = outputs["presence_logit_dec"].sigmoid().unsqueeze(1)
             out_probs = out_probs * presence_score
 
-        assert target_sizes.shape[1] == 2
-        batch_size = target_sizes.shape[0]
+        assert target_sizes_boxes.shape[1] == 2
+        assert target_sizes_masks.shape[1] == 2
+        batch_size = target_sizes_boxes.shape[0]
 
         boxes, scores, labels, keep = self._process_boxes_and_labels(
-            target_sizes, forced_labels, out_bbox, out_probs
+            target_sizes_boxes, forced_labels, out_bbox, out_probs
         )
         assert boxes is None or len(boxes) == batch_size
-        out_masks, boundaries, dilated_boundaries = self._process_masks(
-            target_sizes, pred_masks, consistent=consistent, keep=keep
+        out_masks = self._process_masks(
+            target_sizes_masks, pred_masks, consistent=consistent, keep=keep
         )
         del pred_masks
 
@@ -138,9 +132,6 @@ class PostProcessImage(nn.Module):
                 results.update(masks_rle=out_masks)
             else:
                 results.update(masks=out_masks)
-        if boundaries is not None:
-            assert dilated_boundaries is not None
-            results.update(boundaries=boundaries, dilated_boundaries=dilated_boundaries)
 
         if ret_tensordict:
             results = TensorDict(results).auto_batch_size_()
@@ -156,9 +147,8 @@ class PostProcessImage(nn.Module):
         return results
 
     def _process_masks(self, target_sizes, pred_masks, consistent=True, keep=None):
-        boundaries, dilated_boundaries = None, None
         if pred_masks is None:
-            return None, boundaries, dilated_boundaries
+            return None
         if self.always_interpolate_masks_on_gpu:
             gpu_device = target_sizes.device
             assert gpu_device.type == "cuda"
@@ -179,15 +169,10 @@ class PostProcessImage(nn.Module):
             )
             if self.convert_mask_to_rle:
                 raise RuntimeError("TODO: implement?")
-            if self.compute_boundaries:
-                raise RuntimeError("TODO: implement?")
             if self.to_cpu:
                 out_masks = out_masks.cpu()
         else:
             out_masks = [[]] * len(pred_masks)
-            if self.compute_boundaries:
-                boundaries = [[]] * len(pred_masks)
-                dilated_boundaries = [[]] * len(pred_masks)
 
             assert keep is None or len(keep) == len(pred_masks)
             for i, mask in enumerate(pred_masks):
@@ -219,19 +204,6 @@ class PostProcessImage(nn.Module):
                         > 0.5
                     )
                     interpolated = interpolated.to(mask_device)
-                if self.compute_boundaries:
-                    boundary = compute_boundary(interpolated.squeeze(1) > 0.5) > 0
-
-                    # This parameter is hardcoded in TrackEval
-                    bound_th = 0.008
-                    # Further reducing by 15% because we're doing a square kernel, as opposed to the round kernel in trackeval
-                    bound_pix = np.ceil(
-                        bound_th * np.linalg.norm(interpolated.shape[-2:]) * 0.85
-                    )
-                    kernel_size = bound_pix * 2 + 1
-                    dilated_boundary = dilation(boundary, kernel_size) > 0
-                    boundaries[i] = robust_rle_encode(boundary)
-                    dilated_boundaries[i] = robust_rle_encode(dilated_boundary)
 
                 if self.convert_mask_to_rle:
                     out_masks[i] = robust_rle_encode(interpolated.squeeze(1))
@@ -240,7 +212,7 @@ class PostProcessImage(nn.Module):
                     if self.to_cpu:
                         out_masks[i] = out_masks[i].cpu()
 
-        return out_masks, boundaries, dilated_boundaries
+        return out_masks
 
     def _process_boxes_and_labels(
         self, target_sizes, forced_labels, out_bbox, out_probs
@@ -286,13 +258,20 @@ class PostProcessImage(nn.Module):
         assert len(find_stages) == len(find_metadatas)
         results = {}
         for outputs, meta in zip(find_stages, find_metadatas):
+            img_size_for_boxes = (
+                meta.original_size
+                if self.use_original_sizes_box
+                else torch.ones_like(meta.original_size)
+            )
+            img_size_for_masks = (
+                meta.original_size
+                if self.use_original_sizes_mask
+                else torch.ones_like(meta.original_size)
+            )
             detection_results = self(
                 outputs,
-                (
-                    meta.original_size
-                    if self.use_original_sizes
-                    else torch.ones_like(meta.original_size)
-                ),
+                img_size_for_boxes,
+                img_size_for_masks,
                 forced_labels=(
                     meta.original_category_id if self.use_original_ids else None
                 ),

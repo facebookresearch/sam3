@@ -4,17 +4,176 @@ import contextlib
 import copy
 import json
 import os
+import time
 from collections import defaultdict
+from dataclasses import dataclass
 from typing import List, Union
 
 import numpy as np
-
 import pycocotools.mask as maskUtils
 from pycocotools.coco import COCO
-
 from pycocotools.cocoeval import COCOeval
-
 from scipy.optimize import linear_sum_assignment
+from tqdm import tqdm
+
+
+@dataclass
+class Metric:
+    name: str
+
+    # whether the metric is computed at the image level or the box level
+    image_level: bool
+
+    # iou threshold (None is used for image level metrics or to indicate averaging over all thresholds in [0.5:0.95])
+    iou_threshold: Union[float, None]
+
+
+CGF1_METRICS = [
+    Metric(name="cgF1", image_level=False, iou_threshold=None),
+    Metric(name="precision", image_level=False, iou_threshold=None),
+    Metric(name="recall", image_level=False, iou_threshold=None),
+    Metric(name="F1", image_level=False, iou_threshold=None),
+    Metric(name="positive_macro_F1", image_level=False, iou_threshold=None),
+    Metric(name="positive_micro_F1", image_level=False, iou_threshold=None),
+    Metric(name="positive_micro_precision", image_level=False, iou_threshold=None),
+    Metric(name="IL_precision", image_level=True, iou_threshold=None),
+    Metric(name="IL_recall", image_level=True, iou_threshold=None),
+    Metric(name="IL_F1", image_level=True, iou_threshold=None),
+    Metric(name="IL_FPR", image_level=True, iou_threshold=None),
+    Metric(name="IL_MCC", image_level=True, iou_threshold=None),
+    Metric(name="cgF1", image_level=False, iou_threshold=0.5),
+    Metric(name="precision", image_level=False, iou_threshold=0.5),
+    Metric(name="recall", image_level=False, iou_threshold=0.5),
+    Metric(name="F1", image_level=False, iou_threshold=0.5),
+    Metric(name="positive_macro_F1", image_level=False, iou_threshold=0.5),
+    Metric(name="positive_micro_F1", image_level=False, iou_threshold=0.5),
+    Metric(name="positive_micro_precision", image_level=False, iou_threshold=0.5),
+    Metric(name="cgF1", image_level=False, iou_threshold=0.75),
+    Metric(name="precision", image_level=False, iou_threshold=0.75),
+    Metric(name="recall", image_level=False, iou_threshold=0.75),
+    Metric(name="F1", image_level=False, iou_threshold=0.75),
+    Metric(name="positive_macro_F1", image_level=False, iou_threshold=0.75),
+    Metric(name="positive_micro_F1", image_level=False, iou_threshold=0.75),
+    Metric(name="positive_micro_precision", image_level=False, iou_threshold=0.75),
+]
+
+
+class COCOCustom(COCO):
+    """COCO class from pycocotools with tiny modifications for speed"""
+
+    def createIndex(self):
+        # create index
+        print("creating index...")
+        anns, cats, imgs = {}, {}, {}
+        imgToAnns, catToImgs = defaultdict(list), defaultdict(list)
+        if "annotations" in self.dataset:
+            for ann in self.dataset["annotations"]:
+                imgToAnns[ann["image_id"]].append(ann)
+                anns[ann["id"]] = ann
+
+        if "images" in self.dataset:
+            # MODIFICATION: do not reload imgs if they are already there
+            if self.imgs:
+                imgs = self.imgs
+            else:
+                for img in self.dataset["images"]:
+                    imgs[img["id"]] = img
+            # END MODIFICATION
+
+        if "categories" in self.dataset:
+            for cat in self.dataset["categories"]:
+                cats[cat["id"]] = cat
+
+        if "annotations" in self.dataset and "categories" in self.dataset:
+            for ann in self.dataset["annotations"]:
+                catToImgs[ann["category_id"]].append(ann["image_id"])
+
+        print("index created!")
+
+        # create class members
+        self.anns = anns
+        self.imgToAnns = imgToAnns
+        self.catToImgs = catToImgs
+        self.imgs = imgs
+        self.cats = cats
+
+    def loadRes(self, resFile):
+        """
+        Load result file and return a result api object.
+        :param   resFile (str)     : file name of result file
+        :return: res (obj)         : result api object
+        """
+        res = COCOCustom()
+        res.dataset["info"] = copy.deepcopy(self.dataset.get("info", {}))
+        # MODIFICATION: no copy
+        # res.dataset['images'] = [img for img in self.dataset['images']]
+        res.dataset["images"] = self.dataset["images"]
+        # END MODIFICATION
+
+        print("Loading and preparing results...")
+        tic = time.time()
+        if type(resFile) == str:
+            with open(resFile) as f:
+                anns = json.load(f)
+        elif type(resFile) == np.ndarray:
+            anns = self.loadNumpyAnnotations(resFile)
+        else:
+            anns = resFile
+        assert type(anns) == list, "results in not an array of objects"
+        annsImgIds = [ann["image_id"] for ann in anns]
+        # MODIFICATION: faster and cached subset check
+        if not hasattr(self, "img_id_set"):
+            self.img_id_set = set(self.getImgIds())
+        assert set(annsImgIds).issubset(
+            self.img_id_set
+        ), "Results do not correspond to current coco set"
+        # END MODIFICATION
+        if "caption" in anns[0]:
+            imgIds = set([img["id"] for img in res.dataset["images"]]) & set(
+                [ann["image_id"] for ann in anns]
+            )
+            res.dataset["images"] = [
+                img for img in res.dataset["images"] if img["id"] in imgIds
+            ]
+            for id, ann in enumerate(anns):
+                ann["id"] = id + 1
+        elif "bbox" in anns[0] and not anns[0]["bbox"] == []:
+            res.dataset["categories"] = copy.deepcopy(self.dataset["categories"])
+            for id, ann in enumerate(anns):
+                bb = ann["bbox"]
+                x1, x2, y1, y2 = [bb[0], bb[0] + bb[2], bb[1], bb[1] + bb[3]]
+                if not "segmentation" in ann:
+                    ann["segmentation"] = [[x1, y1, x1, y2, x2, y2, x2, y1]]
+                ann["area"] = bb[2] * bb[3]
+                ann["id"] = id + 1
+                ann["iscrowd"] = 0
+        elif "segmentation" in anns[0]:
+            res.dataset["categories"] = copy.deepcopy(self.dataset["categories"])
+            for id, ann in enumerate(anns):
+                # now only support compressed RLE format as segmentation results
+                ann["area"] = maskUtils.area(ann["segmentation"])
+                if not "bbox" in ann:
+                    ann["bbox"] = maskUtils.toBbox(ann["segmentation"])
+                ann["id"] = id + 1
+                ann["iscrowd"] = 0
+        elif "keypoints" in anns[0]:
+            res.dataset["categories"] = copy.deepcopy(self.dataset["categories"])
+            for id, ann in enumerate(anns):
+                s = ann["keypoints"]
+                x = s[0::3]
+                y = s[1::3]
+                x0, x1, y0, y1 = np.min(x), np.max(x), np.min(y), np.max(y)
+                ann["area"] = (x1 - x0) * (y1 - y0)
+                ann["id"] = id + 1
+                ann["bbox"] = [x0, y0, x1 - x0, y1 - y0]
+        print("DONE (t={:0.2f}s)".format(time.time() - tic))
+
+        res.dataset["annotations"] = anns
+        # MODIFICATION: inherit images
+        res.imgs = self.imgs
+        # END MODIFICATION
+        res.createIndex()
+        return res
 
 
 class CGF1Eval(COCOeval):
@@ -327,35 +486,13 @@ class CGF1Eval(COCOeval):
         def _summarizeDets():
             stats = []
 
-            stats.append(_summarize(metric="cgF1"))
-            stats.append(_summarize(metric="precision"))
-            stats.append(_summarize(metric="recall"))
-            stats.append(_summarize(metric="F1"))
-            stats.append(_summarize(metric="positive_macro_F1"))
-            stats.append(_summarize(metric="positive_micro_F1"))
-            stats.append(_summarize(metric="positive_micro_precision"))
-            stats.append(_summarize(metric="positive_micro_F1"))
-            stats.append(_summarize_single(metric="IL_precision"))
-            stats.append(_summarize_single(metric="IL_recall"))
-            stats.append(_summarize_single(metric="IL_F1"))
-            stats.append(_summarize_single(metric="IL_FPR"))
-            stats.append(_summarize_single(metric="IL_MCC"))
-            stats.append(_summarize(iouThr=0.5, metric="cgF1"))
-            stats.append(_summarize(iouThr=0.5, metric="precision"))
-            stats.append(_summarize(iouThr=0.5, metric="recall"))
-            stats.append(_summarize(iouThr=0.5, metric="F1"))
-            stats.append(_summarize(iouThr=0.5, metric="positive_macro_F1"))
-            stats.append(_summarize(iouThr=0.5, metric="positive_micro_F1"))
-            stats.append(_summarize(iouThr=0.5, metric="positive_micro_precision"))
-            stats.append(_summarize(iouThr=0.5, metric="positive_micro_F1"))
-            stats.append(_summarize(iouThr=0.75, metric="cgF1"))
-            stats.append(_summarize(iouThr=0.75, metric="precision"))
-            stats.append(_summarize(iouThr=0.75, metric="recall"))
-            stats.append(_summarize(iouThr=0.75, metric="F1"))
-            stats.append(_summarize(iouThr=0.75, metric="positive_macro_F1"))
-            stats.append(_summarize(iouThr=0.75, metric="positive_micro_F1"))
-            stats.append(_summarize(iouThr=0.75, metric="positive_micro_precision"))
-            stats.append(_summarize(iouThr=0.75, metric="positive_micro_F1"))
+            for metric in CGF1_METRICS:
+                if metric.image_level:
+                    stats.append(_summarize_single(metric=metric.name))
+                else:
+                    stats.append(
+                        _summarize(iouThr=metric.iou_threshold, metric=metric.name)
+                    )
             return np.asarray(stats)
 
         summarize = _summarizeDets
@@ -409,6 +546,7 @@ class CGF1Evaluator:
         self,
         gt_path: Union[str, List[str]],
         iou_type="segm",
+        verbose=False,
     ):
         """
         Args:
@@ -419,7 +557,9 @@ class CGF1Evaluator:
         self.gt_paths = gt_path if isinstance(gt_path, list) else [gt_path]
         self.iou_type = iou_type
 
-        self.coco_gts = [COCO(gt) for gt in self.gt_paths]
+        self.coco_gts = [COCOCustom(gt) for gt in self.gt_paths]
+
+        self.verbose = verbose
 
         self.coco_evals = []
         for i, coco_gt in enumerate(self.coco_gts):
@@ -460,22 +600,31 @@ class CGF1Evaluator:
         assert len(self.coco_gts) == len(
             self.coco_evals
         ), "Mismatch in number of ground truths and evaluators."
+
+        if self.verbose:
+            print(f"Loading predictions from {pred_file}")
+
         with open(pred_file, "r") as f:
             preds = json.load(f)
+
+        if self.verbose:
+            print(f"Loaded {len(preds)} predictions")
 
         img2preds = defaultdict(list)
         for pred in preds:
             img2preds[pred["image_id"]].append(pred)
 
-        eval_imgs = []
-        for img_id in self.eval_img_ids:
+        all_eval_imgs = []
+        for img_id in tqdm(self.eval_img_ids, disable=not self.verbose):
             results = img2preds[img_id]
             all_scorings = []
             for cur_coco_gt, coco_eval in zip(self.coco_gts, self.coco_evals):
                 # suppress pycocotools prints
                 with open(os.devnull, "w") as devnull:
                     with contextlib.redirect_stdout(devnull):
-                        coco_dt = cur_coco_gt.loadRes(results) if results else COCO()
+                        coco_dt = (
+                            cur_coco_gt.loadRes(results) if results else COCOCustom()
+                        )
 
                 coco_eval.cocoDt = coco_dt
                 coco_eval.params.imgIds = [img_id]
@@ -483,18 +632,32 @@ class CGF1Evaluator:
                 img_ids, eval_imgs = _evaluate(coco_eval)
                 all_scorings.append(eval_imgs)
             selected = self._select_best_scoring(all_scorings)
-            eval_imgs.append(selected)
+            all_eval_imgs.append(selected)
 
         # After this point, we have selected the best scoring per image among several ground truths
         # we can now accumulate and summarize, using only the first coco_eval
 
-        self.coco_evals[0].evalImgs = list(np.concatenate(eval_imgs, axis=2).flatten())
+        self.coco_evals[0].evalImgs = list(
+            np.concatenate(all_eval_imgs, axis=2).flatten()
+        )
         self.coco_evals[0].params.imgIds = self.eval_img_ids
         self.coco_evals[0]._paramsEval = copy.deepcopy(self.coco_evals[0].params)
 
+        if self.verbose:
+            print(f"Accumulating results")
         self.coco_evals[0].accumulate()
         print("cgF1 metric, IoU type={}".format(self.iou_type))
         self.coco_evals[0].summarize()
+        print()
+
+        out = {}
+        for i, value in enumerate(self.coco_evals[0].stats):
+            name = CGF1_METRICS[i].name
+            if CGF1_METRICS[i].iou_threshold is not None:
+                name = f"{name}@{CGF1_METRICS[i].iou_threshold}"
+            out[f"cgF1_eval_{self.iou_type}_{name}"] = float(value)
+
+        return out
 
     @staticmethod
     def _select_best_scoring(scorings):

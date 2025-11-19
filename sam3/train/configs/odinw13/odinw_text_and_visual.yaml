@@ -43,7 +43,7 @@ scratch:
     _target_: sam3.eval.postprocessors.PostProcessImage
     max_dets_per_img: -1  # infinite detections
     use_original_ids: true
-    use_original_sizes: true
+    use_original_sizes_box: true
     use_presence: ${scratch.use_presence_eval}
 
   # Image processing parameters
