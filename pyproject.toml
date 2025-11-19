@@ -26,16 +26,16 @@ classifiers = [
 ]
 dependencies = [
     "timm>=1.0.17",
-    "numpy==1.26",
-    "tqdm",
-    "ftfy==6.1.1",
-    "regex",
-    "iopath>=0.1.10",
-    "typing_extensions",
-    "huggingface_hub",
-    "decord",
-    "einops>=0.8.0",
-    "pycocotools>=2.0.10",
+    "numpy>=1.26,<2.4.0",
+    "tqdm>=4.66.0,<4.68.0",
+    "ftfy>=6.1.1,<6.4.0",
+    "regex>=2025.11.3",
+    "iopath>=0.1.10,<0.2.0",
+    "typing_extensions>=4.8.0,<4.16.0",
+    "huggingface-hub>=1.1.4,<1.2.0",
+    "decord>=0.6.0,<0.7.0",
+    "einops>=0.8.0,<0.9.0",
+    "pycocotools>=2.0.10,<2.1.0",
 ]
 
 [project.optional-dependencies]
