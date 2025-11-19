@@ -110,7 +110,7 @@ Training configurations are stored in `sam3/train/configs/`. The configuration f
 ```yaml
 # Paths to datasets and checkpoints
 paths:
-  bpe_path: /path/to/pretrained/checkpoint.pt
+  bpe_path: /path/to/bpe/file
   dataset_root: /path/to/dataset
   experiment_log_dir: /path/to/logs
 
