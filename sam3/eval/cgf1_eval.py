@@ -6,17 +6,13 @@ import json
 import os
 import time
 from collections import defaultdict
-
 from dataclasses import dataclass
 from typing import List, Union
 
 import numpy as np
-
 import pycocotools.mask as maskUtils
 from pycocotools.coco import COCO
-
 from pycocotools.cocoeval import COCOeval
-
 from scipy.optimize import linear_sum_assignment
 from tqdm import tqdm
 
