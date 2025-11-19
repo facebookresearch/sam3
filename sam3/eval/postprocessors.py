@@ -9,13 +9,9 @@ from typing import Dict, List, Optional
 
 import numpy as np
 import torch
-
 from sam3.model import box_ops
-
 from sam3.model.data_misc import BatchedInferenceMetadata, interpolate
-
 from sam3.train.masks_ops import rle_encode, robust_rle_encode
-
 from torch import nn
 
 

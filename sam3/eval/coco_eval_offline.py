@@ -12,10 +12,8 @@ import logging
 from collections import defaultdict
 
 import torch
-
 from pycocotools.coco import COCO
 from pycocotools.cocoeval import COCOeval
-
 from sam3.train.utils.distributed import is_main_process
 
 try:
@@ -45,6 +43,7 @@ COCO_METRICS = [
 
 
 def convert_to_xywh(boxes):
+    """Convert bounding boxes from xyxy format to xywh format."""
     xmin, ymin, xmax, ymax = boxes.unbind(-1)
     return torch.stack((xmin, ymin, xmax - xmin, ymax - ymin), dim=-1)
 

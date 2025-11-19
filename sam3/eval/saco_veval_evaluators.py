@@ -6,18 +6,39 @@ from typing import Dict, Optional, Sequence, Tuple
 
 import numpy as np
 import pycocotools.mask
-
+from sam3.eval.cgf1_eval import CGF1_METRICS
 from sam3.eval.conversion_util import (
     convert_ytbvis_to_cocovid_gt,
     convert_ytbvis_to_cocovid_pred,
 )
-from sam3.eval.demo_eval import DEMO_METRICS
 from sam3.eval.hota_eval_toolkit.run_ytvis_eval import run_ytvis_eval
 from sam3.eval.teta_eval_toolkit import config, Evaluator, metrics
 from sam3.eval.teta_eval_toolkit.datasets import COCO, TAO
 from sam3.eval.ytvis_coco_wrapper import YTVIS
 from sam3.eval.ytvis_eval import VideoDemoF1Eval, YTVISeval
 from sam3.train.nms_helper import process_frame_level_nms, process_track_level_nms
+
+
+def _get_metric_index(metric_name: str, iou_threshold: Optional[float] = None) -> int:
+    """
+    Find the index of a metric in CGF1_METRICS by name and IoU threshold.
+
+    Args:
+        metric_name: Name of the metric (e.g., "cgF1", "precision", "recall")
+        iou_threshold: IoU threshold (None for average over 0.5:0.95, or specific value like 0.5, 0.75)
+
+    Returns:
+        Index of the metric in CGF1_METRICS
+
+    Raises:
+        ValueError: If metric not found
+    """
+    for idx, metric in enumerate(CGF1_METRICS):
+        if metric.name == metric_name and metric.iou_threshold == iou_threshold:
+            return idx
+    raise ValueError(
+        f"Metric '{metric_name}' with IoU threshold {iou_threshold} not found in CGF1_METRICS"
+    )
 
 
 class BasePredFileEvaluator:
@@ -159,7 +180,7 @@ class VideoPhraseApEvaluator(BasePredFileEvaluator):
         return results, video_np_level_results
 
 
-class VideoDemoF1Evaluator(BasePredFileEvaluator):
+class VideoCGF1Evaluator(BasePredFileEvaluator):
     """Evaluate Video Demo F1 with YT-VIS format prediction and GT files."""
 
     def __init__(
@@ -220,110 +241,43 @@ class VideoDemoF1Evaluator(BasePredFileEvaluator):
             demoF1Eval.summarize()
             result_prefix = f"{self.dataset_name}"
             result_prefix += f"_{'mask' if iou_type == 'segm' else 'bbox'}_demo"
-            # Note that these indices must be updated if the number order of metrics in
-            # `_summarizeDets` in sam3/eval/demo_eval.py
-            # check the length and name of the metrics to guard against any changes in
-            # image Demo F1 evaluation as in `_summarizeDets` of DemoEval
-            demo_pr_avg_idx = 1  # IoU=0.5:0.95
-            demo_re_avg_idx = 2  # IoU=0.5:0.95
-            demo_f1_avg_idx = 3  # IoU=0.5:0.95
-            pmf1_avg_idx = 4  # IoU=0.5:0.95
-            ilmcc_avg_idx = 9  # IoU=0.5:0.95
-            cgf1_avg_idx = 0  # IoU=0.5:0.95
-            pmf1_w0dt_avg_idx = 39  # IoU=0.5:0.95
-            cgf1_w0dt_avg_idx = 38  # IoU=0.5:0.95
-            positive_micro_f1_avg_idx = 31  # IoU=0.5:0.95
-            cgf1_micro_avg_idx = 29  # IoU=0.5:0.95
-            demo_pr_iou_50_idx = 13  # IoU=0.5
-            demo_re_iou_50_idx = 14  # IoU=0.5
-            demo_f1_iou_50_idx = 15  # IoU=0.5
-            pmf1_iou_50_idx = 16  # IoU=0.5
-            # ilmcc_iou_50_idx = None  # IoU=0.5  # (not available in current DemoEval)
-            cgf1_iou_50_idx = 12  # IoU=0.5
-            pmf1_w0dt_50_idx = 41  # IoU=0.5
-            cgf1_w0dt_50_idx = 40  # IoU=0.5
-            positive_micro_f1_50_idx = 34  # IoU=0.5
-            cgf1_micro_50_idx = 32  # IoU=0.5
-            demo_pr_iou_75_idx = 20  # IoU=0.75
-            demo_re_iou_75_idx = 21  # IoU=0.75
-            demo_f1_iou_75_idx = 22  # IoU=0.75
-            pmf1_iou_75_idx = 23  # IoU=0.75
-            # ilmcc_iou_75_idx = None  # IoU=0.75  # (not available in current DemoEval)
-            cgf1_iou_75_idx = 19  # IoU=0.75
-            pmf1_w0dt_75_idx = 43  # IoU=0.75
-            cgf1_w0dt_75_idx = 42  # IoU=0.75
-            positive_micro_f1_75_idx = 37  # IoU=0.75
-            cgf1_micro_75_idx = 35  # IoU=0.75
+
             stats = demoF1Eval.stats
-            assert len(stats) == len(DEMO_METRICS)
-            assert DEMO_METRICS[demo_pr_avg_idx] == "Precision"
-            assert DEMO_METRICS[demo_re_avg_idx] == "Recall"
-            assert DEMO_METRICS[demo_f1_avg_idx] == "F1"
-            assert DEMO_METRICS[pmf1_avg_idx] == "Macro_F1"
-            assert DEMO_METRICS[ilmcc_avg_idx] == "IL_MCC"
-            assert DEMO_METRICS[cgf1_avg_idx] == "CGF1"
-            assert DEMO_METRICS[pmf1_w0dt_avg_idx] == "positive_w0dt_macro_F1"
-            assert DEMO_METRICS[cgf1_w0dt_avg_idx] == "CGF1_w0dt"
-            assert DEMO_METRICS[positive_micro_f1_avg_idx] == "positive_micro_F1"
-            assert DEMO_METRICS[cgf1_micro_avg_idx] == "CGF1_micro"
-            assert DEMO_METRICS[demo_pr_iou_50_idx] == "Precision@0.5"
-            assert DEMO_METRICS[demo_re_iou_50_idx] == "Recall@0.5"
-            assert DEMO_METRICS[demo_f1_iou_50_idx] == "F1@0.5"
-            assert DEMO_METRICS[pmf1_iou_50_idx] == "Macro_F1@0.5"
-            # assert DEMO_METRICS[ilmcc_iou_50_idx] == "IL_MCC@0.5"
-            assert DEMO_METRICS[cgf1_iou_50_idx] == "CGF1@0.5"
-            assert DEMO_METRICS[pmf1_w0dt_50_idx] == "positive_w0dt_macro_F1@0.5"
-            assert DEMO_METRICS[cgf1_w0dt_50_idx] == "CGF1_w0dt@0.5"
-            assert DEMO_METRICS[positive_micro_f1_50_idx] == "positive_micro_F1@0.5"
-            assert DEMO_METRICS[cgf1_micro_50_idx] == "CGF1_micro@0.5"
-            assert DEMO_METRICS[demo_pr_iou_75_idx] == "Precision@0.75"
-            assert DEMO_METRICS[demo_re_iou_75_idx] == "Recall@0.75"
-            assert DEMO_METRICS[demo_f1_iou_75_idx] == "F1@0.75"
-            assert DEMO_METRICS[pmf1_iou_75_idx] == "Macro_F1@0.75"
-            # assert DEMO_METRICS[ilmcc_iou_75_idx] == "IL_MCC@0.75"
-            assert DEMO_METRICS[cgf1_iou_75_idx] == "CGF1@0.75"
-            assert DEMO_METRICS[pmf1_w0dt_75_idx] == "positive_w0dt_macro_F1@0.75"
-            assert DEMO_METRICS[cgf1_w0dt_75_idx] == "CGF1_w0dt@0.75"
-            assert DEMO_METRICS[positive_micro_f1_75_idx] == "positive_micro_F1@0.75"
-            assert DEMO_METRICS[cgf1_micro_75_idx] == "CGF1_micro@0.75"
-            # fetch Demo F1 results from the corresponding indices in `demoF1Eval.stats`
-            results[result_prefix + "_precision_50_95"] = stats[demo_pr_avg_idx]
-            results[result_prefix + "_recall_50_95"] = stats[demo_re_avg_idx]
-            results[result_prefix + "_f1_50_95"] = stats[demo_f1_avg_idx]
-            results[result_prefix + "_precision_50"] = stats[demo_pr_iou_50_idx]
-            results[result_prefix + "_recall_50"] = stats[demo_re_iou_50_idx]
-            results[result_prefix + "_f1_50"] = stats[demo_f1_iou_50_idx]
-            results[result_prefix + "_precision_75"] = stats[demo_pr_iou_75_idx]
-            results[result_prefix + "_recall_75"] = stats[demo_re_iou_75_idx]
-            results[result_prefix + "_f1_75"] = stats[demo_f1_iou_75_idx]
+
             if compute_ilmcc_and_cgf1:
-                results[result_prefix + "_pmf1_50_95"] = stats[pmf1_avg_idx]
+                # Average IoU threshold (0.5:0.95)
+                cgf1_micro_avg_idx = _get_metric_index("cgF1", None)
+                positive_micro_f1_avg_idx = _get_metric_index("positive_micro_F1", None)
+                ilmcc_avg_idx = _get_metric_index("IL_MCC", None)
+                results[result_prefix + "_cgf1_micro_50_95"] = stats[cgf1_micro_avg_idx]
                 results[result_prefix + "_ilmcc_50_95"] = stats[ilmcc_avg_idx]
-                results[result_prefix + "_cgf1_50_95"] = stats[cgf1_avg_idx]
-                results[result_prefix + "_pmf1_w0dt_50_95"] = stats[pmf1_w0dt_avg_idx]
-                results[result_prefix + "_cgf1_w0dt_50_95"] = stats[cgf1_w0dt_avg_idx]
                 results[result_prefix + "_positive_micro_f1_50_95"] = stats[
                     positive_micro_f1_avg_idx
                 ]
-                results[result_prefix + "_cgf1_micro_50_95"] = stats[cgf1_micro_avg_idx]
-                results[result_prefix + "_pmf1_50"] = stats[pmf1_iou_50_idx]
+
+                # IoU = 0.5
+                cgf1_micro_50_idx = _get_metric_index("cgF1", 0.5)
+                positive_micro_f1_50_idx = _get_metric_index("positive_micro_F1", 0.5)
+                results[result_prefix + "_cgf1_micro_50"] = stats[cgf1_micro_50_idx]
                 results[result_prefix + "_ilmcc_50"] = float(
-                    np.array(stats[cgf1_iou_50_idx]) / np.array(stats[pmf1_iou_50_idx])
-                )  # IL_MCC not directly available in DemoEval, so we compute it from cgf1 and PMF1
-                results[result_prefix + "_cgf1_50"] = stats[cgf1_iou_50_idx]
+                    np.array(stats[cgf1_micro_50_idx])
+                    / np.array(stats[positive_micro_f1_50_idx])
+                )
                 results[result_prefix + "_positive_micro_f1_50"] = stats[
                     positive_micro_f1_50_idx
                 ]
-                results[result_prefix + "_cgf1_micro_50"] = stats[cgf1_micro_50_idx]
-                results[result_prefix + "_pmf1_75"] = stats[pmf1_iou_75_idx]
+
+                # IoU = 0.75
+                cgf1_micro_75_idx = _get_metric_index("cgF1", 0.75)
+                positive_micro_f1_75_idx = _get_metric_index("positive_micro_F1", 0.75)
+                results[result_prefix + "_cgf1_micro_75"] = stats[cgf1_micro_75_idx]
                 results[result_prefix + "_ilmcc_75"] = float(
-                    np.array(stats[cgf1_iou_75_idx]) / np.array(stats[pmf1_iou_75_idx])
-                )  # IL_MCC not directly available in DemoEval, so we compute it from cgf1 and PMF1
-                results[result_prefix + "_cgf1_75"] = stats[cgf1_iou_75_idx]
+                    np.array(stats[cgf1_micro_75_idx])
+                    / np.array(stats[positive_micro_f1_75_idx])
+                )
                 results[result_prefix + "_positive_micro_f1_75"] = stats[
                     positive_micro_f1_75_idx
                 ]
-                results[result_prefix + "_cgf1_micro_75"] = stats[cgf1_micro_75_idx]
 
             self.extract_video_np_level_results(demoF1Eval, video_np_level_results)
 

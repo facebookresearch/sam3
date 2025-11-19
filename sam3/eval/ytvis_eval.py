@@ -3,7 +3,6 @@ import gc
 import logging
 import os
 from collections import defaultdict
-from functools import partial
 from operator import xor
 from pathlib import Path
 from typing import List, Optional
@@ -12,14 +11,9 @@ import numpy as np
 import pycocotools.mask as mask_util
 import torch
 from pycocotools.cocoeval import COCOeval
-
-from sam3.eval.coco_eval import CocoEvaluator, convert_to_xywh
-from sam3.eval.demo_eval import DemoEval
-
-from sam3.eval.ytvis_coco_wrapper import YTVIS
-
+from sam3.eval.cgf1_eval import CGF1Eval
+from sam3.eval.coco_eval_offline import convert_to_xywh
 from sam3.model.box_ops import box_xywh_inter_union
-
 from sam3.train.masks_ops import rle_encode
 from sam3.train.utils import distributed as dist
 from typing_extensions import override
@@ -157,111 +151,9 @@ class YTVISeval(YTVISevalMixin, COCOeval):
     sort_inds_by_scores_in_iou = True
 
 
-class VideoDemoF1Eval(YTVISevalMixin, DemoEval):
+class VideoDemoF1Eval(YTVISevalMixin, CGF1Eval):
     # For demo F1 evaluation, we DO NOT sort the detections (but match them with GTs via Hungarian matching).
     sort_inds_by_scores_in_iou = False
-
-
-class YTVISEvaluator(CocoEvaluator):
-    """
-    Evaluator for the YouTubeVIS dataset.
-    """
-
-    @override
-    def _lazy_init(self, coco_cls=None):
-        super()._lazy_init(coco_cls=partial(YTVIS, ignore_gt_cats=not self.useCats))
-
-    @override
-    def prepare_for_coco_keypoint(self, predictions):
-        raise NotImplementedError
-
-    @override
-    def prepare_for_coco_detection(self, predictions):
-        results = super().prepare_for_coco_detection(predictions)
-        for res in results:
-            res["bboxes"] = res.pop("bbox")
-
-        return results
-
-    @override
-    @torch.no_grad()
-    def prepare_for_coco_segmentation(self, predictions):
-        self._lazy_init()
-        coco_results = []
-        for original_id, prediction in predictions.items():
-            if len(prediction) == 0:
-                continue
-
-            scores = prediction["scores"]
-            labels = prediction["labels"]
-            if "masks" in prediction:
-                masks = prediction["masks"].squeeze(2)
-                assert (
-                    masks.ndim == 4
-                ), "Expected masks to be of shape(N_preds,T_frames,H,W)"
-
-                # masks = masks > 0.5 # Already binarized
-                h, w = masks.shape[-2:]
-
-                scores = prediction["scores"].tolist()
-                labels = prediction["labels"].tolist()
-                # NOTE: We don't fully batch these operations as the masks matrix tend to be very large and this can OOM!
-                # Instead, we use smaller batches and move them to CPU
-                areas = [(mask.flatten(1).sum(1) / (h * w)).tolist() for mask in masks]
-                rles = [rle_encode(masklet) for masklet in masks]
-
-                # memory clean
-                del masks
-                del prediction["masks"]
-            elif "masks_rle" in prediction:
-                rles = prediction.pop("masks_rle")
-                areas = [
-                    [0 if rle is None else rle.pop("area") for rle in rles_per_obj]
-                    for rles_per_obj in rles
-                ]
-            else:
-                raise ValueError(
-                    "Expected either `masks` or `masks_rle` key in the predictions."
-                )
-
-            assert len(areas) == len(rles)
-            coco_results.extend(
-                [
-                    {
-                        "image_id": original_id,
-                        "category_id": labels[k],
-                        "segmentations": rle,
-                        "score": scores[k],
-                        "areas": areas[k],
-                    }
-                    for k, rle in enumerate(rles)
-                ]
-            )
-        return coco_results
-
-    @override
-    def _loadRes(self, coco_gt, resFile, **kwargs):
-        return coco_gt.loadRes(resFile)
-
-    @override
-    def _dump(self, results):
-        if self.dump is not None:
-            dumped_results = copy.deepcopy(results)
-            for r in dumped_results:
-                if "bbox" not in self.iou_types and "bboxes" in r:
-                    del r["bboxes"]
-                if "segm" not in self.iou_types and "segmentations" in r:
-                    del r["segmentations"]
-            self.dump.extend(dumped_results)
-
-    @override
-    def reset(self):
-        for iou_type in self.iou_types:
-            assert iou_type in [
-                "bbox",
-                "segm",
-            ], "Only bbox and segm IoU types are supported."
-        super().reset(cocoeval_cls=YTVISeval)
 
 
 class YTVISResultsWriter:

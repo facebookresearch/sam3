@@ -20,7 +20,7 @@ from typing import Any, Optional
 import pycocotools.mask as mask_utils
 import torch
 from iopath.common.file_io import g_pathmgr
-
+from sam3.eval.coco_eval_offline import convert_to_xywh
 from sam3.train.masks_ops import rle_encode
 from sam3.train.utils.distributed import (
     all_gather,
@@ -31,12 +31,6 @@ from sam3.train.utils.distributed import (
 
 
 ### Helper functions and classes
-
-
-def convert_to_xywh(boxes):
-    """Convert bounding boxes from xyxy format to xywh format."""
-    xmin, ymin, xmax, ymax = boxes.unbind(-1)
-    return torch.stack((xmin, ymin, xmax - xmin, ymax - ymin), dim=-1)
 
 
 class HeapElement:
