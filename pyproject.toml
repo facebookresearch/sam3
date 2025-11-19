@@ -33,6 +33,9 @@ dependencies = [
     "iopath>=0.1.10",
     "typing_extensions",
     "huggingface_hub",
+    "decord",
+    "einops>=0.8.0",
+    "pycocotools>=2.0.10",
 ]
 
 [project.optional-dependencies]
