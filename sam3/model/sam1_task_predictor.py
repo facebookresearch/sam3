@@ -5,12 +5,10 @@
 # LICENSE file in the root directory of this source tree.
 
 import logging
-
 from typing import List, Optional, Tuple, Union
 
 import numpy as np
 import torch
-
 import torch.nn as nn
 from PIL.Image import Image
 

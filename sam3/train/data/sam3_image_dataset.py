@@ -15,14 +15,14 @@ from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
 import torch
 import torch.utils.data
 import torchvision
-from decord import cpu, VideoReader
-from iopath.common.file_io import g_pathmgr
 
+# from decord import cpu, VideoReader
+from iopath.common.file_io import g_pathmgr
 from PIL import Image as PILImage
 from PIL.Image import DecompressionBombError
+from torchvision.datasets.vision import VisionDataset
 
 from sam3.model.box_ops import box_xywh_to_xyxy
-from torchvision.datasets.vision import VisionDataset
 
 from .coco_json_loaders import COCO_FROM_JSON
 
