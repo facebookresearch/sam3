@@ -107,7 +107,6 @@ class Keypoints:
         return cat_kpts
 
 
-# TODO make this nicer, this is a direct translation from C2 (but removing the inner loop)
 def _keypoints_to_heatmap(
     keypoints: torch.Tensor, rois: torch.Tensor, heatmap_size: int
 ) -> Tuple[torch.Tensor, torch.Tensor]:

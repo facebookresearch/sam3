@@ -56,7 +56,7 @@ class VideoGroundingDataset(Sam3ImageDataset):
         **kwargs,
     ):
         """
-        Loading video grounding data under the FA find query format.
+        Loading video grounding data
 
         Video frame sampling parameters (for training only):
         - num_stages_sample: number of frames to sample from the video during training

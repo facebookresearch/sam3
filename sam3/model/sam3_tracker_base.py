@@ -1139,7 +1139,6 @@ class Sam3TrackerBase(torch.nn.Module):
         """Compile all model components for faster inference."""
         # a larger cache size to hold varying number of shapes for torch.compile
         # see https://github.com/pytorch/pytorch/blob/v2.5.1/torch/_dynamo/config.py#L42-L49
-        # TODO: Make these settings local only using `with config`
         torch._dynamo.config.cache_size_limit = 64
         torch._dynamo.config.accumulated_cache_size_limit = 2048
         from sam3.perflib.compile import compile_wrapper

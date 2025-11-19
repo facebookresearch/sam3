@@ -175,11 +175,11 @@ class Sam3VideoBase(nn.Module):
           it contains both global and local masklet information
         """
 
-        # Step 1: run backbone and FA in a distributed manner -- this is done via Sam3ImageOnVideoMultiGPU,
-        # a MultiGPU FA model (assigned to `self.detector`) that shards frames in a round-robin manner.
+        # Step 1: run backbone and detector in a distributed manner -- this is done via Sam3ImageOnVideoMultiGPU,
+        # a MultiGPU model (assigned to `self.detector`) that shards frames in a round-robin manner.
         # It returns a "det_out" dict for `frame_idx` and fills SAM2 backbone features for `frame_idx`
         # into `feature_cache`. Despite its distributed inference under the hood, the results would be
-        # the same as if it is running backbone and FA for every frame on a single GPU.
+        # the same as if it is running backbone and detector for every frame on a single GPU.
         det_out = self.run_backbone_and_detection(
             frame_idx=frame_idx,
             num_frames=num_frames,
@@ -330,7 +330,7 @@ class Sam3VideoBase(nn.Module):
         else:
             text_outputs = feature_cache["text"][text_batch_key]
 
-        # Step 2: run backbone, FA detection, and post-processing with NMS
+        # Step 2: run backbone, detector, and post-processing with NMS
         if "multigpu_buffer" not in feature_cache:
             # "multigpu_buffer" is a buffer cache used by `self.detector` and it needs
             # to be passed to `forward_video_grounding_multigpu` for every call
@@ -354,7 +354,7 @@ class Sam3VideoBase(nn.Module):
             track_in_reverse=reverse,
             # also get the SAM2 backbone features
             return_tracker_backbone_feats=True,
-            # run NMS as a part of distributed FA computation
+            # run NMS as a part of distributed computation
             run_nms=self.det_nms_thresh > 0.0,
             nms_prob_thresh=self.score_threshold_detection,
             nms_iou_thresh=self.det_nms_thresh,
@@ -472,7 +472,7 @@ class Sam3VideoBase(nn.Module):
                 ).squeeze(1)[0]
                 > 0
             )
-            HIGH_CONF_THRESH = 0.8  # TODO: make this configurable?
+            HIGH_CONF_THRESH = 0.8
             reconditioned_states_idx = set()
             obj_idx = np.where(tracker_metadata["obj_ids_all_gpu"] == trk_obj_id)[
                 0
@@ -535,7 +535,7 @@ class Sam3VideoBase(nn.Module):
         det_scores_np: npt.NDArray = det_out["scores"].float().cpu().numpy()
         det_bbox_xyxy: Tensor = det_out["bbox"]
         if self.rank == 0:
-            # a) match FA and SAM2 masks and find new objects
+            # a) match detector and tracker masks and find new objects
             (
                 new_det_fa_inds,
                 unmatched_trk_obj_ids,
@@ -549,7 +549,6 @@ class Sam3VideoBase(nn.Module):
                 trk_obj_ids=tracker_metadata_prev["obj_ids_all_gpu"],
             )
             if self.suppress_det_close_to_boundary:
-                # TODO: move to `run_backbone_and_detection`. Note that this runs on higher detection threshold (self.new_det_thresh)
                 keep = self._suppress_detections_close_to_boundary(
                     det_bbox_xyxy[new_det_fa_inds]
                 )
@@ -911,7 +910,7 @@ class Sam3VideoBase(nn.Module):
         new_det_fa_inds_local: npt.NDArray = new_det_fa_inds[is_on_this_gpu]
         obj_ids_newly_removed: Set[int] = tracker_update_plan["obj_ids_newly_removed"]
 
-        # Step 1: add new objects from FA detection to SAM2 inference states
+        # Step 1: add new objects from the detector to SAM2 inference states
         if len(new_det_fa_inds_local) > 0:
             new_det_fa_inds_local_t = torch.from_numpy(new_det_fa_inds_local)
             new_det_masks: Tensor = det_out["mask"][new_det_fa_inds_local_t]
@@ -1125,8 +1124,6 @@ class Sam3VideoBase(nn.Module):
                 tqdm_disable=True,
                 run_mem_encoder=run_mem_encoder,
             ):
-                # TODO we only need low-res outputs here for all-gather across GPUs,
-                # so we can remove the high-res interpolation in `propagate_in_video`
                 out_frame_idx, out_obj_ids, out_low_res_masks, _, out_obj_scores = out
                 num_frames_propagated += 1
 
@@ -1177,10 +1174,10 @@ class Sam3VideoBase(nn.Module):
           - trk_obj_ids: (M,) array of object IDs corresponding to trk_masks
 
         Returns:
-          - new_det_fa_inds: array of new object indices among in FA detection outputs
+          - new_det_fa_inds: array of new object indices.
           - unmatched_trk_obj_ids: array of existing masklet object IDs that are not matched
             to any detections on this frame (for unmatched, we only count masklets with >0 area)
-          - det_to_matched_trk_obj_ids: dict[int, npt.NDArray]: mapping from FA detection indices
+          - det_to_matched_trk_obj_ids: dict[int, npt.NDArray]: mapping from detector's detection indices
             to the list of matched tracklet object IDs
           - empty_trk_obj_ids: array of existing masklet object IDs with zero area in SAM2 prediction
         """
@@ -1245,7 +1242,6 @@ class Sam3VideoBase(nn.Module):
         trk_masks_binary = trk_masks > 0
         ious = mask_iou(det_masks_binary, trk_masks_binary)  # (N, M)
 
-        # TODO: remove the GPU->CPU copy if hungarian matching disabled
         ious_np = ious.cpu().numpy()
         if self.o2o_matching_masklets_enable:
             from scipy.optimize import linear_sum_assignment
@@ -1277,8 +1273,8 @@ class Sam3VideoBase(nn.Module):
         # for each detection, which tracks it matched to (above threshold)
         det_to_matched_trk_obj_ids = {}
         trk_id_to_max_iou_high_conf_det = {}  # trk id --> exactly one detection idx
-        HIGH_CONF_THRESH = 0.8  # TODO: make this configurable
-        HIGH_IOU_THRESH = 0.8  # TODO: make this configurable
+        HIGH_CONF_THRESH = 0.8
+        HIGH_IOU_THRESH = 0.8
         det_to_max_iou_trk_idx = np.argmax(ious_np, axis=1)
         det_is_high_conf = (det_scores_np >= HIGH_CONF_THRESH) & ~is_new_det
         det_is_high_iou = np.max(ious_np, axis=1) >= HIGH_IOU_THRESH
@@ -1376,7 +1372,7 @@ class Sam3VideoBase(nn.Module):
         # Step 2: removed tracks that has not matched with detections for `hotstart_unmatch_thresh` frames with hotstart period
         # a) add unmatched frame indices for each existing object ID
         # note that `unmatched_trk_obj_ids` contains those frames where the SAM2 output mask
-        # doesn't match any FA detection; it excludes those frames where SAM2 gives an empty mask
+        # doesn't match any detection; it excludes those frames where SAM2 gives an empty mask
         # b) remove a masklet if it first appears after `hotstart_diff` and is unmatched for more
         # than `self.hotstart_unmatch_thresh` frames
         for obj_id, frame_indices in unmatched_frame_inds.items():
@@ -1448,7 +1444,6 @@ class Sam3VideoBase(nn.Module):
         """
         Run Sam2 memory encoder, enforcing non-overlapping constraints globally.
         """
-        # TODO: Add most recently occluded heuristic for suppression of overlapping masks
         if len(tracker_inference_states) == 0:
             return
         # Avoid an extra interpolation step by directly interpolating to `interpol_size`
@@ -1464,7 +1459,6 @@ class Sam3VideoBase(nn.Module):
         )
         # We first apply non-overlapping constraints before memory encoding. This may include some suppression heuristics.
         if not hasattr(self, "_warm_up_complete") or self._warm_up_complete:
-            # TODO: try _apply_object_wise_non_overlapping_constraints instead
             high_res_masks = self.tracker._suppress_object_pw_area_shrinkage(
                 high_res_masks
             )
@@ -1552,8 +1546,6 @@ class Sam3VideoBase(nn.Module):
 
         assert len(new_obj_ids) == new_obj_masks.size(0)
         assert new_obj_masks.is_floating_point()
-        # TODO consider removing this interpolation -- it's probably no longer needed
-        # we should edit `self.tracker.add_new_mask` to directly take low-res input masks
         input_mask_res = self.tracker.input_mask_size
         new_obj_masks = F.interpolate(
             new_obj_masks.unsqueeze(1),
@@ -1641,7 +1633,7 @@ class Sam3VideoBase(nn.Module):
                     # "status" is the confirmation status of each masklet (in `MaskletConfirmationStatus`)
                     "status": np.array([], np.int64),
                     # "consecutive_det_num" is the number of consecutive frames where the masklet is
-                    # detected by FA (with a matched detection)
+                    # detected by the detector (with a matched detection)
                     "consecutive_det_num": np.array([], np.int64),
                 }
             tracker_metadata["rank0_metadata"] = rank0_metadata
@@ -1685,12 +1677,10 @@ class Sam3VideoBase(nn.Module):
 
         # b) update the confirmation status of all masklets based on the current frame
         # b.1) update "consecutive_det_num"
-        # "is_matched": whether a masklet is matched to an FA detection on this frame
+        # "is_matched": whether a masklet is matched to a detection on this frame
         is_matched = np.isin(obj_ids_all_gpu_updated, new_det_obj_ids)
         for matched_trk_obj_ids in det_to_matched_trk_obj_ids.values():
             is_matched |= np.isin(obj_ids_all_gpu_updated, matched_trk_obj_ids)
-        # "consecutive_det_num": the number of consecutive frames where the masklet is
-        #   detected by FA (with a matched detection)
         consecutive_det_num = np.where(is_matched, consecutive_det_num + 1, 0)
 
         # b.2) update "status"

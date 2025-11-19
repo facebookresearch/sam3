@@ -8,7 +8,7 @@ try:
 
     HAS_CC_TORCH = True
 except ImportError:
-    logging.warning(
+    logging.debug(
         "cc_torch not found. Consider installing for better performance. Command line:"
         " pip install git+https://github.com/ronghanghu/cc_torch.git"
     )

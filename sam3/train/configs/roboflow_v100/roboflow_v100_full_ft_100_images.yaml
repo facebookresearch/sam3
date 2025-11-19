@@ -6,10 +6,9 @@ defaults:
 # Paths Configuration (Chage this to your own paths)
 # ============================================================================
 paths:
-  checkpoint_path: /checkpoint/sam3/haithamkhedr/workspace/sam3/assets/sam3.pt
-  roboflow_vl_100_root: /checkpoint/sam3/kalyanv/datasets/all_rf100/rf100-vl #/checkpoint/onevision/datasets/all_rf100/rf100-vl
-  experiment_log_dir: /checkpoint/sam3/${oc.env:USER}/sam3_paper_repro/roboflow_v100_v3
-  bpe_path: /checkpoint/sam3/haithamkhedr/workspace/sam3/assets/bpe_simple_vocab_16e6.txt.gz
+  roboflow_vl_100_root: <YOUR_DATASET_DIR>
+  experiment_log_dir: <YOUR EXPERIMENET LOG_DIR>
+  bpe_path: <BPE_PATH> # This should be under assets/bpe_simple_vocab_16e6.txt.gz
 
 # Roboflow dataset configuration
 roboflow_train:
@@ -133,7 +132,7 @@ roboflow_train:
   #       pos_focal: false
   #       pad_n_queries: 200
   #       pad_scale_pos: 1.0
-  #     - _target_: onevision.losses.loss_fns.Masks
+  #     - _target_: sam3.train.loss.loss_fns.Masks
   #       focal_alpha: 0.25
   #       focal_gamma: 2.0
   #       weight_dict:
@@ -319,7 +318,6 @@ trainer:
     device: cpus
     eval_mode: false
     enable_segmentation: ${scratch.enable_segmentation} # Warning: Enable this if using segmentation.
-    checkpoint_path: ${paths.checkpoint_path}
 
   meters:
     val:
@@ -428,7 +426,7 @@ submitit:
   use_cluster: True
   cpus_per_task: 10
   port_range: [10000, 65000]
-  constraint: null #"volta32gb"
+  constraint: null
   # Uncomment for job array configuration
   job_array:
     num_tasks: 100

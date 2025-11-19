@@ -309,7 +309,6 @@ class TransformerDecoder(nn.Module):
             nn.init.normal_(self.instance_query_embed.weight.data)
 
         assert self.roi_pooler is None
-        # TODO(chay): add support for turning off box_refine and return_intermediate
         assert self.return_intermediate, "support return_intermediate only"
         assert self.box_refine, "support box refine only"
 

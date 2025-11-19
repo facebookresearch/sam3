@@ -187,9 +187,7 @@ class PixelDecoder(nn.Module):
         num_convs = 1 if shared_conv else num_upsampling_stages
         for _ in range(num_convs):
             conv_layers.append(nn.Conv2d(self.hidden_dim, self.hidden_dim, 3, 1, 1))
-            norms.append(
-                nn.GroupNorm(8, self.hidden_dim)
-            )  # TODO: Make the norm configurable
+            norms.append(nn.GroupNorm(8, self.hidden_dim))
 
         self.conv_layers = nn.ModuleList(conv_layers)
         self.norms = nn.ModuleList(norms)

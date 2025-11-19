@@ -6,10 +6,10 @@ defaults:
 # Paths Configuration (Chage this to your own paths)
 # ============================================================================
 paths:
-  experiment_log_dir: /fsx-onevision/shoubhikdn/omnivision_onevision/release_experiments/silver_food_rec_release_hf/
-  coco_gt : /fsx-onevision/shoubhikdn/release_silver/annotations_cleaned/silver_food_rec_merged_test.json
-  img_path: /fsx-onevision/shoubhikdn/release_silver/images/food_rec/
-  bpe_path: /fsx-onevision/chayryali/ve/bpe_simple_vocab_16e6.txt.gz
+  experiment_log_dir: <YOUR EXPERIMENET LOG_DIR>
+  coco_gt : <YOUR_GT_DIR>/silver_food_rec_merged_test.json
+  img_path: <YOUR_IMG_DIR>/food_rec
+  bpe_path: <BPE_PATH> # This should be under assets/bpe_simple_vocab_16e6.txt.gz
 
 # ============================================================================
 # Different helper parameters and functions
@@ -111,8 +111,8 @@ scratch:
   lr_transformer: ${times:8e-4,${scratch.lr_scale}}
   lr_vision_backbone: ${times:2.5e-4,${scratch.lr_scale}}
   lr_language_backbone: ${times:5e-5,${scratch.lr_scale}}
-  lrd_vision_backbone: 0.9 # (lower for in-domain adn higher for ood) #TODO: 0.8, 0.9, 1.0
-  wd: 0.1 # TODO: Sweep for 0.0 adn 0.01
+  lrd_vision_backbone: 0.9
+  wd: 0.1
   scheduler_timescale: 20
   scheduler_warmup: 20
   scheduler_cooldown: 20
@@ -288,11 +288,11 @@ launcher:
   multiprocessing_context: forkserver
 
 submitit:
-  account: onevision
+  account: null # Add your SLURM account if use_cluster == 1
   partition: null
-  qos: onevision_high
+  qos: null # Add your QoS if use_cluster == 1
   timeout_hour: 72
   use_cluster: True
   cpus_per_task: 10
   port_range: [10000, 65000]
-  constraint: null #"volta32gb"
+  constraint: null

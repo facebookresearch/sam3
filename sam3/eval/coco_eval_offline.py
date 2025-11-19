@@ -24,7 +24,6 @@ from typing import Any
 
 import numpy as np
 
-# import onevision_cpp_ops as _CPP
 import pycocotools.mask as mask_util
 import torch
 

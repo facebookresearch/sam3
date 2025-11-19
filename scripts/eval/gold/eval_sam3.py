@@ -121,13 +121,13 @@ def main():
         "-g",
         "--gt-folder",
         type=str,
-        default="/fsx-onevision/shoubhikdn/release/saco_gold/annotations_cleaned_v2/",
+        help="Path to the folder containing the ground truth json files.",
     )
     parser.add_argument(
         "-p",
         "--pred-folder",
         type=str,
-        default="/fsx-onevision/shoubhikdn/release/sam3_predictions/arxiv/",
+        help="Path to the folder containing the predictions json files.",
     )
     args = parser.parse_args()
 

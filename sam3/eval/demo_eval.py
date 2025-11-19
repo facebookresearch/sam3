@@ -380,8 +380,7 @@ class DemoEval(COCOeval):
         def _summarizeDets():
             # note: the index of these metrics are also used in video Demo F1 evaluation
             # when adding new metrics, please update the index in video Demo F1 evaluation
-            # in "evaluate" method of the "VideoDemoF1Evaluator" class in
-            # projects/onevision/data/sam3_video_evaluators/external_evaluators.py
+            # in "evaluate" method of the "VideoDemoF1Evaluator" class
             stats = np.zeros((len(DEMO_METRICS),))
             stats[0] = _summarize(metric="CGF1")
             stats[1] = _summarize(metric="precision")

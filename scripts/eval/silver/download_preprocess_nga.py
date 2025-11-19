@@ -17,8 +17,6 @@ IMG_URL = "https://api.nga.gov/iiif/%s/full/%s/0/default.jpg"
 METADATA_FOLDER = "metadata"
 EXTENSION = ".jpg"
 
-DATA_FOLDER = Path("/fsx-onevision/lgustafson/datasets/sam3_domains/nga_open_data/")
-
 
 def download_metadata(annotation_folder):
     output_folder = annotation_folder / METADATA_FOLDER

@@ -221,7 +221,7 @@ class VideoDemoF1Evaluator(BasePredFileEvaluator):
             result_prefix = f"{self.dataset_name}"
             result_prefix += f"_{'mask' if iou_type == 'segm' else 'bbox'}_demo"
             # Note that these indices must be updated if the number order of metrics in
-            # `_summarizeDets` in projects/onevision/data/datasets/demo_eval.py
+            # `_summarizeDets` in sam3/eval/demo_eval.py
             # check the length and name of the metrics to guard against any changes in
             # image Demo F1 evaluation as in `_summarizeDets` of DemoEval
             demo_pr_avg_idx = 1  # IoU=0.5:0.95
@@ -287,7 +287,6 @@ class VideoDemoF1Evaluator(BasePredFileEvaluator):
             assert DEMO_METRICS[positive_micro_f1_75_idx] == "positive_micro_F1@0.75"
             assert DEMO_METRICS[cgf1_micro_75_idx] == "CGF1_micro@0.75"
             # fetch Demo F1 results from the corresponding indices in `demoF1Eval.stats`
-            # (see `_summarizeDets` in projects/onevision/data/datasets/demo_eval.py)
             results[result_prefix + "_precision_50_95"] = stats[demo_pr_avg_idx]
             results[result_prefix + "_recall_50_95"] = stats[demo_re_avg_idx]
             results[result_prefix + "_f1_50_95"] = stats[demo_f1_avg_idx]

@@ -460,7 +460,7 @@ def layer_decay_param_modifier(
                 continue
             # Need sorted so that the list of parameter names is deterministic and consistent
             # across re-runs of this job. Else it was causing issues with loading the optimizer
-            # state during a job restart (D38591759)
+            # state during a job restart
             parameter_names = sorted(scheduler_cfg["parameter_names"])
 
             # Only want one cfg group per layer
