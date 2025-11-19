@@ -48,6 +48,9 @@ def instance_masks_to_semantic_masks(
         torch.Tensor: A tensor of shape (B, H, W) where B is the batch size and H, W are the spatial dimensions of the
             input instance masks.
     """
+    if num_instances.sum() == 0:
+        # all negative batch, create a tensor of zeros (B, 1, 1)
+        return num_instances.unsqueeze(-1).unsqueeze(-1)
 
     masks_per_query = torch.split(instance_masks, num_instances.tolist())
 
