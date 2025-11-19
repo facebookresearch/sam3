@@ -19,7 +19,7 @@ The README contains instructions on how to download and setup the annotations, i
 
 ## Download annotations
 
-The GT annotations can be downloaded from [Hugging Face](https://huggingface.co/datasets/facebook/SACo-Silver) or [Roboflow](https://universe.roboflow.com/sa-co-silver)
+The GT annotations can be downloaded from [Hugging Face](https://huggingface.co/datasets/facebook/SACo-Silver) or [Roboflow](https://sa-co.roboflow.com/silver/gt-annotations.zip)
 
 ## Download images and video frames
 
@@ -27,7 +27,7 @@ The GT annotations can be downloaded from [Hugging Face](https://huggingface.co/
 
 #### GeoDE
 
-The processed images needed for evaluation can be downloaded from [Roboflow](https://universe.roboflow.com/sa-co-silver/geode/) OR follow the below steps to prepare the processed images.
+The processed images needed for evaluation can be downloaded from [Roboflow](https://sa-co.roboflow.com/silver/geode.zip) OR follow the below steps to prepare the processed images.
 
 1. Download dataset with raw images from [GeoDE](https://geodiverse-data-collection.cs.princeton.edu/).
 2. Extract the downloaded file to a location, say `<RAW_GEODE_IMAGES_FOLDER>`
@@ -39,7 +39,7 @@ The processed images needed for evaluation can be downloaded from [Roboflow](htt
 
 #### National Gallery of Art (NGA)
 
-The processed images needed for evaluation can be downloaded from [Roboflow](https://universe.roboflow.com/sa-co-silver/national-gallery-of-art/) OR follow the below steps to prepare the processed images.
+The processed images needed for evaluation can be downloaded from [Roboflow](https://sa-co.roboflow.com/silver/nga.zip) OR follow the below steps to prepare the processed images.
 
 1. Run the below command to download raw images and pre-process the images to prepare for evaluation. The proceesed images will be saved to the location specified in `<PROCESSED_NGA_IMAGES_FOLDER>`.
     ```
@@ -48,7 +48,7 @@ The processed images needed for evaluation can be downloaded from [Roboflow](htt
 
 #### Berkeley Driving Dataset (BDD) 100k
 
-The processed images needed for evaluation can be downloaded from [Roboflow](https://universe.roboflow.com/sa-co-silver/bdd100k-gwmh6/) OR follow the below steps to prepare the processed images.
+The processed images needed for evaluation can be downloaded from [Roboflow](https://sa-co.roboflow.com/silver/bdd100k.zip) OR follow the below steps to prepare the processed images.
 
 1. Download data with raw images from the `100K Images` dataset in [BDD100k](http://bdd-data.berkeley.edu/download.html)
 2. Extract the downloaded file to a location, say `<RAW_BDD_IMAGES_FOLDER>`
@@ -68,7 +68,7 @@ The processed images needed for evaluation can be downloaded from [Roboflow](htt
 
 #### iNaturalist
 
-The processed images needed for evaluation can be downloaded from [Roboflow](https://universe.roboflow.com/sa-co-silver/inaturalist-2017/) OR follow the below steps to prepare the processed images.
+The processed images needed for evaluation can be downloaded from [Roboflow](https://sa-co.roboflow.com/silver/inaturalist.zip) OR follow the below steps to prepare the processed images.
 
 1. Run the below command to download, extract images in `<RAW_INATURALIST_IMAGES_FOLDER>` and prepare them for evaluation. The proceesed images will be saved to the location specified in `<PROCESSED_INATURALIST_IMAGES_FOLDER>`
     ```
@@ -77,7 +77,7 @@ The processed images needed for evaluation can be downloaded from [Roboflow](htt
 
 #### Fathomnet
 
-The processed images needed for evaluation can be downloaded from [Roboflow](https://universe.roboflow.com/sa-co-silver/fathomnet-kmz5d/) OR follow the below steps to prepare the processed images.
+The processed images needed for evaluation can be downloaded from [Roboflow](https://sa-co.roboflow.com/silver/fathomnet.zip) OR follow the below steps to prepare the processed images.
 
 1. Install the FathomNet API
     ```
@@ -97,7 +97,7 @@ Before following the other dataset steps, update `CONFIG_FRAMES.yaml` with the c
 
 #### DROID
 
-The processed frames needed for evaluation can be downloaded from [Roboflow](https://universe.roboflow.com/sa-co-silver/droid-cfual/) OR follow the below steps to prepare the processed frames.
+The processed frames needed for evaluation can be downloaded from [Roboflow](https://sa-co.roboflow.com/silver/droid.zip) OR follow the below steps to prepare the processed frames.
 
 1. Install the gsutil package:
     ```bash
@@ -118,7 +118,7 @@ See the [DROID website](https://droid-dataset.github.io/droid/the-droid-dataset#
 
 #### SA-V
 
-The processed frames needed for evaluation can be downloaded from [Roboflow](https://universe.roboflow.com/sa-co-silver/sa-v) OR follow the below steps to prepare the processed frames.
+The processed frames needed for evaluation can be downloaded from [Roboflow](https://sa-co.roboflow.com/silver/sav.zip) OR follow the below steps to prepare the processed frames.
 
 1. Follow instructions in the [Segment Anything official website](https://ai.meta.com/datasets/segment-anything-video-downloads/) to obtain access to the download links (they are dynamic links).
 2. Update `CONFIG_FRAMES.yaml`:
@@ -136,7 +136,7 @@ The processed frames needed for evaluation can be downloaded from [Roboflow](htt
 
 #### Ego4D
 
-The processed frames needed for evaluation can be downloaded from [Roboflow](https://universe.roboflow.com/sa-co-silver/ego4d-w7fiu/) OR follow the below steps to prepare the processed frames.
+The processed frames needed for evaluation can be downloaded from [Roboflow](https://sa-co.roboflow.com/silver/ego4d.zip) OR follow the below steps to prepare the processed frames.
 
 1. Review and accept the license agreement in the [official Ego4D website](https://ego4d-data.org/docs/start-here/#license-agreement).
 2. Configure AWS credentials. Run:
@@ -169,7 +169,7 @@ See the [official CLI](https://ego4d-data.org/docs/CLI/) and the [explanation ab
 
 #### YT1B
 
-The processed frames needed for evaluation can be downloaded from [Roboflow](https://universe.roboflow.com/sa-co-silver/yt-temporal-1b/) OR follow the below steps to prepare the processed frames.
+The processed frames needed for evaluation can be downloaded from [Roboflow](https://sa-co.roboflow.com/silver/yt1b.zip) OR follow the below steps to prepare the processed frames.
 
 1. Install the yt-dlp library:
     ```bash

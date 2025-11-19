@@ -14,15 +14,15 @@ one of the domains, and masks from the 3 annotators. Dashed borders indicate spe
 
 ### Download annotations
 
-The GT annotations can be downloaded from [Hugging Face](https://huggingface.co/datasets/facebook/SACo-Gold) or [Roboflow](https://universe.roboflow.com/sa-co-gold)
+The GT annotations can be downloaded from [Hugging Face](https://huggingface.co/datasets/facebook/SACo-Gold) or [Roboflow](https://sa-co.roboflow.com/gold/gt-annotations.zip)
 
 ### Download images
 
 There are two image sources for the evaluation dataset: MetaCLIP and SA-1B.
 
-1) The MetaCLIP images are referred in 6 out of 7 subsets (MetaCLIP captioner NPs, Attributes, Crowded Scenes, Wiki-Common1K, Wiki-Food/Drink, Wiki-Sports Equipment) and can be downloaded from [Roboflow](https://universe.roboflow.com/sa-co-gold/gold-metaclip-merged-a-release-test/).
+1) The MetaCLIP images are referred in 6 out of 7 subsets (MetaCLIP captioner NPs, Attributes, Crowded Scenes, Wiki-Common1K, Wiki-Food/Drink, Wiki-Sports Equipment) and can be downloaded from [Roboflow](https://sa-co.roboflow.com/gold/metaclip-images.zip).
 
-2) The SA-1B images are referred in 1 out of 7 subsets (SA-1B captioner NPs) and can be downloaded from [Roboflow](https://universe.roboflow.com/sa-co-gold/gold-sa-1b-merged-a-release-test/). Alternatively, they can be downloaded from [here](https://ai.meta.com/datasets/segment-anything-downloads/). Please access the link for `sa_co_gold.tar` from dynamic links available under `Download text file` to download the SA-1B images referred in SA-Co/Gold.
+2) The SA-1B images are referred in 1 out of 7 subsets (SA-1B captioner NPs) and can be downloaded from [Roboflow](https://sa-co.roboflow.com/gold/sa1b-images.zip). Alternatively, they can be downloaded from [here](https://ai.meta.com/datasets/segment-anything-downloads/). Please access the link for `sa_co_gold.tar` from dynamic links available under `Download text file` to download the SA-1B images referred in SA-Co/Gold.
 
 ### Visualization
 
