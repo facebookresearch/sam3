@@ -40,10 +40,11 @@ Meng Wang, [Peize Sun](https://peizesun.github.io/),
 
 \* core contributor, ° intern, † project lead, order is random within groups
 
-[[`Paper`](LINK_TO_PAPER)] [[`Project`](LINK_TO_PROJECT)]
-[[`Demo`](https://www.aidemos.meta.com/segment-anything)]
-[[`Dataset`](LINK_TO_DATASET)] [[`Blog`](LINK_TO_BLOG)]
-[[`BibTeX`](#citing-sam-3)]
+[[`Paper`](https://ai.meta.com/research/publications/sam-3-segment-anything-with-concepts/)] 
+[[`Project`](https://ai.meta.com/sam3)]
+[[`Demo`](https://www.segment-anything.com)]
+[[`Blog`](https://ai.meta.com/blog/segment-anything-model-3/)]
+<!-- [[`BibTeX`](#citing-sam-3)] -->
 
 ![SAM 3 architecture](assets/model_diagram.png?raw=true) SAM 3 is a unified foundation model for promptable segmentation in images and videos. It can detect, segment, and track objects using text or visual prompts such as points, boxes, and masks. Compared to its predecessor [SAM 2](https://github.com/facebookresearch/sam2), SAM 3 introduces the ability to exhaustively segment all instances of an open-vocabulary concept specified by a short text phrase or exemplars. Unlike prior work, SAM 3 can handle a vastly larger set of open-vocabulary prompts. It achieves 75-80% of human performance on our new [SA-CO benchmark](https://github.com/facebookresearch/sam3/edit/main_readme/README.md#sa-co-dataset) which contains 270K unique concepts, over 50 times more than existing benchmarks.
 
@@ -265,12 +266,12 @@ architecture, supporting video segmentation and interactive refinement.
       <td style="border-right: 2px solid #ddd; padding: 10px 20px">SAM 3</td>
       <td style="text-align: center; padding: 10px 20px">37.2</td>
       <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">48.5</td>
-      <td style="text-align: center; border-right: 2px solid #ddd; padding: 10px 20px">53.9</td>
+      <td style="text-align: center; border-right: 2px solid #ddd; padding: 10px 20px">54.1</td>
       <td style="text-align: center; padding: 10px 20px">40.6</td>
       <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">53.6</td>
-      <td style="text-align: center; padding: 10px 20px">56.4</td>
-      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">55.7</td>
-      <td style="text-align: center; padding: 10px 20px">55.5</td>
+      <td style="text-align: center; padding: 10px 20px">56.5</td>
+      <td style="text-align: center; border-right: 1px solid #eee; padding: 10px 20px">57.2</td>
+      <td style="text-align: center; padding: 10px 20px">55.7</td>
     </tr>
   </tbody>
 </table>
@@ -381,10 +382,10 @@ Nisha Deo, Peter Park, Phillip Thomas, Raghu Nayani, Rene Martinez Doehner, Robb
 Mitts, Shashank Jain, Spencer Whitehead, Ty Toledano, Valentin Gabeur, Vincent Cho, Vivian Lee, William Ngan,
 Xuehai He, Yael Yungster, Ziqi Pang, Ziyi Dou, Zoe Quake.
 
-## Citing SAM 3
+<!-- ## Citing SAM 3
 
 If you use SAM 3 or the SA-Co dataset in your research, please use the following BibTeX entry.
 
 ```bibtex
 TODO
-```
+``` -->
