@@ -26,7 +26,7 @@ class VEvalEvaluator:
             VideoTetaEvaluator(gt_annot_file, use_mask=True, is_exhaustive=True),
             # HOTA
             VideoPhraseHotaEvaluator(gt_annot_file),
-            # Demo F1
+            # cgF1
             VideoCGF1Evaluator(gt_annot_file),
         ]
 
