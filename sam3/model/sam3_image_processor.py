@@ -14,10 +14,14 @@ from torchvision.transforms import v2
 class Sam3Processor:
     """ """
 
-    def __init__(self, model, resolution=1008, device="cuda", confidence_threshold=0.5):
+    def __init__(self, model, resolution=1008, device=None, confidence_threshold=0.5):
         self.model = model
         self.resolution = resolution
+
+        if device is None:
+            device = next(model.parameters()).device
         self.device = device
+        
         self.transform = v2.Compose(
             [
                 v2.ToDtype(torch.uint8, scale=True),

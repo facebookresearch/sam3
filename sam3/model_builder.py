@@ -55,6 +55,21 @@ def _setup_tf32() -> None:
 _setup_tf32()
 
 
+def get_default_device():
+    """
+    Get the default device with priority: CUDA > MPS > CPU.
+
+    Returns:
+        str: Device string ('cuda', 'mps', or 'cpu')
+    """
+    if torch.cuda.is_available():
+        return "cuda"
+    elif torch.backends.mps.is_available():
+        return "mps"
+    else:
+        return "cpu"
+
+
 def _create_position_encoding(precompute_resolution=None):
     """Create position encoding for visual backbone."""
     return PositionEmbeddingSine(
@@ -547,8 +562,7 @@ def _load_checkpoint(model, checkpoint_path):
 
 def _setup_device_and_mode(model, device, eval_mode):
     """Setup model device and evaluation mode."""
-    if device == "cuda":
-        model = model.cuda()
+    model = model.to(device)
     if eval_mode:
         model.eval()
     return model
@@ -556,7 +570,7 @@ def _setup_device_and_mode(model, device, eval_mode):
 
 def build_sam3_image_model(
     bpe_path=None,
-    device="cuda" if torch.cuda.is_available() else "cpu",
+    device=None,
     eval_mode=True,
     checkpoint_path=None,
     load_from_HF=True,
@@ -569,7 +583,7 @@ def build_sam3_image_model(
 
     Args:
         bpe_path: Path to the BPE tokenizer vocabulary
-        device: Device to load the model on ('cuda' or 'cpu')
+        device: Device to load the model on ('cuda', 'mps', or 'cpu'). If None, autodetect.
         eval_mode: Whether to set the model to evaluation mode
         checkpoint_path: Optional path to model checkpoint
         enable_segmentation: Whether to enable segmentation head
@@ -579,6 +593,9 @@ def build_sam3_image_model(
     Returns:
         A SAM3 image model
     """
+    if device is None:
+        device = get_default_device()
+
     if bpe_path is None:
         bpe_path = os.path.join(
             os.path.dirname(__file__), "..", "assets", "bpe_simple_vocab_16e6.txt.gz"
@@ -654,7 +671,7 @@ def build_sam3_video_model(
     geo_encoder_use_img_cross_attn: bool = True,
     strict_state_dict_loading: bool = True,
     apply_temporal_disambiguation: bool = True,
-    device="cuda" if torch.cuda.is_available() else "cpu",
+    device=None,
     compile=False,
 ) -> Sam3VideoInferenceWithInstanceInteractivity:
     """
@@ -663,10 +680,14 @@ def build_sam3_video_model(
     Args:
         checkpoint_path: Optional path to checkpoint file
         bpe_path: Path to the BPE tokenizer file
+        device: Device to load the model on ('cuda', 'mps', or 'cpu'). If None, autodetect.
 
     Returns:
         Sam3VideoInferenceWithInstanceInteractivity: The instantiated dense tracking model
     """
+    if device is None:
+        device = get_default_device()
+
     if bpe_path is None:
         bpe_path = os.path.join(
             os.path.dirname(__file__), "..", "assets", "bpe_simple_vocab_16e6.txt.gz"

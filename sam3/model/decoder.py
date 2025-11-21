@@ -71,7 +71,7 @@ class TransformerDecoderLayer(nn.Module):
         return tensor if pos is None else tensor + pos
 
     def forward_ffn(self, tgt):
-        with torch.amp.autocast(device_type="cuda", enabled=False):
+        with torch.amp.autocast(device_type=tgt.device.type, enabled=False):
             tgt2 = self.linear2(self.dropout3(self.activation(self.linear1(tgt))))
         tgt = tgt + self.dropout4(tgt2)
         tgt = self.norm3(tgt)
@@ -278,7 +278,7 @@ class TransformerDecoder(nn.Module):
             if resolution is not None and stride is not None:
                 feat_size = resolution // stride
                 coords_h, coords_w = self._get_coords(
-                    feat_size, feat_size, device="cuda"
+                    feat_size, feat_size, device='cpu'
                 )
                 self.compilable_cord_cache = (coords_h, coords_w)
                 self.compilable_stored_size = (feat_size, feat_size)
@@ -353,6 +353,10 @@ class TransformerDecoder(nn.Module):
 
             assert coords_h.shape == (H,)
             assert coords_w.shape == (W,)
+
+        if coords_h.device != reference_boxes.device:
+            coords_h = coords_h.to(reference_boxes.device)
+            coords_w = coords_w.to(reference_boxes.device)
 
         deltas_y = coords_h.view(1, -1, 1) - boxes_xyxy.reshape(-1, 1, 4)[:, :, 1:4:2]
         deltas_y = deltas_y.view(bs, num_queries, -1, 2)
