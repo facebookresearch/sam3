@@ -83,7 +83,7 @@ def draw_box_and_masks(img_cv, results, show_boxes=True, show_masks=True,
             # Adaptive font scale based on bbox size and line width
             # Larger boxes and thicker lines = larger text
             base_scale = np.sqrt(box_area) / 400  # Base scale from box size
-            font_scale = max(0.7, min(1.2, base_scale * line_width / 4))  # Line width influence
+            font_scale = max(0.9, min(1.2, base_scale * line_width / 4))  # Line width influence
             text_thickness = max(1, line_width // 2)  # Text thickness scales with line width
 
             (text_w, text_h), baseline = cv2.getTextSize(label,

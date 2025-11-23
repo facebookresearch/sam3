@@ -9,9 +9,9 @@ by a short text phrase or exemplars. Unlike prior work, SAM 3 can handle a vastl
 
 ## Prerequisites
 
-| Requuirement    | Python          | PyTorch        | CUDA (GPU)           |
-|-----------------|-----------------|----------------|----------------------|
-| Version         | 3.12 or higher  | 2.7 or higher  | CUDA 12.2 or greater |
+- ✅ Python 3.12 or higher
+- ✅ PyTorch 2.7 or higher
+- ✅ CUDA 12.2 or greater (not necessarily required, you can also use CPU)
 
 ## Installation
 
@@ -57,7 +57,8 @@ image = Image.open(url)  # Image load
 processor = Sam3Processor(build_sam3_image_model(checkpoint_path="sam3.pt"))
 
 # Run inference with text prompt
-results = processor.set_text_prompt(state=processor.set_image(image), prompt=label_to_predict)
+results = processor.set_text_prompt(state=processor.set_image(image), 
+                                    prompt=label_to_predict)
 
 # Visualization
 result_image = draw_box_and_masks(cv2.imread(url, cv2.COLOR_RGB2BGR),  # PIL -> OpenCV
