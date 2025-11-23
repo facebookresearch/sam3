@@ -25,7 +25,8 @@ by a short text phrase or exemplars. Unlike prior work, SAM 3 can handle a vastl
 2. **Install PyTorch with CUDA support (CUDA>=12.2):**
 
     ```bash
-    pip install torch==2.7.0 torchvision torchaudio --index-url https://download.pytorch.org/whl/cu126
+    pip install torch==2.7.0 torchvision torchaudio \
+        --index-url https://download.pytorch.org/whl/cu126
     ```
 
 3. **Clone the repository and install the package:**
@@ -68,7 +69,7 @@ result_image = draw_box_and_masks(cv2.imread(url, cv2.COLOR_RGB2BGR),  # PIL -> 
                                   line_width=4,
                                   label=label_to_predict)
 
-cv2.imwrite("sam3_results_cv.png", result_image)  # Save (optional)
+cv2.imwrite("sam3_results.png", result_image)  # Save (optional)
 ```
 
 ### Inference on video
