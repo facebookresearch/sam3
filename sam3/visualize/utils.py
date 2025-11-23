@@ -4,19 +4,19 @@ import torch
 
 # Vibrant color palette (BGR format for OpenCV)
 COLOR_PALETTE = [
-    (255, 42, 4),     # 0  - #042AFF   Deep Blue
-    (235, 219, 11),   # 1  - #0BDBEB   Aqua Blue
-    (183, 223, 0),    # 3  - #00DFB7   Teal Green
-    (104, 31, 17),    # 4  - #111F68   Navy Blue
-    (221, 111, 255),  # 5  - #FF6FDD   Pink/Magenta
-    (79, 68, 255),    # 6  - #FF444F   Red-Pink
+    # (255, 42, 4),     # 0  - #042AFF   Deep Blue
+    # (235, 219, 11),   # 1  - #0BDBEB   Aqua Blue
+    # (183, 223, 0),    # 3  - #00DFB7   Teal Green
+    # (104, 31, 17),    # 4  - #111F68   Navy Blue
+    # (221, 111, 255),  # 5  - #FF6FDD   Pink/Magenta
+    # (79, 68, 255),    # 6  - #FF444F   Red-Pink
     (0, 237, 204),    # 7  - #CCED00   Lime Yellow-Green
-    (68, 243, 0),     # 8  - #00F344   Neon Green
-    (255, 0, 189),    # 9  - #BD00FF   Purple
-    (255, 180, 0),    # 10 - #00B4FF   Sky Blue
-    (186, 0, 221),    # 11 - #DD00BA   Magenta Purple
-    (255, 255, 0),    # 12 - #00FFFF   Cyan
-    (0, 192, 38),     # 13 - #26C000   Bright Green
+    # (68, 243, 0),     # 8  - #00F344   Neon Green
+    # (255, 0, 189),    # 9  - #BD00FF   Purple
+    # (255, 180, 0),    # 10 - #00B4FF   Sky Blue
+    # (186, 0, 221),    # 11 - #DD00BA   Magenta Purple
+    # (255, 255, 0),    # 12 - #00FFFF   Cyan
+    # (0, 192, 38),     # 13 - #26C000   Bright Green
 ]
 
 
