@@ -85,6 +85,9 @@ train = [
 [tool.setuptools]
 packages = ["sam3", "sam3.model"]
 
+[tool.setuptools.package-data]
+sam3 = ["bpe_simple_vocab_16e6.txt.gz"]
+
 [tool.setuptools.dynamic]
 version = {attr = "sam3.__version__"}
 
