@@ -159,7 +159,7 @@ various types of prompts:
   further interactive refinements with points.
 - [`sam3_image_batched_inference.ipynb`](examples/sam3_image_batched_inference.ipynb)
   : Demonstrates how to run batched inference with SAM 3 on images.
-- [`sam3_agent.ipynb`](examples/sam3_agent.ipynb): Demonsterates the use of SAM
+- [`sam3_agent.ipynb`](examples/sam3_agent.ipynb): Demonstrates the use of SAM
   3 Agent to segment complex text prompt on images.
 - [`saco_gold_silver_vis_example.ipynb`](examples/saco_gold_silver_vis_example.ipynb)
   : Shows a few examples from SA-Co image evaluation set.
