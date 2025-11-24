@@ -232,10 +232,18 @@ class CustomCocoDetectionAPI(VisionDataset):
         if self.coco is not None:
             return
 
-        assert g_pathmgr.isfile(
-            self.annFile
-        ), f"please provide valid annotation file. Missing: {self.annFile}"
-        annFile = g_pathmgr.get_local_path(self.annFile)
+        loader_name = (
+            self.coco_json_loader.__name__
+            if hasattr(self.coco_json_loader, "__name__")
+            else str(self.coco_json_loader)
+        )
+        if loader_name != "SAM3_DEFECT_DIR_LOADER":
+            assert g_pathmgr.isfile(
+                self.annFile
+            ), f"please provide valid annotation file. Missing: {self.annFile}"
+            annFile = g_pathmgr.get_local_path(self.annFile)
+        else:
+            annFile = self.annFile
 
         if self.coco is not None:
             del self.coco
