@@ -28,6 +28,26 @@ def inverse_sigmoid(x, eps=1e-3):
     return torch.log(x1 / x2)
 
 
+def tensor_to_device(tensor: Tensor, device: torch.device) -> Tensor:
+    """
+    Transfer a tensor to the target device efficiently.
+
+    For CUDA devices, uses pin_memory() for faster CPU→GPU transfers.
+    For other devices (MPS, CPU), uses direct .to() transfer.
+
+    Args:
+        tensor: The tensor to transfer (should be on CPU)
+        device: The target device
+
+    Returns:
+        The tensor on the target device
+    """
+    if device.type == "cuda":
+        return tensor.pin_memory().to(device=device, non_blocking=True)
+    else:
+        return tensor.to(device=device)
+
+
 class MultiheadAttentionWrapper(nn.MultiheadAttention):
     def forward(self, *args, **kwargs):
         kwargs["need_weights"] = False
