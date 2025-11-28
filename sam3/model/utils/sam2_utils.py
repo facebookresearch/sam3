@@ -85,7 +85,7 @@ class AsyncVideoFrameLoader:
         img -= self.img_mean
         img /= self.img_std
         if not self.offload_video_to_cpu:
-            img = img.to(self.compute_device, non_blocking=True)
+            img = img.to(self.compute_device, non_blocking=torch.cuda.is_available())
         self.images[index] = img
         return img
 
