@@ -82,9 +82,9 @@ class Sam3Processor:
         if not isinstance(images, list):
             raise ValueError("Images must be a list of PIL images or tensors")
         assert len(images) > 0, "Images list must not be empty"
-        assert isinstance(images[0], PIL.Image.Image), (
-            "Images must be a list of PIL images"
-        )
+        assert isinstance(
+            images[0], PIL.Image.Image
+        ), "Images must be a list of PIL images"
 
         state["original_heights"] = [image.height for image in images]
         state["original_widths"] = [image.width for image in images]
@@ -126,14 +126,39 @@ class Sam3Processor:
         return self._forward_grounding(state)
 
     @torch.inference_mode()
-    def add_geometric_prompt(self, box: List, label: bool, state: Dict):
+    def add_geometric_prompt(
+        self,
+        box: List[float] | None,
+        points: list[tuple[float, float]]
+        | None,  # TODO: Do points need to be in relative format?
+        labels: list[bool],
+        state: Dict,
+    ):
         """Adds a box prompt and run the inference.
         The image needs to be set, but not necessarily the text prompt.
         The box is assumed to be in [center_x, center_y, width, height] format and normalized in [0, 1] range.
         The label is True for a positive box, False for a negative box.
+
+        Encord stuff:
+        For labels, we support adding a singular box:
+        If box is present, first labels value is the truth value for the box
         """
         if "backbone_out" not in state:
             raise ValueError("You must call set_image before set_text_prompt")
+
+        if box is None and points is None:
+            raise ValueError("Require at least one of `box`, `point` to be set")
+
+        if box and points:
+            N_labels = len(labels)
+            if not (N_labels == len(points) + 1):
+                raise ValueError("If box and points, require points+1 labels")
+            box_label = labels[0]
+            points_labels = labels[1:]
+        elif box:
+            box_label = labels[0]
+        else:
+            points_labels = labels
 
         if "language_features" not in state["backbone_out"]:
             # Looks like we don't have a text prompt yet. This is allowed, but we need to set the text prompt to "visual" for the model to rely only on the geometric prompt
@@ -145,10 +170,22 @@ class Sam3Processor:
         if "geometric_prompt" not in state:
             state["geometric_prompt"] = self.model._get_dummy_prompt()
 
-        # adding a batch and sequence dimension
-        boxes = torch.tensor(box, device=self.device, dtype=torch.float32).view(1, 1, 4)
-        labels = torch.tensor([label], device=self.device, dtype=torch.bool).view(1, 1)
-        state["geometric_prompt"].append_boxes(boxes, labels)
+        if box:
+            box_labels = torch.tensor(
+                box_label, device=self.device, dtype=torch.float32
+            ).view(-1, 1)
+            boxes = torch.tensor(box, device=self.device, dtype=torch.float32).view(
+                1, 1, 4
+            )
+            state["geometric_prompt"].append_boxes(boxes, box_labels)
+        if points:
+            points = torch.tensor(points, device=self.device, dtype=torch.float32).view(
+                -1, 1, 2
+            )
+            torch_point_labels = torch.tensor(
+                points_labels, device=self.device, dtype=torch.float32
+            ).view(-1, 1)
+            state["geometric_prompt"].append_points(points, torch_point_labels)
 
         return self._forward_grounding(state)
 

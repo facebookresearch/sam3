@@ -9,7 +9,6 @@ from typing_extensions import override
 
 from .act_ckpt_utils import activation_ckpt_wrapper
 from .box_ops import box_cxcywh_to_xyxy
-
 from .model_misc import get_clones
 
 
