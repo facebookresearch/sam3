@@ -50,6 +50,10 @@ For each domain:
 For all three domains:
 - [SA-Co/VEval](https://universe.roboflow.com/sa-co-veval)
 
+Special note on **SA-Co/VEval - YT-Temporal-1B**:
+* **Frame Shifting Alert!**
+* The ready-to-use data hosted on Roboflow was produced by following the preprocessing steps below. Therefore, the frame-shifting issue for YT-Temporal-1B still exists: due to the nature of Youtube videos, the re-downloaded videos may not be exactly the same as those used during annotation, which can affect eval number reproducibility.
+
 ### Download via preprocessing steps
 #### Download annotations
 The GT annotations are available at Hugging Face:

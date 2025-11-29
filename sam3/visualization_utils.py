@@ -43,8 +43,8 @@ COLORS = generate_colors(n_colors=128, n_samples=5000)
 
 
 def show_img_tensor(img_batch, vis_img_idx=0):
-    MEAN_IMG = np.array([0.485, 0.456, 0.406])
-    STD_IMG = np.array([0.229, 0.224, 0.225])
+    MEAN_IMG = np.array([0.5, 0.5, 0.5])
+    STD_IMG = np.array([0.5, 0.5, 0.5])
     im_tensor = img_batch[vis_img_idx].detach().cpu()
     assert im_tensor.dim() == 3
     im_tensor = im_tensor.numpy().transpose((1, 2, 0))
