@@ -39,6 +39,13 @@ def connected_components_cpu(input_tensor: torch.Tensor):
         ), "Input tensor must be (B, H, W) or (B, 1, H, W)."
 
     batch_size = input_tensor.shape[0]
+    # Handle empty batch case
+    if batch_size == 0:
+        return (
+            torch.zeros(out_shape, dtype=torch.int64, device=input_tensor.device),
+            torch.zeros(out_shape, dtype=torch.int64, device=input_tensor.device),
+        )
+
     labels_list = []
     counts_list = []
     for b in range(batch_size):
