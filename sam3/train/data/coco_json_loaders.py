@@ -463,3 +463,176 @@ class SAM3_VEVAL_API_FROM_JSON_NP:
             for i, file_name in enumerate(video_data["file_names"])
         ]
         return images
+
+
+class SAM3_DEFECT_DIR_LOADER:
+    def __init__(self, annotation_file, text_prompt=None, include_negatives=True):
+        self.root = annotation_file
+        self.include_negatives = include_negatives
+        self.default_prompt = "defect" if text_prompt is None else text_prompt
+        self._items = []
+        self._build_index()
+
+    def getDatapointIds(self):
+        return list(range(len(self._items)))
+
+    def loadImagesFromDatapoint(self, idx):
+        item = self._items[idx]
+        return [
+            {
+                "id": 0,
+                "file_name": item["file_name"],
+                "original_img_id": item["orig_id"],
+                "coco_img_id": item["orig_id"],
+            }
+        ]
+
+    def loadQueriesAndAnnotationsFromDatapoint(self, idx):
+        item = self._items[idx]
+        w = item["width"]
+        h = item["height"]
+        annotations = []
+        for m in item.get("masks", []):
+            x0, y0, x1, y1 = m["bbox_xyxy"]
+            x = x0 / w
+            y = y0 / h
+            bw = max(0.0, (x1 - x0) / w)
+            bh = max(0.0, (y1 - y0) / h)
+            ann = {
+                "image_id": 0,
+                "bbox": torch.tensor([x, y, bw, bh], dtype=torch.float32).tolist(),
+                "area": float(bw * bh),
+                "segmentation": m.get("rle", None),
+                "object_id": len(annotations),
+                "is_crowd": 0,
+                "id": len(annotations),
+            }
+            annotations.append(ann)
+        queries = []
+        q = {
+            "id": 0,
+            "original_cat_id": 1,
+            "object_ids_output": list(range(len(annotations))),
+            "query_text": item.get("prompt", self.default_prompt),
+            "query_processing_order": 0,
+            "ptr_x_query_id": None,
+            "ptr_y_query_id": None,
+            "image_id": 0,
+            "input_box": None,
+            "input_box_label": None,
+            "input_points": None,
+            "is_exhaustive": True,
+        }
+        if len(annotations) == 0 and not self.include_negatives:
+            pass
+        else:
+            queries.append(q)
+        return queries, annotations
+
+    def _build_index(self):
+        items = []
+        exts = (".jpg", ".jpeg", ".png", ".bmp")
+        for dirpath, dirnames, filenames in os.walk(self.root):
+            for fname in filenames:
+                if fname.lower().endswith(exts):
+                    full_path = os.path.join(dirpath, fname)
+                    rel_path = os.path.relpath(full_path, self.root)
+                    try:
+                        from PIL import Image as PILImage
+                        with open(full_path, "rb") as f:
+                            img = PILImage.open(f).convert("RGB")
+                        w, h = img.size
+                    except Exception:
+                        continue
+                    prompt = self._infer_prompt(rel_path)
+                    masks = self._find_masks_for(rel_path, w, h)
+                    items.append(
+                        {
+                            "file_name": rel_path.replace("\\", "/"),
+                            "orig_id": len(items),
+                            "width": w,
+                            "height": h,
+                            "prompt": prompt,
+                            "masks": masks,
+                        }
+                    )
+        self._items = items
+
+    def _infer_prompt(self, rel_path):
+        low = rel_path.lower()
+        if "isic" in low or "brain" in low or "mri" in low:
+            return "lesion"
+        if "kvasir" in low or "colon" in low or "cvc" in low:
+            return "polyp"
+        if "visa" in low or "mvtec" in low or "btad" in low or "dagm" in low or "dtd" in low:
+            return "defect"
+        return self.default_prompt
+
+    def _find_masks_for(self, rel_path, w, h):
+        masks = []
+        base = os.path.splitext(os.path.basename(rel_path))[0]
+        full = os.path.join(self.root, rel_path)
+        candidate_dirs = []
+        parts = rel_path.split(os.sep)
+        if "images" in parts:
+            i = parts.index("images")
+            masks_dir = os.path.join(self.root, os.path.join(*parts[:i]), "masks")
+            candidate_dirs.append(masks_dir)
+        if "test" in parts:
+            i = parts.index("test")
+            gt_dir = os.path.join(self.root, os.path.join(*parts[:i]), "ground_truth")
+            candidate_dirs.append(gt_dir)
+        if "data" in [p.lower() for p in parts]:
+            try:
+                j = [p.lower() for p in parts].index("data")
+                masks_dir = os.path.join(self.root, os.path.join(*parts[:j+1]), "Masks")
+                candidate_dirs.append(masks_dir)
+            except ValueError:
+                pass
+        if "train" in parts:
+            i = parts.index("train")
+            label_dir = os.path.join(self.root, os.path.join(*parts[:i+1]), "Label")
+            candidate_dirs.append(label_dir)
+        if "test" in parts:
+            i = parts.index("test")
+            label_dir = os.path.join(self.root, os.path.join(*parts[:i+1]), "Label")
+            candidate_dirs.append(label_dir)
+        if "ground_truth" in parts:
+            i = parts.index("ground_truth")
+            candidate_dirs.append(os.path.join(self.root, os.path.join(*parts[:i+1])))
+        mask_paths = []
+        for d in candidate_dirs:
+            if not os.path.isdir(d):
+                continue
+            for dirpath, dirnames, filenames in os.walk(d):
+                for fname in filenames:
+                    fbase = os.path.splitext(fname)[0]
+                    if base == fbase or base in fbase:
+                        p = os.path.join(dirpath, fname)
+                        mask_paths.append(p)
+        rles = []
+        for mp in mask_paths:
+            try:
+                from PIL import Image as PILImage
+                import numpy as np
+                with open(mp, "rb") as f:
+                    m = PILImage.open(f)
+                if m.mode != "1" and m.mode != "L":
+                    m = m.convert("L")
+                mask = np.array(m)
+                if mask.max() > 1:
+                    mask = (mask > 0).astype(np.uint8)
+                rle = mask_util.encode(np.asfortranarray(mask))
+                rle["counts"] = rle["counts"].decode("ascii")
+                ys, xs = np.where(mask > 0)
+                if xs.size == 0 or ys.size == 0:
+                    continue
+                x0 = int(xs.min())
+                y0 = int(ys.min())
+                x1 = int(xs.max())
+                y1 = int(ys.max())
+                bbox_xyxy = [x0, y0, x1, y1]
+                rles.append({"rle": rle, "bbox_xyxy": bbox_xyxy})
+            except Exception:
+                continue
+        return rles

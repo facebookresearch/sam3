@@ -583,6 +583,8 @@ def build_sam3_image_model(
         bpe_path = os.path.join(
             os.path.dirname(__file__), "..", "assets", "bpe_simple_vocab_16e6.txt.gz"
         )
+    if not g_pathmgr.isfile(bpe_path):
+        bpe_path = download_bpe_from_hf()
     # Create visual components
     compile_mode = "default" if compile else None
     vision_encoder = _create_vision_backbone(
@@ -641,9 +643,24 @@ def download_ckpt_from_hf():
     SAM3_MODEL_ID = "facebook/sam3"
     SAM3_CKPT_NAME = "sam3.pt"
     SAM3_CFG_NAME = "config.json"
-    _ = hf_hub_download(repo_id=SAM3_MODEL_ID, filename=SAM3_CFG_NAME)
-    checkpoint_path = hf_hub_download(repo_id=SAM3_MODEL_ID, filename=SAM3_CKPT_NAME)
+    cache_dir = os.environ.get("HF_HOME", None)
+    if cache_dir is None:
+        cache_dir = os.environ.get("HUGGINGFACE_HUB_CACHE", None)
+    _ = hf_hub_download(repo_id=SAM3_MODEL_ID, filename=SAM3_CFG_NAME, cache_dir=cache_dir)
+    checkpoint_path = hf_hub_download(repo_id=SAM3_MODEL_ID, filename=SAM3_CKPT_NAME, cache_dir=cache_dir)
     return checkpoint_path
+
+
+def download_bpe_from_hf():
+    SAM3_MODEL_ID = "facebook/sam3"
+    BPE_NAME = "bpe_simple_vocab_16e6.txt.gz"
+    cache_dir = os.environ.get("HF_HOME", None)
+    if cache_dir is None:
+        cache_dir = os.environ.get("HUGGINGFACE_HUB_CACHE", None)
+    try:
+        return hf_hub_download(repo_id=SAM3_MODEL_ID, filename=BPE_NAME, cache_dir=cache_dir)
+    except Exception:
+        return hf_hub_download(repo_id="openai/clip", filename=BPE_NAME, cache_dir=cache_dir)
 
 
 def build_sam3_video_model(
