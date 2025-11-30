@@ -790,6 +790,13 @@ class Sam3TrackerBase(torch.nn.Module):
             feat_sizes=feat_sizes,
             num_obj_ptr_tokens=num_obj_ptr_tokens,
         )
+
+        # MPS memory management: Synchronize and clear caches after encoder
+        # to prevent MPSGraph command queue buildup and memory leaks
+        if device.type == "mps":
+            torch.mps.synchronize()
+            torch.mps.empty_cache()
+
         # reshape the output (HW)BC => BCHW
         pix_feat_with_mem = encoder_out["memory"].permute(1, 2, 0).view(B, C, H, W)
         return pix_feat_with_mem

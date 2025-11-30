@@ -874,6 +874,12 @@ class Sam3TrackerPredictor(Sam3TrackerBase):
             low_res_masks, video_res_masks = self._get_orig_video_res_output(
                 inference_state, pred_masks
             )
+
+            # MPS synchronization to prevent command queue buildup and memory leaks
+            # This forces completion of all pending MPS operations before continuing
+            if inference_state["device"].type == "mps":
+                torch.mps.synchronize()
+
             yield frame_idx, obj_ids, low_res_masks, video_res_masks, obj_scores
 
     def _add_output_per_object(
