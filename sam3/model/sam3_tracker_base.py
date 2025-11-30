@@ -900,8 +900,6 @@ class Sam3TrackerBase(torch.nn.Module):
                 image=current_image,
                 point_inputs=backbone_out["point_inputs_per_frame"].get(stage_id, None),
                 mask_inputs=backbone_out["mask_inputs_per_frame"].get(stage_id, None),
-                gt_masks=backbone_out["gt_masks_per_frame"].get(stage_id, None),
-                frames_to_add_correction_pt=frames_to_add_correction_pt,
                 output_dict=output_dict,
                 num_frames=num_frames,
             )

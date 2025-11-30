@@ -660,8 +660,6 @@ class Sam3TrackerPredictor(Sam3TrackerBase):
             image=image,
             point_inputs=None,
             mask_inputs=mask_inputs,
-            gt_masks=None,
-            frames_to_add_correction_pt=[],
             output_dict={
                 "cond_frame_outputs": {},
                 "non_cond_frame_outputs": {},
