@@ -16,6 +16,7 @@ import psutil
 import torch
 
 from sam3.logger import get_logger
+from sam3.model.model_misc import get_default_device
 
 logger = get_logger(__name__)
 
@@ -40,10 +41,7 @@ class Sam3VideoPredictor:
         from sam3.model_builder import build_sam3_video_model
 
         # Determine device
-        if torch.cuda.is_available():
-            self.device = torch.device("cuda")
-        else:
-            self.device = torch.device("cpu")
+        self.device = get_default_device()
 
         logger.info(f"Sam3VideoPredictor using device: {self.device}")
 

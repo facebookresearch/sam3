@@ -6,6 +6,8 @@ from typing import Optional
 import torch
 from torch import nn
 
+from .model_misc import get_default_device
+
 
 class PositionEmbeddingSine(nn.Module):
     """
@@ -43,7 +45,7 @@ class PositionEmbeddingSine(nn.Module):
                 (precompute_resolution // 16, precompute_resolution // 16),
                 (precompute_resolution // 32, precompute_resolution // 32),
             ]
-            device = "cuda" if torch.cuda.is_available() else "cpu"
+            device = get_default_device()
             for size in precompute_sizes:
                 tensors = torch.zeros((1, 1) + size, device=device)
                 self.forward(tensors)

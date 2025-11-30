@@ -28,6 +28,20 @@ def inverse_sigmoid(x, eps=1e-3):
     return torch.log(x1 / x2)
 
 
+def get_default_device() -> torch.device:
+    """
+    Get the default device for tensor operations.
+
+    Returns cuda if available, then mps if available, otherwise cpu.
+    """
+    if torch.cuda.is_available():
+        return torch.device("cuda")
+    elif torch.backends.mps.is_available():
+        return torch.device("mps")
+    else:
+        return torch.device("cpu")
+
+
 def tensor_to_device(tensor: Tensor, device: torch.device) -> Tensor:
     """
     Transfer a tensor to the target device efficiently.
