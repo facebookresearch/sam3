@@ -150,9 +150,13 @@ class PostProcessImage(nn.Module):
         if pred_masks is None:
             return None
         if self.always_interpolate_masks_on_gpu:
-            gpu_device = target_sizes.device
-            assert gpu_device.type == "cuda"
-            pred_masks = pred_masks.to(device=gpu_device)
+            device = target_sizes.device
+            if device.type == "cpu":
+                logging.warning(
+                    "always_interpolate_masks_on_gpu=True but data is on CPU; "
+                    "falling back to CPU interpolation"
+                )
+            pred_masks = pred_masks.to(device=device)
         if consistent:
             assert keep is None, "TODO: implement?"
             # All masks should have the same shape, expected when processing a batch of size 1
@@ -454,9 +458,13 @@ class PostProcessAPIVideo(PostProcessImage):
             ]  # [P,Q,...] --> [K,...]
             meta_td = meta_td[tracked_obj_ids_idx[PROMPT_AXIS].cpu()]
             if self.always_interpolate_masks_on_gpu:
-                gpu_device = meta_td["original_size"].device
-                assert gpu_device.type == "cuda"
-                tracked_objs_outs_td = tracked_objs_outs_td.to(device=gpu_device)
+                device = meta_td["original_size"].device
+                if device.type == "cpu":
+                    logging.warning(
+                        "always_interpolate_masks_on_gpu=True but data is on CPU; "
+                        "falling back to CPU interpolation"
+                    )
+                tracked_objs_outs_td = tracked_objs_outs_td.to(device=device)
             frame_results_td = self(
                 tracked_objs_outs_td.unsqueeze(1),
                 (

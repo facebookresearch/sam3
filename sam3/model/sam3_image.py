@@ -122,7 +122,10 @@ class Sam3Image(torch.nn.Module):
                 # If this assert fails, it likely means we're requesting different img_ids (perhaps a different frame?)
                 # We currently don't expect this to happen. We could technically trigger a recompute here,
                 # but likely at the cost of a cpu<->gpu sync point, which would deteriorate perf
-                torch._assert_async((img_ids >= 0).all())
+                if img_ids.is_cuda:
+                    torch._assert_async((img_ids >= 0).all())
+                else:
+                    assert (img_ids >= 0).all(), "img_ids must be non-negative"
 
             vis_feats = backbone_out["backbone_fpn"][-self.num_feature_levels :]
             vis_pos_enc = backbone_out["vision_pos_enc"][-self.num_feature_levels :]
@@ -836,7 +839,10 @@ class Sam3ImageOnVideoMultiGPU(Sam3Image):
             assert len(feats["backbone_fpn"]) == 3  # SAM2 backbone always have 3 levels
             # cast the SAM2 backbone features to bfloat16 for all-gather (this is usually
             # a no-op, SAM2 backbone features are likely already in bfloat16 due to AMP)
-            backbone_fpn_bf16 = [x.to(torch.bfloat16) for x in feats["backbone_fpn"]]
+            if torch.cuda.is_available():
+                backbone_fpn_bf16 = [x.to(torch.bfloat16) for x in feats["backbone_fpn"]]
+            else:
+                backbone_fpn_bf16 = list(feats["backbone_fpn"])
             fpn0, fpn_handle0 = self._gather_tensor(backbone_fpn_bf16[0])
             fpn1, fpn_handle1 = self._gather_tensor(backbone_fpn_bf16[1])
             fpn2, fpn_handle2 = self._gather_tensor(backbone_fpn_bf16[2])

@@ -11,6 +11,7 @@ import torch.nn as nn
 from torch.nn.attention import sdpa_kernel, SDPBackend
 
 from .act_ckpt_utils import activation_ckpt_wrapper
+from .model_misc import get_default_device
 from .necks import Sam3DualViTDetNeck
 
 
@@ -119,8 +120,10 @@ class SAM3VLBackbone(nn.Module):
         return output
 
     def forward_text(
-        self, captions, input_boxes=None, additional_text=None, device="cuda"
+        self, captions, input_boxes=None, additional_text=None, device=None
     ):
+        if device is None:
+            device = get_default_device()
         return activation_ckpt_wrapper(self._forward_text_no_ack_ckpt)(
             captions=captions,
             input_boxes=input_boxes,
@@ -134,8 +137,10 @@ class SAM3VLBackbone(nn.Module):
         captions,
         input_boxes=None,
         additional_text=None,
-        device="cuda",
+        device=None,
     ):
+        if device is None:
+            device = get_default_device()
         output = {}
 
         # Forward through text_encoder

@@ -8,15 +8,18 @@ import torch
 from sam3.model import box_ops
 
 from sam3.model.data_misc import FindStage, interpolate
+from sam3.model.model_misc import get_default_device
 from torchvision.transforms import v2
 
 
 class Sam3Processor:
     """ """
 
-    def __init__(self, model, resolution=1008, device="cuda", confidence_threshold=0.5):
+    def __init__(self, model, resolution=1008, device=None, confidence_threshold=0.5):
         self.model = model
         self.resolution = resolution
+        if device is None:
+            device = get_default_device()
         self.device = device
         self.transform = v2.Compose(
             [
