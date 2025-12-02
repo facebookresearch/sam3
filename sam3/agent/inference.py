@@ -4,6 +4,7 @@ import json
 import os
 
 from sam3.agent.agent_core import agent_inference
+from sam3.agent.helpers.filename_utils import sanitize_filename
 
 
 def run_single_image_inference(
@@ -27,8 +28,16 @@ def run_single_image_inference(
 
     # Generate output file names
     image_basename = os.path.splitext(os.path.basename(image_path))[0]
-    prompt_for_filename = text_prompt.replace("/", "_").replace(" ", "_")
-
+    # Sanitize the text prompt to create a safe filename
+    prompt_for_filename = sanitize_filename(text_prompt, max_length=150)
+    
+    # Truncate image_basename and llm_name if needed to ensure total length is reasonable
+    # Leave room for separators and suffixes like "_pred.json"
+    max_base_length = 200
+    available_length = max_base_length - len(prompt_for_filename) - len(llm_name) - len("_agent_")
+    if len(image_basename) > available_length:
+        image_basename = image_basename[:available_length]
+    
     base_filename = f"{image_basename}_{prompt_for_filename}_agent_{llm_name}"
     output_json_path = os.path.join(output_dir, f"{base_filename}_pred.json")
     output_image_path = os.path.join(output_dir, f"{base_filename}_pred.png")
