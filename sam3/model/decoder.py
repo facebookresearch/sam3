@@ -3,7 +3,7 @@
 Transformer decoder.
 Inspired from Pytorch's version, adds the pre-norm variant
 """
-
+from contextlib import nullcontext
 from typing import Any, Dict, List, Optional
 
 import numpy as np
@@ -71,8 +71,15 @@ class TransformerDecoderLayer(nn.Module):
         return tensor if pos is None else tensor + pos
 
     def forward_ffn(self, tgt):
-        with torch.amp.autocast(device_type=tgt.device.type, enabled=False):
+        device_type = tgt.device.type
+        if device_type in {"cuda", "cpu"}:
+            autocast_ctx = torch.amp.autocast(device_type=device_type, enabled=False)
+        else:
+            autocast_ctx = nullcontext()
+
+        with autocast_ctx:
             tgt2 = self.linear2(self.dropout3(self.activation(self.linear1(tgt))))
+
         tgt = tgt + self.dropout4(tgt2)
         tgt = self.norm3(tgt)
         return tgt
