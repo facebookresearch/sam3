@@ -26,13 +26,19 @@ classifiers = [
 ]
 dependencies = [
     "timm>=1.0.17",
-    "numpy==1.26",
+    "numpy==1.26.*",
     "tqdm",
     "ftfy==6.1.1",
     "regex",
     "iopath>=0.1.10",
     "typing_extensions",
     "huggingface_hub",
+    "psutil",
+    "pycocotools",
+    "decord",
+    "einops",
+    scikit-image,
+    scikit-learn
 ]
 
 [project.optional-dependencies]
