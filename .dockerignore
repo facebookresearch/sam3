@@ -1,0 +1,104 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Python
+__pycache__
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg
+*.egg-info
+dist
+build
+eggs
+parts
+bin
+var
+sdist
+develop-eggs
+.installed.cfg
+lib
+lib64
+.eggs
+wheels
+pip-wheel-metadata
+share/python-wheels
+
+# Virtual environments
+
+.venv
+venv
+venv.bak
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+*~
+.project
+.pydevproject
+.settings
+
+# Jupyter Notebooks
+.ipynb_checkpoints
+*.ipynb
+
+# Tests
+tests
+pytest_cache
+.pytest_cache
+.coverage
+htmlcov
+.tox
+.nox
+
+# Documentation
+docs
+*.md
+!README.md
+
+# Cache et logs
+*.log
+.cache
+.mypy_cache
+.ruff_cache
+
+# Modèles et checkpoints (trop volumineux, à télécharger au runtime)
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+checkpoints
+outputs
+
+# Assets et exemples (non nécessaires pour l'inférence)
+assets
+examples
+notebooks
+scripts
+
+# Fichiers de configuration dev
+.pre-commit-config.yaml
+.flake8
+setup.cfg
+Makefile
+CONTRIBUTING.md
+CODE_OF_CONDUCT.md
+
+# Docker
+Dockerfile
+docker-compose*.yml
+.docker
+
+# Kubernetes manifests
+k8s
+*.yaml
+!pyproject.toml
+
+# OS
+.DS_Store
+Thumbs.db
