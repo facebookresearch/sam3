@@ -342,6 +342,73 @@ We release 2 image benchmarks, [SA-Co/Gold](scripts/eval/gold/README.md) and
 
 ![SA-Co dataset](assets/sa_co_dataset.jpg?raw=true)
 
+## AWS SageMaker Deployment
+
+SAM 3 can be deployed on AWS SageMaker for scalable batch inference. See the [`sagemaker/`](sagemaker/) directory for complete deployment scripts.
+
+### Quick Start
+
+1. **Install dependencies and authenticate:**
+
+```bash
+pip install boto3 sagemaker huggingface_hub
+hf login
+aws configure
+```
+
+2. **Package the model for S3:**
+
+```bash
+cd sagemaker
+python package_model.py \
+    --output-dir ./model_artifacts \
+    --s3-bucket your-bucket \
+    --s3-prefix sam3/model
+```
+
+3. **Run batch transform:**
+
+```bash
+python batch_transform_example.py \
+    --s3-bucket your-bucket \
+    --model-s3-uri s3://your-bucket/sam3/model/model.tar.gz \
+    --images-dir ./my_images \
+    --prompt "person wearing red shirt" \
+    --download-results
+```
+
+### Input/Output Format
+
+**Input** (JSON with base64-encoded image):
+```json
+{
+    "image": "<base64-encoded-image>",
+    "prompt": "text description of object to segment",
+    "confidence_threshold": 0.5
+}
+```
+
+**Output** (JSON with RLE-encoded masks):
+```json
+{
+    "masks_rle": [{"counts": "...", "size": [H, W]}, ...],
+    "boxes": [[x1, y1, x2, y2], ...],
+    "scores": [0.95, 0.87, ...],
+    "image_size": [height, width],
+    "prompt": "person wearing red shirt"
+}
+```
+
+### Recommended Instance Types
+
+| Instance | GPU | VRAM | Use Case |
+|----------|-----|------|----------|
+| ml.g5.xlarge | 1x A10G | 24GB | Recommended for image inference |
+| ml.g5.2xlarge | 1x A10G | 24GB | More CPU/RAM if needed |
+| ml.g4dn.xlarge | 1x T4 | 16GB | Budget option |
+
+For detailed documentation, see [`sagemaker/README.md`](sagemaker/README.md).
+
 ## Development
 
 To set up the development environment:
