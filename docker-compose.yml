@@ -1,0 +1,23 @@
+version: '3.8'
+
+services:
+  sam3-api:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - SAM3_MODEL_PATH=/app/models/sam3.pt
+      - BPE_VOCAB_PATH=/app/assets/bpe_simple_vocab_16e6.txt.gz
+      - HOST=0.0.0.0
+      - PORT=8000
+      - LOG_LEVEL=INFO
+    volumes:
+      # 将模型文件挂载到容器中
+      - ./path/to/your/sam3.pt:/app/models/sam3.pt:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped

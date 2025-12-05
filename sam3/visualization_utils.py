@@ -873,6 +873,82 @@ def plot_results(img, results):
             relative_coords=False,
         )
 
+def save_results(img, results, out_path, dpi=300, bbox_inches="tight"):
+    """
+    保存可视化结果到文件，参考 plot_results 方法。
+    
+    Args:
+        img: 输入图像 (PIL.Image 或 numpy array)
+        results: 结果字典，包含 "scores", "masks", "boxes" 键
+        out_path: 输出文件路径
+        dpi: 图像分辨率，默认 300
+        bbox_inches: 边界框设置，默认 "tight"
+    """
+    # 获取图片尺寸
+    if isinstance(img, Image.Image):
+        w, h = img.size
+        img_array = np.array(img)
+    elif isinstance(img, np.ndarray):
+        img_array = img
+        h, w = img_array.shape[:2]
+    elif isinstance(img, str):
+        # 尝试从路径加载
+        img = Image.open(img)
+        w, h = img.size
+        img_array = np.array(img)
+    else:
+        raise ValueError(f"Unsupported image type: {type(img)}")
+    
+    # 确保图片是 RGB 格式
+    if len(img_array.shape) == 2:
+        img_array = np.stack([img_array] * 3, axis=-1)
+    elif img_array.shape[2] == 4:
+        img_array = img_array[:, :, :3]  # 移除 alpha 通道
+    
+    # 根据原始图片尺寸计算 figure 尺寸，保持宽高比
+    # 使用 DPI 来确保输出图片尺寸与原始图片一致
+    fig_width = w / dpi
+    fig_height = h / dpi
+    
+    # 创建 figure，确保尺寸与原始图片像素尺寸一致
+    fig, ax = plt.subplots(figsize=(fig_width, fig_height), dpi=dpi)
+    ax.imshow(img_array, extent=[0, w, h, 0])  # extent 确保坐标系统正确
+    ax.set_xlim(0, w)
+    ax.set_ylim(h, 0)  # 注意 y 轴是反向的
+    ax.set_aspect('equal')
+    
+    nb_objects = len(results["scores"])
+    print(f"found {nb_objects} object(s)")
+    for i in range(nb_objects):
+        color = COLORS[i % len(COLORS)]
+        plot_mask(results["masks"][i].squeeze(0).cpu(), color=color, ax=ax)
+        prob = results["scores"][i].item()
+        plot_bbox(
+            h,
+            w,
+            results["boxes"][i].cpu(),
+            text=f"(id={i}, {prob=:.2f})",
+            box_format="XYXY",
+            color=color,
+            relative_coords=False,
+            ax=ax,
+        )
+    ax.axis("off")
+    # 移除边距，确保输出图片尺寸与原始图片完全一致
+    plt.subplots_adjust(left=0, right=1, top=1, bottom=0, wspace=0, hspace=0)
+    # 使用固定的边界框来确保输出尺寸精确匹配原始图片
+    # bbox_inches 使用 None 来使用 figure 的完整尺寸
+    plt.savefig(
+        out_path, 
+        dpi=dpi, 
+        bbox_inches=None,  # 使用 figure 的完整尺寸，不裁剪
+        pad_inches=0, 
+        facecolor='white',
+        format='png'  # 明确指定格式
+    )
+    plt.close()
+    print(f"Results saved to {out_path} (size: {w}x{h} pixels)")
+
 
 def single_visualization(img, anns, title):
     """
