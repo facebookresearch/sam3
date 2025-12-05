@@ -151,3 +151,10 @@ Thumbs.db
 # BPE vocabulary files
 *.bpe
 *.vocab
+
+# App directory - virtual environment files
+app/bin/
+app/lib/
+app/lib64/
+app/pyvenv.cfg
+app/include/
