@@ -1,6 +1,6 @@
 # Training
 
-This repository supports finetuning SAM3 models on custom datasets in multi-node setup or local execution. The training script is located at `sam3/train.py` and uses Hydra configuration management to handle complex training setups.
+This repository supports finetuning SAM3 models on custom datasets in multi-node setup or local execution. The training script is located at `sam3/train/train.py` and uses Hydra configuration management to handle complex training setups.
 
 
 ## Installation
@@ -12,7 +12,7 @@ pip install -e ".[train]"
 
 ### Training Script Usage
 
-The main training script is located at `sam3/train.py`. It uses Hydra configuration management to handle complex training setups.
+The main training script is located at `sam3/train/train.py`. It uses Hydra configuration management to handle complex training setups.
 
 #### Basic Usage
 
@@ -181,7 +181,7 @@ Change `odinw_train.train_file` to `fewshot_train_shot10_seed30` and `fewshot_tr
 
 
 ### Eval Script Usage
-With a similar setup as the training config, the training script `sam3/train.py` can also be used for evaluation, too, when setting `trainer.mode = val` in the job config. Run the following job will give the results on the zero-shot results on RF100-VL and ODinW13 datasets.
+With a similar setup as the training config, the training script `sam3/train/train.py` can also be used for evaluation, too, when setting `trainer.mode = val` in the job config. Run the following job will give the results on the zero-shot results on RF100-VL and ODinW13 datasets.
 ```bash
 # Example: Evaluate on Roboflow dataset
 python sam3/train/train.py -c configs/roboflow_v100/roboflow_v100_eval.yaml
