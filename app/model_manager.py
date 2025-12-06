@@ -8,7 +8,7 @@ from sam3.train.transforms.basic_for_api import (
     ToTensorAPI,
     NormalizeAPI,
 )
-from .config import Config
+from app.config import Config
 
 logger = logging.getLogger(__name__)
 

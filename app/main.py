@@ -10,13 +10,15 @@ from pydantic import BaseModel
 import uvicorn
 
 # 添加SAM3模块路径
-sys.path.append('/home/duan/workspace/python/sam3')
+# sys.path.append('/home/sdgs007/workspace_005/sam3')
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, project_root)
 
 # 导入自定义模块
-from .config import Config
-from .model_manager import ModelManager
-from .inference_service import InferenceService
-from .utils import decode_base64_image, generate_request_id
+from app.config import Config
+from app.model_manager import ModelManager
+from app.inference_service import InferenceService
+from app.utils import decode_base64_image, generate_request_id
 
 # 请求响应模型
 class InferenceRequest(BaseModel):
@@ -78,7 +80,7 @@ async def health_check():
         "model_loaded": model_manager.is_loaded
     }
 
-@app.post("/inference", response_model=InferenceResponse)
+@app.post("/semantic-segmentation", response_model=InferenceResponse)
 async def inference(request: InferenceRequest):
     """SAM3推理接口"""
     request_id = generate_request_id()

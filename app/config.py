@@ -7,13 +7,13 @@ class Config:
     # SAM3模型配置
     SAM3_MODEL_PATH: str = os.getenv(
         "SAM3_MODEL_PATH", 
-        "/home/duan/workspace/python/sam3/checkpoints/sam3.pt"
+        "/home/sdgs007/workspace/sam3/examples/checkpoint/sam3.pt"
     )
     
     # BPE词汇表路径
     BPE_VOCAB_PATH: str = os.getenv(
         "BPE_VOCAB_PATH",
-        "/home/duan/workspace/python/sam3/assets/bpe_simple_vocab_16e6.txt.gz"
+        "/home/sdgs007/workspace/sam3/assets/bpe_simple_vocab_16e6.txt.gz"
     )
     
     # 推理配置
@@ -24,7 +24,7 @@ class Config:
     
     # 服务配置
     HOST: str = os.getenv("HOST", "0.0.0.0")
-    PORT: int = int(os.getenv("PORT", "8000"))
+    PORT: int = int(os.getenv("PORT", "8008"))
     
     # 日志配置
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")

@@ -14,8 +14,8 @@ from sam3.train.data.sam3_image_dataset import (
     Datapoint,
 )
 from sam3.eval.postprocessors import PostProcessImage
-from .convert import convert_sam3_masks_to_json
-from .config import Config
+from app.convert import convert_sam3_masks_to_json
+from app.config import Config
 
 logger = logging.getLogger(__name__)
 
