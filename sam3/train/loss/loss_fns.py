@@ -1011,6 +1011,7 @@ class SemanticSegCriterion(LossWithWeights):
         # we could still set presence_head to True so that
         # losses are not propogated to masks when there is no GT mask
         presence_loss: bool = True,
+        fallback_resolution: int = 1008,
     ):
         super().__init__(weight_dict, False)
         self.focal = focal
@@ -1019,6 +1020,7 @@ class SemanticSegCriterion(LossWithWeights):
         self.downsample = downsample
         self.presence_head = presence_head
         self.presence_loss = presence_loss
+        self.fallback_resolution = fallback_resolution
 
     def get_loss(self, out_dict, targets):
         outputs = out_dict["semantic_seg"]
@@ -1065,6 +1067,9 @@ class SemanticSegCriterion(LossWithWeights):
                 semantic_targets = instance_masks_to_semantic_masks(
                     segments, targets["num_boxes"]
                 )
+
+        if sum(targets["num_boxes"]) == 0:
+            semantic_targets = torch.zeros((outputs.shape[0], self.fallback_resolution, self.fallback_resolution), dtype=torch.bool, device=outputs.device)
 
         if not self.downsample:
             # upsample predictions to the target size

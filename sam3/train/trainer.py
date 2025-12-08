@@ -355,6 +355,8 @@ class Trainer:
             checkpoint_paths.append(os.path.join(checkpoint_folder, f"{ckpt_name}.pt"))
 
         state_dict = unwrap_ddp_if_wrapped(self.model).state_dict()
+        # Add 'detector.' prefix to match checkpoint format expected by model loading code
+        state_dict = {"detector." + k: v for k, v in state_dict.items()}
         state_dict = exclude_params_matching_unix_pattern(
             patterns=self.checkpoint_conf.skip_saving_parameters, state_dict=state_dict
         )
