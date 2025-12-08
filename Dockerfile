@@ -100,6 +100,11 @@ ENV DEFAULT_DETECTION_THRESHOLD=0.5 \
     DEFAULT_RESIZE_SIZE=1008 \
     MAX_SIZE=1008
 
+# 数学库线程控制（避免过度使用 CPU 资源）
+ENV OPENBLAS_NUM_THREADS=1 \
+    OMP_NUM_THREADS=1 \
+    MKL_NUM_THREADS=1
+
 # 从 builder 拷贝已经安装好的虚拟环境
 COPY --from=builder /opt/venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"

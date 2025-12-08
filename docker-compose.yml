@@ -1,45 +1,59 @@
-version: '3.8'
+version: "3.8"
 
 services:
   sam3-server:
-    image: sam3-server:0.0.1
+    image: sam3-server:0.0.2
     container_name: sam3-server
+
     ports:
-      - "8008:8000"
+      - "8026:8000"
+
     environment:
       # 模型路径配置
       - SAM3_MODEL_PATH=/data/checkpoints/sam3.pt
       - BPE_VOCAB_PATH=/app/assets/bpe_simple_vocab_16e6.txt.gz
+
       # 服务配置
       - HOST=0.0.0.0
       - PORT=8000
       - LOG_LEVEL=INFO
+
       # 推理配置
       - DEFAULT_DETECTION_THRESHOLD=0.5
       - DEFAULT_EPSILON=1.0
       - DEFAULT_RESIZE_SIZE=1008
       - MAX_SIZE=1008
+
       # Hugging Face 配置
       - TRANSFORMERS_CACHE=/data/hf_models
       - HF_HOME=/data/hf_models
       - TRANSFORMERS_OFFLINE=1
       - HF_HUB_OFFLINE=1
+
       # PyTorch CUDA 配置
       - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
+      # 数学库线程控制（避免过度使用 CPU 资源）
+      - OPENBLAS_NUM_THREADS=1
+      - OMP_NUM_THREADS=1
+      - MKL_NUM_THREADS=1
+
     volumes:
       # 挂载模型文件（请根据实际路径修改）
-      - /home/sdgs007/workspace/sam3/examples/checkpoint:/data/checkpoints:ro
+      - /home/smai/sam3/checkpoint:/data/checkpoints:ro
       # 挂载 Hugging Face 模型缓存
-      - /home/sdgs007/workspace_005/deploy/sam3_server/hf_models:/data/hf_models:rw
-      # 如果需要挂载结果目录（可选）
+      - /home/smai/sam3/hf_models:/data/hf_models:rw
       # - ./results:/app/results:rw
+
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 60s
+
     restart: unless-stopped
+
     deploy:
       resources:
         reservations:
