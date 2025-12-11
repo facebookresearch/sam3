@@ -26,6 +26,7 @@ from sam3.model.memory import (
 )
 from sam3.model.model_misc import (
     DotProductScoring,
+    get_default_device,
     MLP,
     MultiheadAttentionWrapper as MultiheadAttention,
     TransformerWrapper,
@@ -36,7 +37,7 @@ from sam3.model.sam1_task_predictor import SAM3InteractiveImagePredictor
 from sam3.model.sam3_image import Sam3Image, Sam3ImageOnVideoMultiGPU
 from sam3.model.sam3_tracking_predictor import Sam3TrackerPredictor
 from sam3.model.sam3_video_inference import Sam3VideoInferenceWithInstanceInteractivity
-from sam3.model.sam3_video_predictor import Sam3VideoPredictorMultiGPU
+from sam3.model.sam3_video_predictor import Sam3VideoPredictor, Sam3VideoPredictorMultiGPU
 from sam3.model.text_encoder_ve import VETextEncoder
 from sam3.model.tokenizer_ve import SimpleTokenizer
 from sam3.model.vitdet import ViT
@@ -549,8 +550,10 @@ def _load_checkpoint(model, checkpoint_path):
 
 def _setup_device_and_mode(model, device, eval_mode):
     """Setup model device and evaluation mode."""
-    if device == "cuda":
+    if device == "cuda" and torch.cuda.is_available():
         model = model.cuda()
+    elif device != "cpu":
+        model = model.to(device)
     if eval_mode:
         model.eval()
     return model
@@ -558,7 +561,7 @@ def _setup_device_and_mode(model, device, eval_mode):
 
 def build_sam3_image_model(
     bpe_path=None,
-    device="cuda" if torch.cuda.is_available() else "cpu",
+    device=None,
     eval_mode=True,
     checkpoint_path=None,
     load_from_HF=True,
@@ -581,6 +584,8 @@ def build_sam3_image_model(
     Returns:
         A SAM3 image model
     """
+    if device is None:
+        device = get_default_device()
     if bpe_path is None:
         bpe_path = pkg_resources.resource_filename(
             "sam3", "assets/bpe_simple_vocab_16e6.txt.gz"
@@ -657,7 +662,7 @@ def build_sam3_video_model(
     geo_encoder_use_img_cross_attn: bool = True,
     strict_state_dict_loading: bool = True,
     apply_temporal_disambiguation: bool = True,
-    device="cuda" if torch.cuda.is_available() else "cpu",
+    device=None,
     compile=False,
 ) -> Sam3VideoInferenceWithInstanceInteractivity:
     """
@@ -670,6 +675,8 @@ def build_sam3_video_model(
     Returns:
         Sam3VideoInferenceWithInstanceInteractivity: The instantiated dense tracking model
     """
+    if device is None:
+        device = get_default_device()
     if bpe_path is None:
         bpe_path = pkg_resources.resource_filename(
             "sam3", "assets/bpe_simple_vocab_16e6.txt.gz"
@@ -791,6 +798,9 @@ def build_sam3_video_model(
 
 
 def build_sam3_video_predictor(*model_args, gpus_to_use=None, **model_kwargs):
+    # Use single-device predictor on CPU, multi-GPU predictor only when CUDA is available
+    if not torch.cuda.is_available():
+        return Sam3VideoPredictor(*model_args, **model_kwargs)
     return Sam3VideoPredictorMultiGPU(
         *model_args, gpus_to_use=gpus_to_use, **model_kwargs
     )

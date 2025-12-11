@@ -23,6 +23,7 @@ from .model_misc import (
     gen_sineembed_for_position,
     get_activation_fn,
     get_clones,
+    get_default_device,
     inverse_sigmoid,
     MLP,
 )
@@ -277,8 +278,9 @@ class TransformerDecoder(nn.Module):
 
             if resolution is not None and stride is not None:
                 feat_size = resolution // stride
+                device = get_default_device()
                 coords_h, coords_w = self._get_coords(
-                    feat_size, feat_size, device="cuda"
+                    feat_size, feat_size, device=device
                 )
                 self.compilable_cord_cache = (coords_h, coords_w)
                 self.compilable_stored_size = (feat_size, feat_size)
@@ -342,6 +344,11 @@ class TransformerDecoder(nn.Module):
         ):
             # good, hitting the cache, will be compilable
             coords_h, coords_w = self.compilable_cord_cache
+            # Ensure cache is on the same device as input (handles model.to(device) calls)
+            if coords_h.device != reference_boxes.device:
+                coords_h = coords_h.to(reference_boxes.device)
+                coords_w = coords_w.to(reference_boxes.device)
+                self.compilable_cord_cache = (coords_h, coords_w)
         else:
             # cache miss, will create compilation issue
             # In case we're not compiling, we'll still rely on the dict-based cache

@@ -10,7 +10,7 @@ from typing_extensions import override
 from .act_ckpt_utils import activation_ckpt_wrapper
 from .box_ops import box_cxcywh_to_xyxy
 
-from .model_misc import get_clones
+from .model_misc import get_clones, tensor_to_device
 
 
 def is_right_padded(mask):
@@ -44,8 +44,13 @@ def concat_padded_sequences(seq1, mask1, seq2, mask2, return_index: bool = False
     assert seq1_length == mask1.size(1)
     assert seq2_length == mask2.size(1)
 
-    torch._assert_async(is_right_padded(mask1))
-    torch._assert_async(is_right_padded(mask2))
+    # Use regular assert on non-CUDA devices (torch._assert_async is CUDA-only)
+    if mask1.is_cuda:
+        torch._assert_async(is_right_padded(mask1))
+        torch._assert_async(is_right_padded(mask2))
+    else:
+        assert is_right_padded(mask1), "mask1 must be right-padded"
+        assert is_right_padded(mask2), "mask2 must be right-padded"
 
     actual_seq1_lengths = (~mask1).sum(dim=-1)
     actual_seq2_lengths = (~mask2).sum(dim=-1)
@@ -606,7 +611,7 @@ class SequenceGeometryEncoder(nn.Module):
             assert points_embed is None
             points_embed = proj
 
-        if self.points_pool_project is not None:
+        if self.points_pool_project is not None and n_points > 0:
             # points are [Num_points, bs, 2], normalized in [0, 1]
             # the grid needs to be [Bs, H_out, W_out, 2] normalized in [-1,1]
             # Will take H_out = num_points, w_out = 1
@@ -656,7 +661,7 @@ class SequenceGeometryEncoder(nn.Module):
             # We need to denormalize, and convert to [x, y, x, y]
             boxes_xyxy = box_cxcywh_to_xyxy(boxes)
             scale = torch.tensor([W, H, W, H], dtype=boxes_xyxy.dtype)
-            scale = scale.pin_memory().to(device=boxes_xyxy.device, non_blocking=True)
+            scale = tensor_to_device(scale, boxes_xyxy.device)
             scale = scale.view(1, 1, 4)
             boxes_xyxy = boxes_xyxy * scale
             sampled = torchvision.ops.roi_align(
