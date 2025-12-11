@@ -15,6 +15,7 @@ from sam3.model.box_ops import box_xywh_to_cxcywh, box_xyxy_to_xywh
 from sam3.model.data_misc import BatchedDatapoint, convert_my_tensors, FindStage
 from sam3.model.geometry_encoders import Prompt
 from sam3.model.io_utils import IMAGE_EXTS, load_resource_as_video_frames
+from sam3.model.model_misc import tensor_to_device
 from sam3.model.sam3_tracker_utils import fill_holes_in_mask_scores
 from sam3.model.sam3_video_base import MaskletConfirmationStatus, Sam3VideoBase
 from sam3.model.utils.misc import copy_data_to_device
@@ -59,10 +60,14 @@ class Sam3VideoInference(Sam3VideoBase):
         video_loader_type="cv2",
     ):
         """Initialize an inference state from `resource_path` (an image or a video)."""
+        # Get actual current device from model parameters
+        device = next(self.parameters()).device
+
         images, orig_height, orig_width = load_resource_as_video_frames(
             resource_path=resource_path,
             image_size=self.image_size,
             offload_video_to_cpu=offload_video_to_cpu,
+            device=device,
             img_mean=self.image_mean,
             img_std=self.image_std,
             async_loading_frames=async_loading_frames,
@@ -147,7 +152,7 @@ class Sam3VideoInference(Sam3VideoBase):
             find_targets=[None] * num_frames,
             find_metadatas=[None] * num_frames,
         )
-        input_batch = copy_data_to_device(input_batch, device, non_blocking=True)
+        input_batch = copy_data_to_device(input_batch, device, non_blocking=torch.cuda.is_available())
         inference_state["input_batch"] = input_batch
 
         # construct the placeholder interactive prompts and tracking queries
@@ -477,9 +482,7 @@ class Sam3VideoInference(Sam3VideoBase):
 
             # slice those valid entries from the original outputs
             keep_idx = torch.nonzero(keep, as_tuple=True)[0]
-            keep_idx_gpu = keep_idx.pin_memory().to(
-                device=out_binary_masks.device, non_blocking=True
-            )
+            keep_idx_gpu = tensor_to_device(keep_idx, out_binary_masks.device)
 
             out_obj_ids = torch.index_select(out_obj_ids, 0, keep_idx)
             out_probs = torch.index_select(out_probs, 0, keep_idx)

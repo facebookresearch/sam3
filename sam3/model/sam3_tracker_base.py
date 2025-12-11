@@ -6,7 +6,7 @@ import torch
 import torch.nn.functional as F
 
 from sam3.model.memory import SimpleMaskEncoder
-
+from sam3.model.model_misc import tensor_to_device
 from sam3.model.sam3_tracker_utils import get_1d_sine_pe, select_closest_cond_frames
 
 from sam3.sam.mask_decoder import MaskDecoder, MLP
@@ -165,7 +165,7 @@ class Sam3TrackerBase(torch.nn.Module):
 
         t_diff_max = max_abs_pos - 1 if max_abs_pos is not None else 1
         pos_enc = (
-            torch.tensor(rel_pos_list).pin_memory().to(device=device, non_blocking=True)
+            tensor_to_device(torch.tensor(rel_pos_list), device)
             / t_diff_max
         )
         tpos_dim = self.hidden_dim
@@ -653,15 +653,15 @@ class Sam3TrackerBase(torch.nn.Module):
                 if prev is None:
                     continue  # skip padding frames
                 # "maskmem_features" might have been offloaded to CPU in demo use cases,
-                # so we load it back to GPU (it's a no-op if it's already on GPU).
-                feats = prev["maskmem_features"].cuda(non_blocking=True)
+                # so we load it back to device (it's a no-op if it's already on device).
+                feats = prev["maskmem_features"].to(device, non_blocking=torch.cuda.is_available())
                 seq_len = feats.shape[-2] * feats.shape[-1]
                 to_cat_prompt.append(feats.flatten(2).permute(2, 0, 1))
                 to_cat_prompt_mask.append(
                     torch.zeros(B, seq_len, device=device, dtype=bool)
                 )
                 # Spatial positional encoding (it might have been offloaded to CPU in eval)
-                maskmem_enc = prev["maskmem_pos_enc"][-1].cuda()
+                maskmem_enc = prev["maskmem_pos_enc"][-1].to(device)
                 maskmem_enc = maskmem_enc.flatten(2).permute(2, 0, 1)
 
                 if (
