@@ -26,7 +26,7 @@ classifiers = [
 ]
 dependencies = [
     "timm>=1.0.17",
-    "numpy==1.26",
+    "numpy>=1.26,<2",
     "tqdm",
     "ftfy==6.1.1",
     "regex",
