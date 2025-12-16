@@ -379,10 +379,18 @@ class Sam3VideoBase(nn.Module):
         # Step 3: build SAM2 backbone features and store them in `feature_cache`
         backbone_cache = {}
         sam_mask_decoder = self.tracker.sam_mask_decoder
+        # cast back to the dtype of the tracker model (it might be float32 while the gathered features are bfloat16)
+        dtype = sam_mask_decoder.conv_s0.weight.dtype
         tracker_backbone_fpn = [
-            sam_mask_decoder.conv_s0(sam3_image_out["tracker_backbone_fpn_0"]),
-            sam_mask_decoder.conv_s1(sam3_image_out["tracker_backbone_fpn_1"]),
-            sam3_image_out["tracker_backbone_fpn_2"],  # fpn_2 doesn't need conv
+            sam_mask_decoder.conv_s0(
+                sam3_image_out["tracker_backbone_fpn_0"].to(dtype)
+            ),
+            sam_mask_decoder.conv_s1(
+                sam3_image_out["tracker_backbone_fpn_1"].to(dtype)
+            ),
+            sam3_image_out["tracker_backbone_fpn_2"].to(
+                dtype
+            ),  # fpn_2 doesn't need conv
         ]
         tracker_backbone_out = {
             "vision_features": tracker_backbone_fpn[-1],  # top-level feature
