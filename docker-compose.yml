@@ -13,10 +13,7 @@ services:
       - ${HOME}/.cache/huggingface:/root/.cache/huggingface
     environment:
       HF_HOME: /root/.cache/huggingface
-    device_requests:
-      - driver: nvidia
-        count: all
-        capabilities: [gpu]
+    gpus: all
     stdin_open: true
     tty: true
     command: bash
