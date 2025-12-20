@@ -11,7 +11,7 @@ def run_sample():
     
     # Check if assets exist
     # Updated to look one directory up for assets since this is in examples/
-    image_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "assets/sa_co_dataset.jpg")
+    image_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "assets/images/test_image.jpg")
     
     if not os.path.exists(image_path):
         print(f"Warning: {image_path} not found. Please ensure the assets directory exists.")
@@ -32,7 +32,7 @@ def run_sample():
         inference_state = processor.set_image(image)
         
         # Prompt the model
-        prompt_text = "object" # Generic prompt to find something
+        prompt_text = "kid wearing a red bib" 
         print(f"Prompting with: '{prompt_text}'")
         output = processor.set_text_prompt(state=inference_state, prompt=prompt_text)
         
