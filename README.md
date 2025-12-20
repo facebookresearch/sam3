@@ -167,11 +167,8 @@ dataset.
 To run the Jupyter notebook examples:
 
 ```bash
-# Make sure you have the notebooks dependencies installed
-pip install -e ".[notebooks]"
-
-# Start Jupyter notebook
-jupyter notebook examples/sam3_image_predictor_example.ipynb
+# Start Jupyter notebook (notebooks dependencies are installed via uv sync)
+uv run jupyter notebook examples/sam3_image_predictor_example.ipynb
 ```
 
 ## Model
@@ -340,13 +337,13 @@ We release 2 image benchmarks, [SA-Co/Gold](scripts/eval/gold/README.md) and
 To set up the development environment:
 
 ```bash
-pip install -e ".[dev,train]"
+uv sync --extra dev --extra train
 ```
 
 To format the code:
 
 ```bash
-ufmt format .
+uv run ufmt format .
 ```
 
 ## Contributing
