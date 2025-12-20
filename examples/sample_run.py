@@ -21,7 +21,8 @@ def run_sample():
         # Load the model
         print("Loading SAM3 model (this may trigger checkpoint download)...")
         model = build_sam3_image_model()
-        processor = Sam3Processor(model)
+        # Lower confidence threshold from default 0.5 to detect more objects
+        processor = Sam3Processor(model, confidence_threshold=0.1)
         
         # Load an image
         print(f"Loading image from {image_path}...")
