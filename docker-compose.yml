@@ -1,0 +1,22 @@
+services:
+  sam3:
+    build:
+      context: .
+      args:
+        TORCH_VERSION: "2.7.0"
+        TORCH_INDEX_URL: "https://download.pytorch.org/whl/cu126"
+        SAM3_EXTRAS: ""
+    image: sam3:latest
+    working_dir: /app
+    volumes:
+      - .:/app
+      - ${HOME}/.cache/huggingface:/root/.cache/huggingface
+    environment:
+      HF_HOME: /root/.cache/huggingface
+    device_requests:
+      - driver: nvidia
+        count: all
+        capabilities: [gpu]
+    stdin_open: true
+    tty: true
+    command: bash

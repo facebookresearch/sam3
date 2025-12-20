@@ -95,6 +95,33 @@ pip install -e ".[notebooks]"
 pip install -e ".[train,dev]"
 ```
 
+### Docker (GPU)
+
+Build the image (defaults to CUDA 12.6 wheels):
+
+```bash
+docker build -t sam3:latest .
+```
+
+Run with GPU access:
+
+```bash
+docker run --gpus all -it --rm \
+  -v "$(pwd)":/app \
+  -v "$HOME/.cache/huggingface":/root/.cache/huggingface \
+  sam3:latest
+```
+
+Optional build args:
+
+```bash
+# CPU-only wheels
+docker build --build-arg TORCH_INDEX_URL=https://download.pytorch.org/whl/cpu -t sam3:cpu .
+
+# Install extras (comma-separated)
+docker build --build-arg SAM3_EXTRAS=train,dev -t sam3:train .
+```
+
 ## Getting Started
 
 ⚠️ Before using SAM 3, please request access to the checkpoints on the SAM 3
