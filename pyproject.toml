@@ -7,7 +7,7 @@ name = "sam3"
 dynamic = ["version"]
 description = "SAM3 (Segment Anything Model 3) implementation"
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.9"
 license = {file = "LICENSE"}
 authors = [
     {name = "Meta AI Research"}
@@ -33,6 +33,9 @@ dependencies = [
     "iopath>=0.1.10",
     "typing_extensions",
     "huggingface_hub",
+    "torch==2.7.0",
+    "torchvision>=0.22.0",
+    "torchaudio>=2.7.0",
 ]
 
 [project.optional-dependencies]
@@ -133,3 +136,6 @@ testpaths = ["tests"]
 python_files = "test_*.py"
 python_classes = "Test*"
 python_functions = "test_*"
+
+[[tool.uv.index]]
+url = "https://download.pytorch.org/whl/cu126"
