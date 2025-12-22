@@ -55,12 +55,18 @@ def nms_masks(
 def generic_nms(
     ious: torch.Tensor, scores: torch.Tensor, iou_threshold=0.5
 ) -> torch.Tensor:
-    """A generic version of `torchvision.ops.nms` that takes a pairwise IoU matrix."""
+    """A generic version of `torchvision.ops.nms` that takes a pairwise IoU matrix.
+
+    Supports CUDA (with optional Triton acceleration), MPS (Apple Silicon), and CPU.
+    """
 
     assert ious.dim() == 2 and ious.size(0) == ious.size(1)
     assert scores.dim() == 1 and scores.size(0) == ious.size(0)
 
-    if ious.is_cuda:
+    # Check device type
+    device_type = ious.device.type
+
+    if device_type == "cuda":
         if GENERIC_NMS_AVAILABLE:
             return generic_nms_cuda(ious, scores, iou_threshold, use_iou_matrix=True)
         else:
@@ -68,6 +74,8 @@ def generic_nms(
 
             return nms_triton(ious, scores, iou_threshold)
 
+    # For MPS (Apple Silicon) and CPU, use the CPU implementation
+    # MPS tensors need to be moved to CPU for numpy operations
     return generic_nms_cpu(ious, scores, iou_threshold)
 
 

@@ -54,6 +54,8 @@ def connected_components(input_tensor: torch.Tensor):
     """
     Computes connected components labeling on a batch of 2D tensors, using the best available backend.
 
+    Supports CUDA (with optional Triton acceleration), MPS (Apple Silicon), and CPU.
+
     Args:
         input_tensor (torch.Tensor): A BxHxW integer tensor or Bx1xHxW. Non-zero values are considered foreground. Bool tensor also accepted
 
@@ -69,7 +71,10 @@ def connected_components(input_tensor: torch.Tensor):
         input_tensor.dim() == 4 and input_tensor.shape[1] == 1
     ), "Input tensor must be (B, H, W) or (B, 1, H, W)."
 
-    if input_tensor.is_cuda:
+    # Check device type
+    device_type = input_tensor.device.type
+
+    if device_type == "cuda":
         if HAS_CC_TORCH:
             return get_connected_components(input_tensor.to(torch.uint8))
         else:
@@ -80,5 +85,6 @@ def connected_components(input_tensor: torch.Tensor):
 
             return connected_components_triton(input_tensor)
 
-    # CPU fallback
+    # For MPS (Apple Silicon) and CPU, use the CPU implementation
+    # MPS tensors are handled in connected_components_cpu via .cpu() conversion
     return connected_components_cpu(input_tensor)
