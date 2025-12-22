@@ -42,6 +42,7 @@ from sam3.model.tokenizer_ve import SimpleTokenizer
 from sam3.model.vitdet import ViT
 from sam3.model.vl_combiner import SAM3VLBackbone
 from sam3.sam.transformer import RoPEAttention
+from sam3.model.quantum_encoder import QuantumTextEncoder
 
 
 # Setup TensorFloat-32 for Ampere GPUs if available
@@ -496,6 +497,18 @@ def _create_text_encoder(bpe_path: str) -> VETextEncoder:
         layers=24,
     )
 
+def _create_quantum_text_encoder(bpe_path: str) -> QuantumTextEncoder:
+    """Create SAM3 Quantum text encoder (Experimental)."""
+    tokenizer = SimpleTokenizer(bpe_path=bpe_path)
+    # Using smaller width/layers as it's a "parameter efficient" quantum model
+    return QuantumTextEncoder(
+        tokenizer=tokenizer,
+        d_model=256,
+        width=512, # Reduced from 1024
+        heads=8,   # Reduced from 16
+        layers=6,  # Reduced from 24
+    )
+
 
 def _create_vision_backbone(
     compile_mode=None, enable_inst_interactivity=True
@@ -565,6 +578,7 @@ def build_sam3_image_model(
     enable_segmentation=True,
     enable_inst_interactivity=False,
     compile=False,
+    use_quantum_text_encoder=False,
 ):
     """
     Build SAM3 image model
@@ -577,6 +591,7 @@ def build_sam3_image_model(
         enable_segmentation: Whether to enable segmentation head
         enable_inst_interactivity: Whether to enable instance interactivity (SAM 1 task)
         compile_mode: To enable compilation, set to "default"
+        use_quantum_text_encoder: (Experimental) Use Quantum Tensor Network text encoder
 
     Returns:
         A SAM3 image model
@@ -593,7 +608,11 @@ def build_sam3_image_model(
     )
 
     # Create text components
-    text_encoder = _create_text_encoder(bpe_path)
+    if use_quantum_text_encoder:
+        print("Building Experimental Quantum Text Encoder...")
+        text_encoder = _create_quantum_text_encoder(bpe_path)
+    else:
+        text_encoder = _create_text_encoder(bpe_path)
 
     # Create visual-language backbone
     backbone = _create_vl_backbone(vision_encoder, text_encoder)
