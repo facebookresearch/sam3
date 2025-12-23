@@ -221,12 +221,13 @@ class LiveCameraSegmenter:
         self.video_width = width
 
         # Initialize tracker state for streaming (unlimited frames)
+        # Keep everything on the same device to avoid device mismatch errors
         self.tracker_state = self.tracker.init_state(
             video_height=height,
             video_width=width,
             num_frames=1000000,  # Large number for streaming
-            offload_video_to_cpu=True,  # Save memory
-            offload_state_to_cpu=self.device_str != "cuda",  # Offload on non-CUDA devices
+            offload_video_to_cpu=False,  # Keep on device for consistency
+            offload_state_to_cpu=False,  # Keep on device to avoid MPS/CPU mismatch
         )
         # Initialize images list for the tracker
         self.tracker_state["images"] = []
