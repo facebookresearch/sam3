@@ -68,6 +68,7 @@ class LiveCameraSegmenter:
         checkpoint_path: Optional[str] = None,
         interactive: bool = False,
         process_every_n_frames: int = 1,
+        use_half_precision: bool = False,
     ):
         """
         Initialize the live camera segmenter.
@@ -80,6 +81,7 @@ class LiveCameraSegmenter:
             checkpoint_path: Optional path to model checkpoint
             interactive: Enable interactive box-based prompting
             process_every_n_frames: Only process every N frames (higher = faster but less smooth)
+            use_half_precision: Use float16 for faster inference (may reduce accuracy)
         """
         self.camera_id = camera_id
         self.device_str = device if device else get_device_str()
@@ -88,6 +90,7 @@ class LiveCameraSegmenter:
         self.confidence_threshold = confidence_threshold
         self.interactive = interactive
         self.process_every_n_frames = process_every_n_frames
+        self.use_half_precision = use_half_precision
         self.frame_count = 0
 
         # State
@@ -116,6 +119,11 @@ class LiveCameraSegmenter:
             eval_mode=True,
             enable_segmentation=True,
         )
+
+        # Convert to half precision for faster inference
+        if self.use_half_precision:
+            print("Converting model to half precision (float16)...")
+            model = model.half()
 
         self.processor = Sam3Processor(
             model=model,
@@ -452,6 +460,11 @@ def main():
         default=1,
         help="Process every N frames (higher = faster, default: 1)",
     )
+    parser.add_argument(
+        "--half",
+        action="store_true",
+        help="Use half precision (float16) for faster inference",
+    )
 
     args = parser.parse_args()
 
@@ -465,6 +478,7 @@ def main():
     print(f"Threshold: {args.threshold}")
     print(f"Interactive: {args.interactive}")
     print(f"Skip frames: {args.skip_frames}")
+    print(f"Half precision: {args.half}")
     print(f"=" * 40)
 
     # Create and run segmenter
@@ -476,6 +490,7 @@ def main():
         checkpoint_path=args.checkpoint,
         interactive=args.interactive,
         process_every_n_frames=args.skip_frames,
+        use_half_precision=args.half,
     )
     segmenter.run()
 
