@@ -120,10 +120,14 @@ class LiveCameraSegmenter:
             enable_segmentation=True,
         )
 
-        # Convert to half precision for faster inference
+        # Convert to half precision for faster inference (CUDA only - MPS doesn't support it)
         if self.use_half_precision:
-            print("Converting model to half precision (float16)...")
-            model = model.half()
+            if self.device_str == "mps":
+                print("Warning: Half precision not supported on MPS due to Metal limitations, using float32")
+                self.use_half_precision = False
+            else:
+                print("Converting model to half precision (float16)...")
+                model = model.half()
 
         self.processor = Sam3Processor(
             model=model,
