@@ -20,6 +20,9 @@ Usage:
     # Interactive mode - click to add box prompts
     python live_camera_segmentation.py --interactive
 
+    # Skip frames with tracking (masks follow objects between full inference frames)
+    python live_camera_segmentation.py --prompt "person" --skip-frames 5 --track
+
 Controls:
     - 'q' or ESC: Quit
     - 'r': Reset/clear all segments
@@ -69,6 +72,7 @@ class LiveCameraSegmenter:
         interactive: bool = False,
         process_every_n_frames: int = 1,
         use_half_precision: bool = False,
+        enable_tracking: bool = False,
     ):
         """
         Initialize the live camera segmenter.
@@ -82,6 +86,7 @@ class LiveCameraSegmenter:
             interactive: Enable interactive box-based prompting
             process_every_n_frames: Only process every N frames (higher = faster but less smooth)
             use_half_precision: Use float16 for faster inference (may reduce accuracy)
+            enable_tracking: Enable mask tracking between skipped frames
         """
         self.camera_id = camera_id
         self.device_str = device if device else get_device_str()
@@ -91,12 +96,21 @@ class LiveCameraSegmenter:
         self.interactive = interactive
         self.process_every_n_frames = process_every_n_frames
         self.use_half_precision = use_half_precision
+        self.enable_tracking = enable_tracking
         self.frame_count = 0
 
         # State
         self.paused = False
         self.state = None
         self.fps_history = deque(maxlen=30)
+
+        # Tracking state
+        self.tracker = None
+        self.tracker_state = None
+        self.last_masks = None
+        self.last_boxes = None
+        self.video_height = None
+        self.video_width = None
 
         # For interactive box drawing
         self.drawing = False
@@ -136,6 +150,178 @@ class LiveCameraSegmenter:
             confidence_threshold=self.confidence_threshold,
         )
         print("Model loaded successfully!")
+
+        # Load tracker for mask propagation between skipped frames
+        if self.enable_tracking:
+            self._load_tracker()
+
+    def _load_tracker(self):
+        """Load the SAM3 tracker for mask propagation between frames."""
+        from sam3.model_builder import build_tracker
+
+        print("Loading SAM3 tracker for inter-frame tracking...")
+
+        # Build tracker with backbone for processing new frames
+        self.tracker = build_tracker(
+            apply_temporal_disambiguation=True,
+            with_backbone=True,
+        )
+        self.tracker = self.tracker.to(self.device)
+        self.tracker.eval()
+
+        # Load tracker weights from HuggingFace
+        from huggingface_hub import hf_hub_download
+        tracker_ckpt_path = hf_hub_download(
+            repo_id="facebook/sam3.1-hiera-large",
+            filename="sam3.1_hiera_large.pt"
+        )
+        tracker_state_dict = torch.load(tracker_ckpt_path, map_location=self.device)
+
+        # Filter and load tracker-compatible weights
+        tracker_keys = set(k for k in self.tracker.state_dict().keys())
+        filtered_state_dict = {k: v for k, v in tracker_state_dict.items() if k in tracker_keys}
+        self.tracker.load_state_dict(filtered_state_dict, strict=False)
+
+        print("Tracker loaded successfully!")
+
+    def _init_tracker_state(self, height: int, width: int):
+        """Initialize the tracker state for a new video stream."""
+        if self.tracker is None:
+            return
+
+        self.video_height = height
+        self.video_width = width
+
+        # Initialize tracker state for streaming (unlimited frames)
+        self.tracker_state = self.tracker.init_state(
+            video_height=height,
+            video_width=width,
+            num_frames=1000000,  # Large number for streaming
+            offload_video_to_cpu=True,  # Save memory
+            offload_state_to_cpu=self.device_str != "cuda",  # Offload on non-CUDA devices
+        )
+        # Initialize images list for the tracker
+        self.tracker_state["images"] = []
+
+    def _track_frame(self, frame: np.ndarray, frame_idx: int) -> Optional[torch.Tensor]:
+        """
+        Use the tracker to propagate masks to a new frame.
+
+        This runs lightweight memory-based tracking instead of full detection.
+        Returns the tracked masks or None if tracking isn't available.
+        """
+        if self.tracker is None or self.tracker_state is None:
+            return None
+
+        if self.last_masks is None or len(self.last_masks) == 0:
+            return None
+
+        try:
+            # Preprocess frame for tracker
+            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            frame_tensor = torch.from_numpy(frame_rgb).permute(2, 0, 1).float() / 255.0
+
+            # Resize to model input size
+            frame_tensor = torch.nn.functional.interpolate(
+                frame_tensor.unsqueeze(0),
+                size=(1008, 1008),
+                mode="bilinear",
+                align_corners=False,
+            ).squeeze(0)
+
+            # Add frame to tracker
+            frame_tensor = frame_tensor.to(self.device)
+
+            # Store frame in tracker state
+            if "images" not in self.tracker_state:
+                self.tracker_state["images"] = []
+
+            # Ensure we have enough slots
+            while len(self.tracker_state["images"]) <= frame_idx:
+                self.tracker_state["images"].append(None)
+            self.tracker_state["images"][frame_idx] = frame_tensor
+            self.tracker_state["num_frames"] = frame_idx + 1
+
+            # Run tracking propagation for this frame
+            batch_size = 1  # Single object tracking for simplicity
+
+            # Get cached features or compute new ones
+            self.tracker_state["cached_features"][frame_idx] = (
+                frame_tensor.unsqueeze(0),
+                self.tracker.forward_image(frame_tensor.unsqueeze(0))
+            )
+
+            # Run single frame inference with memory from previous frames
+            output_dict = self.tracker_state["output_dict"]
+
+            if len(output_dict["cond_frame_outputs"]) > 0 or len(output_dict["non_cond_frame_outputs"]) > 0:
+                # Get image features
+                image, _, current_vision_feats, current_vision_pos_embeds, feat_sizes = \
+                    self.tracker._get_image_feature(self.tracker_state, frame_idx, batch_size)
+
+                # Run tracking step
+                current_out = self.tracker.track_step(
+                    frame_idx=frame_idx,
+                    is_init_cond_frame=False,
+                    current_vision_feats=current_vision_feats,
+                    current_vision_pos_embeds=current_vision_pos_embeds,
+                    feat_sizes=feat_sizes,
+                    image=image,
+                    point_inputs=None,
+                    mask_inputs=None,
+                    output_dict=output_dict,
+                    num_frames=self.tracker_state["num_frames"],
+                    track_in_reverse=False,
+                    run_mem_encoder=True,
+                    prev_sam_mask_logits=None,
+                )
+
+                # Get high resolution masks
+                pred_masks = current_out["pred_masks"]
+                video_res_masks = torch.nn.functional.interpolate(
+                    pred_masks,
+                    size=(self.video_height, self.video_width),
+                    mode="bilinear",
+                    align_corners=False,
+                )
+
+                # Store output for next frame's memory
+                output_dict["non_cond_frame_outputs"][frame_idx] = current_out
+
+                return (video_res_masks > 0).float()
+
+        except Exception as e:
+            print(f"Tracking error: {e}")
+
+        return None
+
+    def _add_mask_to_tracker(self, masks: torch.Tensor, frame_idx: int):
+        """Add detected masks to the tracker for future propagation."""
+        if self.tracker is None or self.tracker_state is None:
+            return
+
+        if masks is None or masks.numel() == 0:
+            return
+
+        try:
+            # Add each detected object as a separate tracking target
+            for obj_idx, mask in enumerate(masks):
+                # Convert mask to binary at model resolution
+                mask_binary = (mask.squeeze() > 0).float()
+
+                # Add mask to tracker
+                self.tracker.add_new_mask(
+                    inference_state=self.tracker_state,
+                    frame_idx=frame_idx,
+                    obj_id=obj_idx,
+                    mask=mask_binary,
+                )
+
+            # Run preflight to consolidate outputs
+            self.tracker.propagate_in_video_preflight(self.tracker_state)
+
+        except Exception as e:
+            print(f"Error adding mask to tracker: {e}")
 
     def _process_frame(self, frame: np.ndarray) -> dict:
         """Process a frame through SAM3."""
@@ -234,7 +420,8 @@ class LiveCameraSegmenter:
 
         # Semi-transparent background for text
         overlay = frame.copy()
-        cv2.rectangle(overlay, (10, 10), (350, 140), (0, 0, 0), -1)
+        info_height = 165 if self.enable_tracking else 140
+        cv2.rectangle(overlay, (10, 10), (350, info_height), (0, 0, 0), -1)
         frame = cv2.addWeighted(overlay, 0.3, frame, 0.7, 0)
 
         # Draw text
@@ -246,6 +433,10 @@ class LiveCameraSegmenter:
         mode = "Interactive" if self.interactive else f"Prompt: {self.text_prompt}"
         cv2.putText(frame, f"Mode: {mode}", (20, 110), font, 0.6, (255, 255, 255), 2)
         cv2.putText(frame, f"Threshold: {self.confidence_threshold:.2f}", (20, 135), font, 0.6, (255, 255, 255), 2)
+
+        if self.enable_tracking:
+            skip_info = f"Skip: {self.process_every_n_frames} (tracking ON)"
+            cv2.putText(frame, skip_info, (20, 160), font, 0.6, (0, 255, 0), 2)
 
         # Draw controls hint at bottom
         hint = "Q: Quit | R: Reset | S: Save | P: Pause | T: New prompt"
@@ -309,6 +500,11 @@ class LiveCameraSegmenter:
         frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         print(f"Camera resolution: {frame_width}x{frame_height}")
 
+        # Initialize tracker state if tracking is enabled
+        if self.enable_tracking:
+            print("Initializing tracker state...")
+            self._init_tracker_state(frame_height, frame_width)
+
         # Create window
         window_name = "SAM3 Live Segmentation"
         cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
@@ -339,19 +535,46 @@ class LiveCameraSegmenter:
                 self.frame_count += 1
 
                 if not self.paused:
-                    # Only process every N frames for performance
-                    if self.frame_count % self.process_every_n_frames == 0:
+                    is_keyframe = self.frame_count % self.process_every_n_frames == 0
+
+                    if is_keyframe:
+                        # Full inference frame - run text detection
                         self._process_frame(frame)
 
-                # Overlay results
-                if self.state is not None:
-                    masks = self.state.get("masks")
-                    boxes = self.state.get("boxes")
+                        # Store masks for tracking and add to tracker
+                        if self.state is not None:
+                            self.last_masks = self.state.get("masks")
+                            self.last_boxes = self.state.get("boxes")
 
-                    if masks is not None:
-                        display_frame = self._overlay_masks(display_frame, masks)
-                    if boxes is not None:
-                        display_frame = self._draw_boxes(display_frame, boxes)
+                            # Add masks to tracker for memory-based propagation
+                            if self.enable_tracking and self.last_masks is not None:
+                                self._add_mask_to_tracker(self.last_masks, self.frame_count)
+
+                    elif self.enable_tracking and self.last_masks is not None:
+                        # Intermediate frame - use tracker to propagate masks
+                        tracked_masks = self._track_frame(frame, self.frame_count)
+                        if tracked_masks is not None:
+                            self.last_masks = tracked_masks
+                            # Update state with tracked masks
+                            if self.state is not None:
+                                self.state["masks"] = tracked_masks
+                    # else: Just reuse last masks (no tracking)
+
+                # Overlay results - use last_masks if tracking is enabled
+                masks_to_display = None
+                boxes_to_display = None
+
+                if self.enable_tracking:
+                    masks_to_display = self.last_masks
+                    boxes_to_display = self.last_boxes
+                elif self.state is not None:
+                    masks_to_display = self.state.get("masks")
+                    boxes_to_display = self.state.get("boxes")
+
+                if masks_to_display is not None:
+                    display_frame = self._overlay_masks(display_frame, masks_to_display)
+                if boxes_to_display is not None:
+                    display_frame = self._draw_boxes(display_frame, boxes_to_display)
 
                 # Draw current box being drawn
                 if self.interactive:
@@ -365,8 +588,8 @@ class LiveCameraSegmenter:
 
                 # Draw info overlay
                 num_objects = 0
-                if self.state is not None and self.state.get("masks") is not None:
-                    num_objects = len(self.state["masks"])
+                if masks_to_display is not None:
+                    num_objects = len(masks_to_display)
                 display_frame = self._draw_info(display_frame, avg_fps, num_objects)
 
                 # Show frame
@@ -384,6 +607,11 @@ class LiveCameraSegmenter:
                     if self.state is not None:
                         self.processor.reset_all_prompts(self.state)
                     self.state = None
+                    self.last_masks = None
+                    self.last_boxes = None
+                    # Reset tracker state
+                    if self.enable_tracking and self.tracker is not None:
+                        self._init_tracker_state(frame_height, frame_width)
 
                 elif key == ord('s'):  # Save
                     filename = f"sam3_capture_{frame_count}.png"
@@ -402,6 +630,11 @@ class LiveCameraSegmenter:
                         if self.state is not None:
                             self.processor.reset_all_prompts(self.state)
                         self.state = None
+                        self.last_masks = None
+                        self.last_boxes = None
+                        # Reset tracker for new prompt
+                        if self.enable_tracking and self.tracker is not None:
+                            self._init_tracker_state(frame_height, frame_width)
                         print(f"Text prompt set to: {self.text_prompt}")
                     self.paused = False
 
@@ -469,6 +702,11 @@ def main():
         action="store_true",
         help="Use half precision (float16) for faster inference",
     )
+    parser.add_argument(
+        "--track",
+        action="store_true",
+        help="Enable mask tracking between skipped frames (smoother results when using --skip-frames)",
+    )
 
     args = parser.parse_args()
 
@@ -483,6 +721,7 @@ def main():
     print(f"Interactive: {args.interactive}")
     print(f"Skip frames: {args.skip_frames}")
     print(f"Half precision: {args.half}")
+    print(f"Tracking: {args.track}")
     print(f"=" * 40)
 
     # Create and run segmenter
@@ -495,6 +734,7 @@ def main():
         interactive=args.interactive,
         process_every_n_frames=args.skip_frames,
         use_half_precision=args.half,
+        enable_tracking=args.track,
     )
     segmenter.run()
 

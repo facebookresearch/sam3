@@ -46,8 +46,16 @@ class Sam3TrackerPredictor(Sam3TrackerBase):
         self.max_point_num_in_prompt_enc = max_point_num_in_prompt_enc
         self.non_overlap_masks_for_output = non_overlap_masks_for_output
 
-        self.bf16_context = torch.autocast(device_type="cuda", dtype=torch.bfloat16)
-        self.bf16_context.__enter__()  # keep using for the entire model process
+        # Set up autocast context based on device type
+        # MPS doesn't support bfloat16, so we skip autocast on non-CUDA devices
+        device_type = getattr(self, 'device', torch.device('cpu'))
+        if hasattr(device_type, 'type'):
+            device_type = device_type.type
+        if device_type == "cuda":
+            self.bf16_context = torch.autocast(device_type="cuda", dtype=torch.bfloat16)
+            self.bf16_context.__enter__()  # keep using for the entire model process
+        else:
+            self.bf16_context = None  # No autocast for MPS/CPU
 
         self.iter_use_prev_mask_pred = True
         self.add_all_frames_to_correct_as_cond = True
@@ -78,7 +86,8 @@ class Sam3TrackerPredictor(Sam3TrackerBase):
         if offload_state_to_cpu:
             inference_state["storage_device"] = torch.device("cpu")
         else:
-            inference_state["storage_device"] = torch.device("cuda")
+            # Use the actual device (cuda, mps, or cpu) instead of hardcoded cuda
+            inference_state["storage_device"] = self.device
 
         if video_path is not None:
             images, video_height, video_width = load_video_frames(
@@ -300,7 +309,12 @@ class Sam3TrackerPredictor(Sam3TrackerBase):
                     prev_out = obj_output_dict["non_cond_frame_outputs"].get(frame_idx)
 
             if prev_out is not None and prev_out["pred_masks"] is not None:
-                prev_sam_mask_logits = prev_out["pred_masks"].cuda(non_blocking=True)
+                device = inference_state["device"]
+                # Use device-agnostic transfer (cuda, mps, or cpu)
+                if device.type == "cuda":
+                    prev_sam_mask_logits = prev_out["pred_masks"].cuda(non_blocking=True)
+                else:
+                    prev_sam_mask_logits = prev_out["pred_masks"].to(device)
                 # Clamp the scale of prev_sam_mask_logits to avoid rare numerical issues.
                 prev_sam_mask_logits = torch.clamp(prev_sam_mask_logits, -32.0, 32.0)
         current_out, _ = self._run_single_frame_inference(
