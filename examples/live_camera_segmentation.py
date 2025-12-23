@@ -323,7 +323,7 @@ class LiveCameraSegmenter:
 
         return None
 
-    def _add_mask_to_tracker(self, masks: torch.Tensor, frame_idx: int):
+    def _add_mask_to_tracker(self, masks: torch.Tensor, frame: np.ndarray, frame_idx: int):
         """Add detected masks to the tracker for future propagation."""
         if self.tracker is None or self.tracker_state is None:
             return
@@ -332,10 +332,48 @@ class LiveCameraSegmenter:
             return
 
         try:
+            # First, add the frame image to the tracker
+            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            frame_tensor = torch.from_numpy(frame_rgb).permute(2, 0, 1).float() / 255.0
+
+            # Resize to model input size
+            frame_tensor = torch.nn.functional.interpolate(
+                frame_tensor.unsqueeze(0),
+                size=(1008, 1008),
+                mode="bilinear",
+                align_corners=False,
+            ).squeeze(0)
+
+            frame_tensor = frame_tensor.to(self.device)
+
+            # Ensure images list exists and has enough slots
+            if "images" not in self.tracker_state:
+                self.tracker_state["images"] = []
+
+            while len(self.tracker_state["images"]) <= frame_idx:
+                self.tracker_state["images"].append(None)
+
+            self.tracker_state["images"][frame_idx] = frame_tensor
+            self.tracker_state["num_frames"] = frame_idx + 1
+
+            # Cache the image features
+            self.tracker_state["cached_features"][frame_idx] = (
+                frame_tensor.unsqueeze(0),
+                self.tracker.forward_image(frame_tensor.unsqueeze(0))
+            )
+
             # Add each detected object as a separate tracking target
             for obj_idx, mask in enumerate(masks):
-                # Convert mask to binary at model resolution
-                mask_binary = (mask.squeeze() > 0).float()
+                # Resize mask to video resolution for the tracker
+                mask_resized = torch.nn.functional.interpolate(
+                    mask.unsqueeze(0) if mask.dim() == 3 else mask.unsqueeze(0).unsqueeze(0),
+                    size=(self.video_height, self.video_width),
+                    mode="bilinear",
+                    align_corners=False,
+                ).squeeze()
+
+                # Convert mask to binary
+                mask_binary = (mask_resized > 0).float()
 
                 # Add mask to tracker
                 self.tracker.add_new_mask(
@@ -349,7 +387,9 @@ class LiveCameraSegmenter:
             self.tracker.propagate_in_video_preflight(self.tracker_state)
 
         except Exception as e:
+            import traceback
             print(f"Error adding mask to tracker: {e}")
+            traceback.print_exc()
 
     def _process_frame(self, frame: np.ndarray) -> dict:
         """Process a frame through SAM3."""
@@ -576,7 +616,7 @@ class LiveCameraSegmenter:
 
                             # Add masks to tracker for memory-based propagation
                             if self.enable_tracking and self.last_masks is not None:
-                                self._add_mask_to_tracker(self.last_masks, self.frame_count)
+                                self._add_mask_to_tracker(self.last_masks, frame, self.frame_count)
 
                     elif self.enable_tracking and self.last_masks is not None:
                         # Intermediate frame - use tracker to propagate masks
