@@ -62,8 +62,13 @@ def concat_padded_sequences(seq1, mask1, seq2, mask2, return_index: bool = False
     assert seq1_length == mask1.size(1)
     assert seq2_length == mask2.size(1)
 
-    torch._assert_async(is_right_padded(mask1))
-    torch._assert_async(is_right_padded(mask2))
+    # _assert_async is not supported on MPS, use regular assert
+    if mask1.device.type == "mps" or mask2.device.type == "mps":
+        assert is_right_padded(mask1), "mask1 must be right padded"
+        assert is_right_padded(mask2), "mask2 must be right padded"
+    else:
+        torch._assert_async(is_right_padded(mask1))
+        torch._assert_async(is_right_padded(mask2))
 
     actual_seq1_lengths = (~mask1).sum(dim=-1)
     actual_seq2_lengths = (~mask2).sum(dim=-1)
