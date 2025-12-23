@@ -11,6 +11,9 @@ Usage:
     # Detect objects using text prompt
     python live_camera_segmentation.py --prompt "person"
 
+    # Detect multiple object types using comma-separated prompts
+    python live_camera_segmentation.py --prompt "person, car, dog, cat"
+
     # Use specific camera device
     python live_camera_segmentation.py --camera 0 --prompt "cat"
 
@@ -110,6 +113,7 @@ class LiveCameraSegmenter:
         self.last_masks = None
         self.last_boxes = None
         self.last_scores = None  # Store confidence scores
+        self.last_labels = None  # Store per-object labels for multi-prompt mode
         self.video_height = None
         self.video_width = None
 
@@ -223,6 +227,7 @@ class LiveCameraSegmenter:
         self.last_masks = None
         self.last_boxes = None
         self.last_scores = None
+        self.last_labels = None
         self.prev_gray = None
 
     def _track_frame(self, frame: np.ndarray, frame_idx: int) -> Optional[torch.Tensor]:
@@ -324,7 +329,50 @@ class LiveCameraSegmenter:
 
         # Run text-based detection
         if not self.interactive:
-            self.state = self.processor.set_text_prompt(self.text_prompt, self.state)
+            # Support multiple prompts separated by commas
+            prompts = [p.strip() for p in self.text_prompt.split(',')]
+
+            if len(prompts) == 1:
+                # Single prompt - use normal detection
+                self.state = self.processor.set_text_prompt(prompts[0], self.state)
+            else:
+                # Multiple prompts - run detection for each and combine results
+                all_masks = []
+                all_boxes = []
+                all_scores = []
+                all_labels = []
+
+                for prompt in prompts:
+                    # Reset geometric prompt for each detection
+                    if "geometric_prompt" in self.state:
+                        del self.state["geometric_prompt"]
+
+                    self.state = self.processor.set_text_prompt(prompt, self.state)
+
+                    masks = self.state.get("masks")
+                    boxes = self.state.get("boxes")
+                    scores = self.state.get("scores")
+
+                    if masks is not None and masks.numel() > 0:
+                        for i in range(len(masks)):
+                            all_masks.append(masks[i:i+1])
+                            if boxes is not None and i < len(boxes):
+                                all_boxes.append(boxes[i:i+1])
+                            if scores is not None and i < len(scores):
+                                all_scores.append(scores[i:i+1])
+                            all_labels.append(prompt)
+
+                # Combine all detections
+                if all_masks:
+                    self.state["masks"] = torch.cat(all_masks, dim=0)
+                    self.state["boxes"] = torch.cat(all_boxes, dim=0) if all_boxes else None
+                    self.state["scores"] = torch.cat(all_scores, dim=0) if all_scores else None
+                    self.state["labels"] = all_labels  # Store labels for each detection
+                else:
+                    self.state["masks"] = None
+                    self.state["boxes"] = None
+                    self.state["scores"] = None
+                    self.state["labels"] = []
 
         return self.state
 
@@ -355,6 +403,7 @@ class LiveCameraSegmenter:
         masks: torch.Tensor,
         boxes: torch.Tensor = None,
         scores: torch.Tensor = None,
+        labels: list = None,
         alpha: float = 0.5,
     ) -> np.ndarray:
         """Overlay segmentation masks on the frame with labels and confidence scores."""
@@ -410,8 +459,13 @@ class LiveCameraSegmenter:
                 # Get confidence score
                 conf = scores_np[i] if scores_np is not None and i < len(scores_np) else 0.0
 
-                # Create label text
-                label = f"{self.text_prompt} #{i+1}"
+                # Get label - use per-object label if available, otherwise use prompt
+                if labels is not None and i < len(labels):
+                    obj_label = labels[i]
+                else:
+                    obj_label = self.text_prompt.split(',')[0].strip()  # Use first prompt as fallback
+
+                label = f"{obj_label}"
                 conf_text = f"{conf:.0%}"
 
                 # Draw label background
@@ -468,7 +522,8 @@ class LiveCameraSegmenter:
         return frame
 
     def _draw_object_panel(self, frame: np.ndarray, masks: torch.Tensor,
-                           boxes: torch.Tensor, scores: torch.Tensor) -> np.ndarray:
+                           boxes: torch.Tensor, scores: torch.Tensor,
+                           labels: list = None) -> np.ndarray:
         """Draw an info panel on the right side showing detected objects."""
         h, w = frame.shape[:2]
 
@@ -528,9 +583,17 @@ class LiveCameraSegmenter:
                 (panel_x + 25, 10 + y_offset + 15),
                 color, -1)
 
-            # Object label
-            label = f"{self.text_prompt} #{i+1}"
-            cv2.putText(frame, label,
+            # Object label - use per-object label if available
+            if labels is not None and i < len(labels):
+                obj_label = labels[i]
+            else:
+                obj_label = self.text_prompt.split(',')[0].strip()
+
+            # Truncate label if too long
+            if len(obj_label) > 15:
+                obj_label = obj_label[:12] + "..."
+
+            cv2.putText(frame, obj_label,
                 (panel_x + 35, 10 + y_offset + 12),
                 font, 0.4, (255, 255, 255), 1)
 
@@ -680,11 +743,12 @@ class LiveCameraSegmenter:
                         # Full inference frame - run text detection
                         self._process_frame(frame)
 
-                        # Store masks, boxes, and scores for tracking
+                        # Store masks, boxes, scores, and labels for tracking
                         if self.state is not None:
                             self.last_masks = self.state.get("masks")
                             self.last_boxes = self.state.get("boxes")
                             self.last_scores = self.state.get("scores")
+                            self.last_labels = self.state.get("labels")
 
                             # Add masks to tracker for memory-based propagation
                             if self.enable_tracking and self.last_masks is not None:
@@ -704,27 +768,32 @@ class LiveCameraSegmenter:
                 masks_to_display = None
                 boxes_to_display = None
                 scores_to_display = None
+                labels_to_display = None
 
                 if self.enable_tracking:
                     masks_to_display = self.last_masks
                     boxes_to_display = self.last_boxes
                     scores_to_display = self.last_scores
+                    labels_to_display = self.last_labels
                 elif self.state is not None:
                     masks_to_display = self.state.get("masks")
                     boxes_to_display = self.state.get("boxes")
                     scores_to_display = self.state.get("scores")
+                    labels_to_display = self.state.get("labels")
 
                 if masks_to_display is not None:
                     display_frame = self._overlay_masks(
                         display_frame, masks_to_display,
-                        boxes=boxes_to_display, scores=scores_to_display
+                        boxes=boxes_to_display, scores=scores_to_display,
+                        labels=labels_to_display
                     )
                 if boxes_to_display is not None:
                     display_frame = self._draw_boxes(display_frame, boxes_to_display, scores_to_display)
 
                 # Draw object info panel on the right
                 display_frame = self._draw_object_panel(
-                    display_frame, masks_to_display, boxes_to_display, scores_to_display
+                    display_frame, masks_to_display, boxes_to_display, scores_to_display,
+                    labels=labels_to_display
                 )
 
                 # Draw current box being drawn
@@ -761,6 +830,7 @@ class LiveCameraSegmenter:
                     self.last_masks = None
                     self.last_boxes = None
                     self.last_scores = None
+                    self.last_labels = None
                     # Reset tracker state
                     if self.enable_tracking:
                         self._init_tracker_state(frame_height, frame_width)
@@ -785,6 +855,7 @@ class LiveCameraSegmenter:
                         self.last_masks = None
                         self.last_boxes = None
                         self.last_scores = None
+                        self.last_labels = None
                         # Reset tracker for new prompt
                         if self.enable_tracking:
                             self._init_tracker_state(frame_height, frame_width)
