@@ -153,9 +153,9 @@ class LiveCameraSegmenter:
 
         # Load tracker for mask propagation between skipped frames
         if self.enable_tracking:
-            self._load_tracker()
+            self._load_tracker(checkpoint_path)
 
-    def _load_tracker(self):
+    def _load_tracker(self, checkpoint_path: Optional[str] = None):
         """Load the SAM3 tracker for mask propagation between frames."""
         from sam3.model_builder import build_tracker
 
@@ -169,13 +169,37 @@ class LiveCameraSegmenter:
         self.tracker = self.tracker.to(self.device)
         self.tracker.eval()
 
-        # Load tracker weights from HuggingFace
-        from huggingface_hub import hf_hub_download
-        tracker_ckpt_path = hf_hub_download(
-            repo_id="facebook/sam3.1-hiera-large",
-            filename="sam3.1_hiera_large.pt"
-        )
-        tracker_state_dict = torch.load(tracker_ckpt_path, map_location=self.device)
+        # Try to load tracker weights from the same source as the main model
+        # The tracker shares weights with the main SAM3 model
+        import os
+        tracker_ckpt_path = None
+
+        # Use provided checkpoint path first
+        if checkpoint_path and os.path.exists(checkpoint_path):
+            tracker_ckpt_path = checkpoint_path
+        else:
+            # Check common locations for the checkpoint
+            possible_paths = [
+                "sam3.pt",
+                "./sam3.pt",
+                "../sam3.pt",
+                os.path.expanduser("~/.cache/huggingface/hub/models--facebook--sam3/sam3.pt"),
+            ]
+
+            for path in possible_paths:
+                if os.path.exists(path):
+                    tracker_ckpt_path = path
+                    break
+
+        if tracker_ckpt_path is None:
+            print("Warning: Could not find sam3.pt checkpoint for tracker.")
+            print("Please ensure sam3.pt is in the current directory or provide --checkpoint path.")
+            print("Tracking will be disabled.")
+            self.tracker = None
+            return
+
+        print(f"Loading tracker weights from: {tracker_ckpt_path}")
+        tracker_state_dict = torch.load(tracker_ckpt_path, map_location=self.device, weights_only=False)
 
         # Filter and load tracker-compatible weights
         tracker_keys = set(k for k in self.tracker.state_dict().keys())
