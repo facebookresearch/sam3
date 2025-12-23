@@ -151,11 +151,11 @@ class LiveCameraSegmenter:
         )
         print("Model loaded successfully!")
 
-        # Note: Full tracker loading is disabled on MPS due to device compatibility issues
-        # Tracking mode will still work by reusing the last detected masks between keyframes
-        # This provides visual continuity without the overhead of loading a second model
+        # For tracking between keyframes, we use optical flow instead of the full SAM3 tracker
+        # This provides lightweight motion-based tracking without device compatibility issues
         if self.enable_tracking:
-            print("Tracking mode enabled - masks will persist between keyframes")
+            print("Tracking mode enabled - using optical flow for inter-frame tracking")
+            self.prev_gray = None  # Store previous frame for optical flow
 
     def _load_tracker(self, checkpoint_path: Optional[str] = None):
         """Load the SAM3 tracker for mask propagation between frames."""
@@ -218,31 +218,98 @@ class LiveCameraSegmenter:
         """Initialize tracking state for a video stream."""
         self.video_height = height
         self.video_width = width
-        # Reset masks when initializing new tracking session
+        # Reset masks and optical flow state
         self.last_masks = None
         self.last_boxes = None
+        self.prev_gray = None
 
     def _track_frame(self, frame: np.ndarray, frame_idx: int) -> Optional[torch.Tensor]:
         """
-        Use the tracker to propagate masks to a new frame.
+        Use optical flow to track masks to a new frame.
 
-        On MPS, the full tracker has device compatibility issues, so we use
-        a simplified approach that just returns the last known masks.
-        The masks will be updated on the next keyframe.
+        This provides lightweight motion-based tracking between keyframes
+        without needing the full SAM3 tracker model.
 
         Returns the tracked masks or None if tracking isn't available.
         """
-        # For MPS compatibility, we simply return the last masks
-        # The full tracker integration has device issues on MPS
-        # This still provides visual continuity between keyframes
+        if self.last_masks is None or len(self.last_masks) == 0:
+            return None
+
+        if self.prev_gray is None:
+            return self.last_masks
+
+        try:
+            # Convert current frame to grayscale
+            curr_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+            # Calculate dense optical flow using Farneback method
+            flow = cv2.calcOpticalFlowFarneback(
+                self.prev_gray, curr_gray,
+                None,
+                pyr_scale=0.5,
+                levels=3,
+                winsize=15,
+                iterations=3,
+                poly_n=5,
+                poly_sigma=1.2,
+                flags=0
+            )
+
+            # Create coordinate grids for remapping
+            h, w = curr_gray.shape
+            flow_map_x = np.arange(w).reshape(1, -1).repeat(h, axis=0).astype(np.float32)
+            flow_map_y = np.arange(h).reshape(-1, 1).repeat(w, axis=1).astype(np.float32)
+
+            # Add flow to get new positions
+            flow_map_x += flow[:, :, 0]
+            flow_map_y += flow[:, :, 1]
+
+            # Warp each mask using the flow
+            tracked_masks = []
+            for mask in self.last_masks:
+                # Convert mask to numpy for warping
+                if isinstance(mask, torch.Tensor):
+                    mask_np = mask.cpu().numpy().squeeze()
+                else:
+                    mask_np = mask.squeeze()
+
+                # Ensure mask is the right size
+                if mask_np.shape != (h, w):
+                    mask_np = cv2.resize(mask_np.astype(np.float32), (w, h))
+
+                # Warp mask using optical flow
+                warped_mask = cv2.remap(
+                    mask_np.astype(np.float32),
+                    flow_map_x, flow_map_y,
+                    interpolation=cv2.INTER_LINEAR,
+                    borderMode=cv2.BORDER_CONSTANT,
+                    borderValue=0
+                )
+
+                # Threshold to get binary mask
+                warped_mask = (warped_mask > 0.5).astype(np.float32)
+
+                # Convert back to tensor
+                tracked_masks.append(
+                    torch.from_numpy(warped_mask).unsqueeze(0).to(self.device)
+                )
+
+            # Update prev_gray for next iteration
+            self.prev_gray = curr_gray
+
+            if tracked_masks:
+                return torch.stack(tracked_masks)
+
+        except Exception as e:
+            print(f"Optical flow tracking error: {e}")
+
         return self.last_masks
 
     def _add_mask_to_tracker(self, masks: torch.Tensor, frame: np.ndarray, frame_idx: int):
-        """Store masks for tracking between frames."""
-        # For MPS compatibility, we just store the masks directly
-        # The full tracker integration has device issues on MPS
-        # Masks will be reused until the next keyframe updates them
-        pass  # Masks are already stored in self.last_masks
+        """Store frame for optical flow tracking."""
+        # Store grayscale frame for optical flow computation
+        self.prev_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        # Masks are already stored in self.last_masks by the caller
 
     def _process_frame(self, frame: np.ndarray) -> dict:
         """Process a frame through SAM3."""
