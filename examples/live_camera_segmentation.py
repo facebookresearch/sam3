@@ -179,10 +179,14 @@ class LiveCameraSegmenter:
             tracker_ckpt_path = checkpoint_path
         else:
             # Check common locations for the checkpoint
+            # Get the directory where this script is located
+            script_dir = os.path.dirname(os.path.abspath(__file__))
             possible_paths = [
+                os.path.join(script_dir, "sam3.pt"),  # Same folder as script (examples/)
                 "sam3.pt",
                 "./sam3.pt",
                 "../sam3.pt",
+                "examples/sam3.pt",
                 os.path.expanduser("~/.cache/huggingface/hub/models--facebook--sam3/sam3.pt"),
             ]
 
