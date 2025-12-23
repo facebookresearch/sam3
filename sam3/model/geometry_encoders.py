@@ -686,8 +686,9 @@ class SequenceGeometryEncoder(nn.Module):
                 scale = scale.to(device=boxes_xyxy.device)
             scale = scale.view(1, 1, 4)
             boxes_xyxy = boxes_xyxy * scale
+            # Match boxes dtype to img_feats dtype for roi_align (needed for half precision)
             sampled = torchvision.ops.roi_align(
-                img_feats, boxes_xyxy.float().transpose(0, 1).unbind(0), self.roi_size
+                img_feats, boxes_xyxy.to(img_feats.dtype).transpose(0, 1).unbind(0), self.roi_size
             )
             assert list(sampled.shape) == [
                 bs * n_boxes,
