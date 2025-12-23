@@ -164,10 +164,12 @@ class Sam3TrackerBase(torch.nn.Module):
             return torch.zeros(len(rel_pos_list), self.mem_dim, device=device)
 
         t_diff_max = max_abs_pos - 1 if max_abs_pos is not None else 1
-        pos_enc = (
-            torch.tensor(rel_pos_list).pin_memory().to(device=device, non_blocking=True)
-            / t_diff_max
-        )
+        # pin_memory() only works with CUDA, not MPS
+        rel_pos_tensor = torch.tensor(rel_pos_list)
+        if device.type == "cuda" if isinstance(device, torch.device) else device == "cuda":
+            pos_enc = rel_pos_tensor.pin_memory().to(device=device, non_blocking=True) / t_diff_max
+        else:
+            pos_enc = rel_pos_tensor.to(device=device) / t_diff_max
         tpos_dim = self.hidden_dim
         pos_enc = get_1d_sine_pe(pos_enc, dim=tpos_dim)
         pos_enc = self.obj_ptr_tpos_proj(pos_enc)
