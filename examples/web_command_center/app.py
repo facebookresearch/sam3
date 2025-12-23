@@ -39,7 +39,7 @@ from flask import Flask, Response, render_template, request, jsonify
 # Add parent directory to path for sam3 imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
-from sam3.utils.device import get_device, get_device_str
+from sam3.utils.device import get_device, get_device_str, setup_device_optimizations, empty_cache
 
 app = Flask(__name__)
 
@@ -192,6 +192,10 @@ def load_model(checkpoint_path: Optional[str] = None):
 
     cc.log("Loading SAM3 model...")
     cc.device_str = get_device_str()
+
+    # Setup device-specific optimizations (MPS memory, CUDA TF32, etc.)
+    setup_device_optimizations()
+    cc.log(f"Device optimizations enabled for {cc.device_str}")
 
     model = build_sam3_image_model(
         device=cc.device_str,

@@ -82,7 +82,7 @@ def setup_device_optimizations() -> None:
     Setup device-specific optimizations.
 
     - For CUDA Ampere+ GPUs: Enable TensorFloat-32
-    - For MPS: Currently no special optimizations
+    - For MPS: Enable high water mark ratio for memory management
     - For CPU: Currently no special optimizations
     """
     if torch.cuda.is_available():
@@ -96,9 +96,39 @@ def setup_device_optimizations() -> None:
         except Exception as e:
             logger.debug(f"Could not set up CUDA optimizations: {e}")
     elif is_mps_available():
-        logger.debug("Using MPS (Apple Silicon GPU)")
+        # MPS optimizations for Apple Silicon
+        try:
+            # Set high water mark ratio to allow more GPU memory usage
+            # This can improve performance by reducing memory pressure
+            torch.mps.set_per_process_memory_fraction(0.0)  # No limit
+            logger.debug("Using MPS (Apple Silicon GPU) with optimizations")
+        except Exception as e:
+            logger.debug(f"MPS optimization setup: {e}")
     else:
         logger.debug("Using CPU")
+
+
+def mps_synchronize() -> None:
+    """
+    Synchronize MPS operations.
+
+    Call this when you need to ensure all MPS operations are complete,
+    such as before timing or when switching between GPU and CPU operations.
+    """
+    if is_mps_available():
+        torch.mps.synchronize()
+
+
+def empty_cache() -> None:
+    """
+    Empty the GPU cache to free memory.
+
+    Works for both CUDA and MPS backends.
+    """
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+    elif is_mps_available():
+        torch.mps.empty_cache()
 
 
 def get_device_for_tensor(tensor: torch.Tensor) -> torch.device:

@@ -45,7 +45,7 @@ import numpy as np
 import torch
 from PIL import Image
 
-from sam3.utils.device import get_device, get_device_str
+from sam3.utils.device import get_device, get_device_str, setup_device_optimizations
 
 
 class LiveCameraSegmenter:
@@ -129,6 +129,9 @@ class LiveCameraSegmenter:
         """Load the SAM3 model and processor."""
         from sam3.model_builder import build_sam3_image_model
         from sam3.model.sam3_image_processor import Sam3Processor
+
+        # Setup device-specific optimizations (MPS memory, CUDA TF32, etc.)
+        setup_device_optimizations()
 
         print("Loading SAM3 model...")
         model = build_sam3_image_model(
