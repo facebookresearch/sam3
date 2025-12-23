@@ -11,6 +11,7 @@ import numpy as np
 import torch
 
 from sam3.sam.transformer import RoPEAttention
+from sam3.utils.device import get_device
 
 from torch import nn, Tensor
 from torchvision.ops.roi_align import RoIAlign
@@ -278,7 +279,7 @@ class TransformerDecoder(nn.Module):
             if resolution is not None and stride is not None:
                 feat_size = resolution // stride
                 coords_h, coords_w = self._get_coords(
-                    feat_size, feat_size, device="cuda"
+                    feat_size, feat_size, device=get_device()
                 )
                 self.compilable_cord_cache = (coords_h, coords_w)
                 self.compilable_stored_size = (feat_size, feat_size)
