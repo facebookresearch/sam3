@@ -4,10 +4,28 @@ from typing import Tuple
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torchvision
 from typing_extensions import override
 
 from .act_ckpt_utils import activation_ckpt_wrapper
+
+
+def _grid_sample_mps_safe(input, grid, **kwargs):
+    """
+    MPS-safe wrapper for grid_sample.
+    MPS has bugs with grid_sample on certain tensor configurations,
+    so we fall back to CPU for MPS devices.
+    """
+    if input.device.type == "mps":
+        # Move to CPU, perform operation, move back
+        input_cpu = input.cpu()
+        grid_cpu = grid.cpu()
+        result = F.grid_sample(input_cpu, grid_cpu, **kwargs)
+        return result.to(input.device)
+    return F.grid_sample(input, grid, **kwargs)
+
+
 from .box_ops import box_cxcywh_to_xyxy
 
 from .model_misc import get_clones
@@ -613,7 +631,7 @@ class SequenceGeometryEncoder(nn.Module):
             grid = points.transpose(0, 1).unsqueeze(2)
             # re normalize to [-1, 1]
             grid = (grid * 2) - 1
-            sampled = torch.nn.functional.grid_sample(
+            sampled = _grid_sample_mps_safe(
                 img_feats, grid, align_corners=False
             )
             assert list(sampled.shape) == [bs, self.d_model, n_points, 1]
