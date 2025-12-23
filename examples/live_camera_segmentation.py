@@ -5,19 +5,19 @@
 Live Camera Segmentation with SAM3
 
 This script captures video from a device camera and runs real-time segmentation
-using SAM3. It supports automatic object detection or interactive point prompts.
+using SAM3. It supports text-based detection or interactive point/box prompts.
 
 Usage:
-    # Auto-detect and segment all objects
-    python live_camera_segmentation.py
+    # Detect objects using text prompt
+    python live_camera_segmentation.py --prompt "person"
 
     # Use specific camera device
-    python live_camera_segmentation.py --camera 0
+    python live_camera_segmentation.py --camera 0 --prompt "cat"
 
     # Specify device (cuda, mps, or cpu)
-    python live_camera_segmentation.py --device mps
+    python live_camera_segmentation.py --device mps --prompt "dog"
 
-    # Interactive mode - click to add points
+    # Interactive mode - click to add box prompts
     python live_camera_segmentation.py --interactive
 
 Controls:
@@ -25,19 +25,19 @@ Controls:
     - 'r': Reset/clear all segments
     - 's': Save current frame
     - 'p': Pause/resume
-    - Left click: Add positive point (in interactive mode)
-    - Right click: Add negative point (in interactive mode)
-    - 'd': Toggle detection mode (auto-detect objects)
+    - Left click + drag: Draw box prompt (in interactive mode)
+    - 't': Enter new text prompt
 """
 
 import argparse
 import time
 from collections import deque
-from typing import Dict, List, Optional, Tuple
+from typing import Optional, Tuple
 
 import cv2
 import numpy as np
 import torch
+from PIL import Image
 
 from sam3.utils.device import get_device, get_device_str
 
@@ -63,8 +63,8 @@ class LiveCameraSegmenter:
         self,
         camera_id: int = 0,
         device: Optional[str] = None,
-        image_size: int = 1008,
-        detection_threshold: float = 0.5,
+        text_prompt: str = "object",
+        confidence_threshold: float = 0.3,
         checkpoint_path: Optional[str] = None,
         interactive: bool = False,
     ):
@@ -74,166 +74,108 @@ class LiveCameraSegmenter:
         Args:
             camera_id: Camera device ID (default 0 for primary camera)
             device: Device to run on ('cuda', 'mps', 'cpu', or None for auto)
-            image_size: Image size for SAM3 processing
-            detection_threshold: Confidence threshold for detections
+            text_prompt: Text description of objects to detect
+            confidence_threshold: Confidence threshold for detections
             checkpoint_path: Optional path to model checkpoint
-            interactive: Enable interactive point-based prompting
+            interactive: Enable interactive box-based prompting
         """
         self.camera_id = camera_id
-        self.device = torch.device(device) if device else get_device()
-        self.image_size = image_size
-        self.detection_threshold = detection_threshold
+        self.device_str = device if device else get_device_str()
+        self.device = torch.device(self.device_str)
+        self.text_prompt = text_prompt
+        self.confidence_threshold = confidence_threshold
         self.interactive = interactive
 
         # State
         self.paused = False
-        self.detection_mode = True
-        self.points: List[Tuple[int, int]] = []
-        self.labels: List[int] = []  # 1 for positive, 0 for negative
-        self.current_masks: Optional[np.ndarray] = None
-        self.current_scores: Optional[np.ndarray] = None
+        self.state = None
         self.fps_history = deque(maxlen=30)
+
+        # For interactive box drawing
+        self.drawing = False
+        self.box_start = None
+        self.box_end = None
 
         print(f"Initializing SAM3 on device: {self.device}")
         self._load_model(checkpoint_path)
 
     def _load_model(self, checkpoint_path: Optional[str] = None):
-        """Load the SAM3 model."""
+        """Load the SAM3 model and processor."""
         from sam3.model_builder import build_sam3_image_model
+        from sam3.model.sam3_image_processor import Sam3Processor
 
         print("Loading SAM3 model...")
-        self.model = build_sam3_image_model(
-            device=str(self.device),
+        model = build_sam3_image_model(
+            device=self.device_str,
             checkpoint_path=checkpoint_path,
             load_from_HF=checkpoint_path is None,
             eval_mode=True,
             enable_segmentation=True,
         )
+
+        self.processor = Sam3Processor(
+            model=model,
+            resolution=1008,
+            device=self.device_str,
+            confidence_threshold=self.confidence_threshold,
+        )
         print("Model loaded successfully!")
 
-    def _preprocess_frame(self, frame: np.ndarray) -> torch.Tensor:
-        """Preprocess a camera frame for SAM3."""
-        # Resize to model input size
-        frame_resized = cv2.resize(frame, (self.image_size, self.image_size))
+    def _process_frame(self, frame: np.ndarray) -> dict:
+        """Process a frame through SAM3."""
+        # Convert BGR to RGB PIL Image
+        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        pil_image = Image.fromarray(frame_rgb)
 
-        # Convert BGR to RGB
-        frame_rgb = cv2.cvtColor(frame_resized, cv2.COLOR_BGR2RGB)
+        # Set the image
+        self.state = self.processor.set_image(pil_image, self.state)
 
-        # Normalize and convert to tensor
-        frame_tensor = torch.from_numpy(frame_rgb).float() / 255.0
-        frame_tensor = frame_tensor.permute(2, 0, 1)  # HWC -> CHW
+        # Run text-based detection
+        if not self.interactive:
+            self.state = self.processor.set_text_prompt(self.text_prompt, self.state)
 
-        # Normalize with ImageNet stats (SAM3 uses 0.5, 0.5, 0.5)
-        mean = torch.tensor([0.5, 0.5, 0.5])[:, None, None]
-        std = torch.tensor([0.5, 0.5, 0.5])[:, None, None]
-        frame_tensor = (frame_tensor - mean) / std
+        return self.state
 
-        # Add batch dimension and move to device
-        frame_tensor = frame_tensor.unsqueeze(0).to(self.device)
+    def _add_box_prompt(self, box: Tuple[int, int, int, int], frame_size: Tuple[int, int]):
+        """Add a box prompt in interactive mode."""
+        if self.state is None:
+            return
 
-        return frame_tensor
+        h, w = frame_size
+        x1, y1, x2, y2 = box
 
-    def _run_detection(self, frame_tensor: torch.Tensor) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """Run object detection on a frame."""
-        with torch.inference_mode():
-            # Run the model in detection mode
-            outputs = self.model(
-                frame_tensor,
-                multimask_output=True,
-            )
+        # Convert to center format and normalize to [0, 1]
+        cx = (x1 + x2) / 2 / w
+        cy = (y1 + y2) / 2 / h
+        bw = abs(x2 - x1) / w
+        bh = abs(y2 - y1) / h
 
-            # Extract masks and scores
-            if "pred_masks" in outputs:
-                masks = outputs["pred_masks"]
-                scores = outputs.get("pred_scores", torch.ones(masks.shape[0]))
-            else:
-                # Handle different output formats
-                masks = outputs.get("masks", torch.zeros(1, 1, self.image_size, self.image_size))
-                scores = outputs.get("scores", torch.ones(1))
-
-            # Filter by threshold
-            if scores.numel() > 0:
-                keep = scores > self.detection_threshold
-                masks = masks[keep] if keep.any() else masks[:0]
-                scores = scores[keep] if keep.any() else scores[:0]
-
-            # Convert to numpy
-            masks_np = masks.cpu().numpy() if masks.numel() > 0 else np.array([])
-            scores_np = scores.cpu().numpy() if scores.numel() > 0 else np.array([])
-
-            # Get boxes if available
-            boxes_np = np.array([])
-            if "pred_boxes" in outputs:
-                boxes = outputs["pred_boxes"]
-                if keep.any():
-                    boxes = boxes[keep]
-                boxes_np = boxes.cpu().numpy()
-
-        return masks_np, scores_np, boxes_np
-
-    def _run_point_prompt(
-        self,
-        frame_tensor: torch.Tensor,
-        points: List[Tuple[int, int]],
-        labels: List[int],
-        orig_size: Tuple[int, int],
-    ) -> Tuple[np.ndarray, np.ndarray]:
-        """Run segmentation with point prompts."""
-        if not points:
-            return np.array([]), np.array([])
-
-        # Scale points to model input size
-        h, w = orig_size
-        scale_x = self.image_size / w
-        scale_y = self.image_size / h
-
-        scaled_points = [
-            (int(p[0] * scale_x), int(p[1] * scale_y))
-            for p in points
-        ]
-
-        # Convert to tensors
-        points_tensor = torch.tensor(scaled_points, dtype=torch.float32).unsqueeze(0)
-        labels_tensor = torch.tensor(labels, dtype=torch.int64).unsqueeze(0)
-
-        points_tensor = points_tensor.to(self.device)
-        labels_tensor = labels_tensor.to(self.device)
-
-        with torch.inference_mode():
-            # Run with point prompts
-            outputs = self.model(
-                frame_tensor,
-                point_coords=points_tensor,
-                point_labels=labels_tensor,
-                multimask_output=True,
-            )
-
-            masks = outputs.get("masks", outputs.get("pred_masks", torch.zeros(1, 1, self.image_size, self.image_size)))
-            scores = outputs.get("iou_predictions", outputs.get("pred_scores", torch.ones(1)))
-
-            masks_np = masks.cpu().numpy()
-            scores_np = scores.cpu().numpy()
-
-        return masks_np, scores_np
+        normalized_box = [cx, cy, bw, bh]
+        self.state = self.processor.add_geometric_prompt(
+            box=normalized_box,
+            label=True,  # Positive box
+            state=self.state,
+        )
 
     def _overlay_masks(
         self,
         frame: np.ndarray,
-        masks: np.ndarray,
+        masks: torch.Tensor,
         alpha: float = 0.5,
     ) -> np.ndarray:
         """Overlay segmentation masks on the frame."""
-        if len(masks) == 0:
+        if masks is None or masks.numel() == 0:
             return frame
 
         overlay = frame.copy()
         h, w = frame.shape[:2]
 
-        for i, mask in enumerate(masks):
+        # masks shape: [N, 1, H, W]
+        masks_np = masks.squeeze(1).cpu().numpy()
+
+        for i, mask in enumerate(masks_np):
             # Resize mask to frame size if needed
-            if mask.shape[-2:] != (h, w):
-                if mask.ndim == 3:
-                    mask = mask[0]  # Remove channel dim if present
+            if mask.shape != (h, w):
                 mask = cv2.resize(mask.astype(np.float32), (w, h)) > 0.5
 
             # Get color for this mask
@@ -256,12 +198,18 @@ class LiveCameraSegmenter:
 
         return overlay
 
-    def _draw_points(self, frame: np.ndarray) -> np.ndarray:
-        """Draw interaction points on the frame."""
-        for point, label in zip(self.points, self.labels):
-            color = (0, 255, 0) if label == 1 else (0, 0, 255)  # Green for positive, red for negative
-            cv2.circle(frame, point, 5, color, -1)
-            cv2.circle(frame, point, 7, (255, 255, 255), 2)
+    def _draw_boxes(self, frame: np.ndarray, boxes: torch.Tensor) -> np.ndarray:
+        """Draw bounding boxes on the frame."""
+        if boxes is None or boxes.numel() == 0:
+            return frame
+
+        boxes_np = boxes.cpu().numpy()
+
+        for i, box in enumerate(boxes_np):
+            x1, y1, x2, y2 = box.astype(int)
+            color = self.COLORS[i % len(self.COLORS)]
+            cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+
         return frame
 
     def _draw_info(self, frame: np.ndarray, fps: float, num_objects: int) -> np.ndarray:
@@ -270,22 +218,35 @@ class LiveCameraSegmenter:
 
         # Semi-transparent background for text
         overlay = frame.copy()
-        cv2.rectangle(overlay, (10, 10), (300, 120), (0, 0, 0), -1)
+        cv2.rectangle(overlay, (10, 10), (350, 140), (0, 0, 0), -1)
         frame = cv2.addWeighted(overlay, 0.3, frame, 0.7, 0)
 
         # Draw text
         font = cv2.FONT_HERSHEY_SIMPLEX
         cv2.putText(frame, f"FPS: {fps:.1f}", (20, 35), font, 0.6, (255, 255, 255), 2)
         cv2.putText(frame, f"Objects: {num_objects}", (20, 60), font, 0.6, (255, 255, 255), 2)
-        cv2.putText(frame, f"Device: {self.device}", (20, 85), font, 0.6, (255, 255, 255), 2)
+        cv2.putText(frame, f"Device: {self.device_str}", (20, 85), font, 0.6, (255, 255, 255), 2)
 
-        mode = "Interactive" if self.interactive else ("Detection" if self.detection_mode else "Paused")
+        mode = "Interactive" if self.interactive else f"Prompt: {self.text_prompt}"
         cv2.putText(frame, f"Mode: {mode}", (20, 110), font, 0.6, (255, 255, 255), 2)
+        cv2.putText(frame, f"Threshold: {self.confidence_threshold:.2f}", (20, 135), font, 0.6, (255, 255, 255), 2)
 
         # Draw controls hint at bottom
-        hint = "Q: Quit | R: Reset | S: Save | P: Pause | D: Toggle Detection"
+        hint = "Q: Quit | R: Reset | S: Save | P: Pause | T: New prompt"
         cv2.putText(frame, hint, (10, h - 10), font, 0.4, (200, 200, 200), 1)
 
+        return frame
+
+    def _draw_current_box(self, frame: np.ndarray) -> np.ndarray:
+        """Draw the box currently being drawn."""
+        if self.drawing and self.box_start and self.box_end:
+            cv2.rectangle(
+                frame,
+                self.box_start,
+                self.box_end,
+                (0, 255, 0),
+                2
+            )
         return frame
 
     def _mouse_callback(self, event, x, y, flags, param):
@@ -294,16 +255,28 @@ class LiveCameraSegmenter:
             return
 
         if event == cv2.EVENT_LBUTTONDOWN:
-            # Left click - positive point
-            self.points.append((x, y))
-            self.labels.append(1)
-            print(f"Added positive point at ({x}, {y})")
+            self.drawing = True
+            self.box_start = (x, y)
+            self.box_end = (x, y)
 
-        elif event == cv2.EVENT_RBUTTONDOWN:
-            # Right click - negative point
-            self.points.append((x, y))
-            self.labels.append(0)
-            print(f"Added negative point at ({x}, {y})")
+        elif event == cv2.EVENT_MOUSEMOVE:
+            if self.drawing:
+                self.box_end = (x, y)
+
+        elif event == cv2.EVENT_LBUTTONUP:
+            if self.drawing:
+                self.drawing = False
+                self.box_end = (x, y)
+
+                # Add the box prompt if it's a valid box
+                x1, y1 = self.box_start
+                x2, y2 = self.box_end
+                if abs(x2 - x1) > 5 and abs(y2 - y1) > 5:
+                    frame_size = param  # Passed as param
+                    self._add_box_prompt((x1, y1, x2, y2), frame_size)
+
+                self.box_start = None
+                self.box_end = None
 
     def run(self):
         """Run the live camera segmentation loop."""
@@ -323,7 +296,7 @@ class LiveCameraSegmenter:
         # Create window
         window_name = "SAM3 Live Segmentation"
         cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
-        cv2.setMouseCallback(window_name, self._mouse_callback)
+        cv2.setMouseCallback(window_name, self._mouse_callback, (frame_height, frame_width))
 
         print("\nStarting live segmentation...")
         print("Controls:")
@@ -331,10 +304,9 @@ class LiveCameraSegmenter:
         print("  R: Reset segments")
         print("  S: Save frame")
         print("  P: Pause/resume")
-        print("  D: Toggle detection mode")
+        print("  T: Enter new text prompt")
         if self.interactive:
-            print("  Left click: Add positive point")
-            print("  Right click: Add negative point")
+            print("  Left click + drag: Draw box prompt")
 
         frame_count = 0
         try:
@@ -350,35 +322,22 @@ class LiveCameraSegmenter:
                 display_frame = frame.copy()
 
                 if not self.paused:
-                    # Preprocess frame
-                    frame_tensor = self._preprocess_frame(frame)
+                    # Process frame
+                    self._process_frame(frame)
 
-                    # Run segmentation
-                    if self.interactive and self.points:
-                        # Point-based segmentation
-                        masks, scores = self._run_point_prompt(
-                            frame_tensor,
-                            self.points,
-                            self.labels,
-                            (frame_height, frame_width),
-                        )
-                        boxes = np.array([])
-                    elif self.detection_mode:
-                        # Auto detection
-                        masks, scores, boxes = self._run_detection(frame_tensor)
-                    else:
-                        masks, scores, boxes = np.array([]), np.array([]), np.array([])
+                # Overlay results
+                if self.state is not None:
+                    masks = self.state.get("masks")
+                    boxes = self.state.get("boxes")
 
-                    self.current_masks = masks
-                    self.current_scores = scores
+                    if masks is not None:
+                        display_frame = self._overlay_masks(display_frame, masks)
+                    if boxes is not None:
+                        display_frame = self._draw_boxes(display_frame, boxes)
 
-                # Overlay masks
-                if self.current_masks is not None and len(self.current_masks) > 0:
-                    display_frame = self._overlay_masks(display_frame, self.current_masks)
-
-                # Draw points in interactive mode
+                # Draw current box being drawn
                 if self.interactive:
-                    display_frame = self._draw_points(display_frame)
+                    display_frame = self._draw_current_box(display_frame)
 
                 # Calculate FPS
                 elapsed = time.time() - start_time
@@ -387,7 +346,9 @@ class LiveCameraSegmenter:
                 avg_fps = sum(self.fps_history) / len(self.fps_history)
 
                 # Draw info overlay
-                num_objects = len(self.current_masks) if self.current_masks is not None else 0
+                num_objects = 0
+                if self.state is not None and self.state.get("masks") is not None:
+                    num_objects = len(self.state["masks"])
                 display_frame = self._draw_info(display_frame, avg_fps, num_objects)
 
                 # Show frame
@@ -402,10 +363,9 @@ class LiveCameraSegmenter:
 
                 elif key == ord('r'):  # Reset
                     print("Resetting segments...")
-                    self.points.clear()
-                    self.labels.clear()
-                    self.current_masks = None
-                    self.current_scores = None
+                    if self.state is not None:
+                        self.processor.reset_all_prompts(self.state)
+                    self.state = None
 
                 elif key == ord('s'):  # Save
                     filename = f"sam3_capture_{frame_count}.png"
@@ -416,9 +376,16 @@ class LiveCameraSegmenter:
                     self.paused = not self.paused
                     print("Paused" if self.paused else "Resumed")
 
-                elif key == ord('d'):  # Toggle detection
-                    self.detection_mode = not self.detection_mode
-                    print(f"Detection mode: {'ON' if self.detection_mode else 'OFF'}")
+                elif key == ord('t'):  # New text prompt
+                    self.paused = True
+                    new_prompt = input("Enter new text prompt: ").strip()
+                    if new_prompt:
+                        self.text_prompt = new_prompt
+                        if self.state is not None:
+                            self.processor.reset_all_prompts(self.state)
+                        self.state = None
+                        print(f"Text prompt set to: {self.text_prompt}")
+                    self.paused = False
 
                 frame_count += 1
 
@@ -451,16 +418,16 @@ def main():
         help="Device to run on (default: auto-detect)",
     )
     parser.add_argument(
-        "--image-size",
-        type=int,
-        default=1008,
-        help="Image size for SAM3 processing (default: 1008)",
+        "--prompt",
+        type=str,
+        default="object",
+        help="Text prompt for detection (default: 'object')",
     )
     parser.add_argument(
         "--threshold",
         type=float,
-        default=0.5,
-        help="Detection confidence threshold (default: 0.5)",
+        default=0.3,
+        help="Detection confidence threshold (default: 0.3)",
     )
     parser.add_argument(
         "--checkpoint",
@@ -471,7 +438,7 @@ def main():
     parser.add_argument(
         "--interactive", "-i",
         action="store_true",
-        help="Enable interactive point-based prompting",
+        help="Enable interactive box-based prompting",
     )
 
     args = parser.parse_args()
@@ -482,7 +449,8 @@ def main():
     print(f"=" * 40)
     print(f"Device: {device}")
     print(f"Camera: {args.camera}")
-    print(f"Image size: {args.image_size}")
+    print(f"Text prompt: {args.prompt}")
+    print(f"Threshold: {args.threshold}")
     print(f"Interactive: {args.interactive}")
     print(f"=" * 40)
 
@@ -490,8 +458,8 @@ def main():
     segmenter = LiveCameraSegmenter(
         camera_id=args.camera,
         device=args.device,
-        image_size=args.image_size,
-        detection_threshold=args.threshold,
+        text_prompt=args.prompt,
+        confidence_threshold=args.threshold,
         checkpoint_path=args.checkpoint,
         interactive=args.interactive,
     )
