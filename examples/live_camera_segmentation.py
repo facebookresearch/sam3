@@ -67,6 +67,8 @@ class LiveCameraSegmenter:
         confidence_threshold: float = 0.3,
         checkpoint_path: Optional[str] = None,
         interactive: bool = False,
+        process_every_n_frames: int = 1,
+        resolution: int = 1008,
     ):
         """
         Initialize the live camera segmenter.
@@ -78,6 +80,8 @@ class LiveCameraSegmenter:
             confidence_threshold: Confidence threshold for detections
             checkpoint_path: Optional path to model checkpoint
             interactive: Enable interactive box-based prompting
+            process_every_n_frames: Only process every N frames (higher = faster but less smooth)
+            resolution: Model input resolution (lower = faster but less accurate)
         """
         self.camera_id = camera_id
         self.device_str = device if device else get_device_str()
@@ -85,6 +89,9 @@ class LiveCameraSegmenter:
         self.text_prompt = text_prompt
         self.confidence_threshold = confidence_threshold
         self.interactive = interactive
+        self.process_every_n_frames = process_every_n_frames
+        self.resolution = resolution
+        self.frame_count = 0
 
         # State
         self.paused = False
@@ -115,7 +122,7 @@ class LiveCameraSegmenter:
 
         self.processor = Sam3Processor(
             model=model,
-            resolution=1008,
+            resolution=self.resolution,
             device=self.device_str,
             confidence_threshold=self.confidence_threshold,
         )
@@ -320,10 +327,12 @@ class LiveCameraSegmenter:
                     break
 
                 display_frame = frame.copy()
+                self.frame_count += 1
 
                 if not self.paused:
-                    # Process frame
-                    self._process_frame(frame)
+                    # Only process every N frames for performance
+                    if self.frame_count % self.process_every_n_frames == 0:
+                        self._process_frame(frame)
 
                 # Overlay results
                 if self.state is not None:
@@ -440,6 +449,18 @@ def main():
         action="store_true",
         help="Enable interactive box-based prompting",
     )
+    parser.add_argument(
+        "--skip-frames",
+        type=int,
+        default=1,
+        help="Process every N frames (higher = faster, default: 1)",
+    )
+    parser.add_argument(
+        "--resolution",
+        type=int,
+        default=1008,
+        help="Model input resolution (lower = faster, try 512 or 768, default: 1008)",
+    )
 
     args = parser.parse_args()
 
@@ -452,6 +473,8 @@ def main():
     print(f"Text prompt: {args.prompt}")
     print(f"Threshold: {args.threshold}")
     print(f"Interactive: {args.interactive}")
+    print(f"Skip frames: {args.skip_frames}")
+    print(f"Resolution: {args.resolution}")
     print(f"=" * 40)
 
     # Create and run segmenter
@@ -462,6 +485,8 @@ def main():
         confidence_threshold=args.threshold,
         checkpoint_path=args.checkpoint,
         interactive=args.interactive,
+        process_every_n_frames=args.skip_frames,
+        resolution=args.resolution,
     )
     segmenter.run()
 
