@@ -68,7 +68,6 @@ class LiveCameraSegmenter:
         checkpoint_path: Optional[str] = None,
         interactive: bool = False,
         process_every_n_frames: int = 1,
-        resolution: int = 1008,
     ):
         """
         Initialize the live camera segmenter.
@@ -81,7 +80,6 @@ class LiveCameraSegmenter:
             checkpoint_path: Optional path to model checkpoint
             interactive: Enable interactive box-based prompting
             process_every_n_frames: Only process every N frames (higher = faster but less smooth)
-            resolution: Model input resolution (lower = faster but less accurate)
         """
         self.camera_id = camera_id
         self.device_str = device if device else get_device_str()
@@ -90,7 +88,6 @@ class LiveCameraSegmenter:
         self.confidence_threshold = confidence_threshold
         self.interactive = interactive
         self.process_every_n_frames = process_every_n_frames
-        self.resolution = resolution
         self.frame_count = 0
 
         # State
@@ -122,7 +119,7 @@ class LiveCameraSegmenter:
 
         self.processor = Sam3Processor(
             model=model,
-            resolution=self.resolution,
+            resolution=1008,  # Fixed resolution due to precomputed positional encodings
             device=self.device_str,
             confidence_threshold=self.confidence_threshold,
         )
@@ -455,12 +452,6 @@ def main():
         default=1,
         help="Process every N frames (higher = faster, default: 1)",
     )
-    parser.add_argument(
-        "--resolution",
-        type=int,
-        default=1008,
-        help="Model input resolution (lower = faster, try 512 or 768, default: 1008)",
-    )
 
     args = parser.parse_args()
 
@@ -474,7 +465,6 @@ def main():
     print(f"Threshold: {args.threshold}")
     print(f"Interactive: {args.interactive}")
     print(f"Skip frames: {args.skip_frames}")
-    print(f"Resolution: {args.resolution}")
     print(f"=" * 40)
 
     # Create and run segmenter
@@ -486,7 +476,6 @@ def main():
         checkpoint_path=args.checkpoint,
         interactive=args.interactive,
         process_every_n_frames=args.skip_frames,
-        resolution=args.resolution,
     )
     segmenter.run()
 
