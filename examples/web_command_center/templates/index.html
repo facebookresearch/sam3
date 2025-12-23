@@ -1,0 +1,864 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SAM3 Command Center</title>
+    <style>
+        :root {
+            --bg-dark: #0a0e14;
+            --bg-panel: #1a1f2e;
+            --bg-card: #242b3d;
+            --border-color: #2d3548;
+            --text-primary: #e6e9f0;
+            --text-secondary: #8b92a8;
+            --accent-blue: #00b4ff;
+            --accent-green: #00ff88;
+            --accent-red: #ff4757;
+            --accent-yellow: #ffc107;
+            --accent-purple: #a855f7;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: var(--bg-dark);
+            color: var(--text-primary);
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, var(--bg-panel) 0%, var(--bg-dark) 100%);
+            border-bottom: 1px solid var(--border-color);
+            padding: 15px 30px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .header h1 {
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: var(--accent-blue);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .header h1::before {
+            content: '';
+            width: 12px;
+            height: 12px;
+            background: var(--accent-green);
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .status-bar {
+            display: flex;
+            gap: 20px;
+            font-size: 0.85rem;
+        }
+
+        .status-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            color: var(--text-secondary);
+        }
+
+        .status-value {
+            color: var(--accent-green);
+            font-weight: 600;
+        }
+
+        .main-container {
+            display: grid;
+            grid-template-columns: 1fr 350px;
+            grid-template-rows: auto 1fr;
+            gap: 15px;
+            padding: 15px;
+            height: calc(100vh - 70px);
+        }
+
+        .panel {
+            background: var(--bg-panel);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .panel-header {
+            background: var(--bg-card);
+            padding: 10px 15px;
+            font-weight: 600;
+            font-size: 0.9rem;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .panel-content {
+            padding: 15px;
+            overflow-y: auto;
+            max-height: calc(100% - 45px);
+        }
+
+        /* Video Panel */
+        .video-panel {
+            grid-row: span 2;
+        }
+
+        .video-container {
+            position: relative;
+            width: 100%;
+            padding-top: 56.25%; /* 16:9 aspect ratio */
+            background: #000;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .video-container img {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+
+        /* Controls Panel */
+        .controls-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .control-group {
+            background: var(--bg-card);
+            border-radius: 6px;
+            padding: 12px;
+        }
+
+        .control-group label {
+            display: block;
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            margin-bottom: 6px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .control-group input[type="text"],
+        .control-group input[type="number"] {
+            width: 100%;
+            background: var(--bg-dark);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            padding: 8px 12px;
+            color: var(--text-primary);
+            font-size: 0.9rem;
+        }
+
+        .control-group input:focus {
+            outline: none;
+            border-color: var(--accent-blue);
+        }
+
+        .btn {
+            background: var(--accent-blue);
+            color: #000;
+            border: none;
+            border-radius: 4px;
+            padding: 8px 16px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn:hover {
+            filter: brightness(1.1);
+        }
+
+        .btn-secondary {
+            background: var(--bg-card);
+            color: var(--text-primary);
+            border: 1px solid var(--border-color);
+        }
+
+        .btn-danger {
+            background: var(--accent-red);
+        }
+
+        .btn-success {
+            background: var(--accent-green);
+            color: #000;
+        }
+
+        .btn-warning {
+            background: var(--accent-yellow);
+            color: #000;
+        }
+
+        .btn-sm {
+            padding: 4px 10px;
+            font-size: 0.75rem;
+        }
+
+        .btn-group {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        /* Detections Panel */
+        .detection-item {
+            background: var(--bg-card);
+            border-radius: 6px;
+            padding: 12px;
+            margin-bottom: 10px;
+            border-left: 3px solid var(--accent-blue);
+        }
+
+        .detection-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+
+        .detection-label {
+            font-weight: 600;
+            color: var(--accent-blue);
+        }
+
+        .detection-confidence {
+            font-size: 0.85rem;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-weight: 600;
+        }
+
+        .conf-high { background: var(--accent-green); color: #000; }
+        .conf-medium { background: var(--accent-yellow); color: #000; }
+        .conf-low { background: var(--accent-red); color: #fff; }
+
+        .detection-info {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            margin-bottom: 8px;
+        }
+
+        .detection-actions {
+            display: flex;
+            gap: 6px;
+        }
+
+        .hidden-count {
+            background: var(--bg-card);
+            padding: 10px;
+            border-radius: 6px;
+            text-align: center;
+            color: var(--accent-yellow);
+            font-size: 0.85rem;
+            margin-top: 10px;
+        }
+
+        .limit-control {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            margin-top: 8px;
+            padding-top: 8px;
+            border-top: 1px solid var(--border-color);
+        }
+
+        .limit-control input {
+            width: 60px;
+            text-align: center;
+        }
+
+        /* Log Panel */
+        .log-panel {
+            max-height: 200px;
+        }
+
+        .log-entry {
+            font-family: 'Consolas', monospace;
+            font-size: 0.75rem;
+            padding: 4px 0;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            gap: 8px;
+        }
+
+        .log-timestamp {
+            color: var(--text-secondary);
+            min-width: 80px;
+        }
+
+        .log-level {
+            min-width: 60px;
+            font-weight: 600;
+        }
+
+        .log-level.INFO { color: var(--accent-blue); }
+        .log-level.SUCCESS { color: var(--accent-green); }
+        .log-level.ERROR { color: var(--accent-red); }
+        .log-level.WARN { color: var(--accent-yellow); }
+
+        .log-message {
+            color: var(--text-primary);
+        }
+
+        /* Analysis Panel */
+        .analysis-item {
+            background: var(--bg-card);
+            border-radius: 6px;
+            padding: 12px;
+            margin-bottom: 10px;
+            border-left: 3px solid var(--accent-purple);
+        }
+
+        .analysis-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+        }
+
+        .analysis-text {
+            font-size: 0.9rem;
+            line-height: 1.5;
+        }
+
+        .loading-spinner {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid var(--text-secondary);
+            border-top-color: var(--accent-blue);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Right sidebar layout */
+        .sidebar {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            height: 100%;
+            overflow: hidden;
+        }
+
+        .sidebar .panel {
+            flex: 1;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .sidebar .panel-content {
+            flex: 1;
+            overflow-y: auto;
+        }
+
+        /* Verbose toggle */
+        .verbose-section {
+            background: var(--bg-card);
+            border-radius: 6px;
+            padding: 12px;
+            margin-top: 10px;
+        }
+
+        .verbose-toggle {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            cursor: pointer;
+        }
+
+        .toggle-switch {
+            width: 40px;
+            height: 20px;
+            background: var(--bg-dark);
+            border-radius: 10px;
+            position: relative;
+            transition: background 0.2s;
+        }
+
+        .toggle-switch.active {
+            background: var(--accent-blue);
+        }
+
+        .toggle-switch::after {
+            content: '';
+            position: absolute;
+            top: 2px;
+            left: 2px;
+            width: 16px;
+            height: 16px;
+            background: white;
+            border-radius: 50%;
+            transition: left 0.2s;
+        }
+
+        .toggle-switch.active::after {
+            left: 22px;
+        }
+
+        .verbose-info {
+            margin-top: 10px;
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+        }
+
+        .verbose-info .value {
+            color: var(--accent-green);
+        }
+
+        /* Empty state */
+        .empty-state {
+            text-align: center;
+            padding: 30px;
+            color: var(--text-secondary);
+        }
+
+        /* Prompt tags */
+        .prompt-tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-top: 8px;
+        }
+
+        .prompt-tag {
+            background: var(--bg-dark);
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .prompt-tag .remove {
+            cursor: pointer;
+            color: var(--accent-red);
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <header class="header">
+        <h1>SAM3 Command Center</h1>
+        <div class="status-bar">
+            <div class="status-item">
+                <span>FPS:</span>
+                <span class="status-value" id="fps">0</span>
+            </div>
+            <div class="status-item">
+                <span>Device:</span>
+                <span class="status-value" id="device">-</span>
+            </div>
+            <div class="status-item">
+                <span>Objects:</span>
+                <span class="status-value" id="object-count">0</span>
+            </div>
+            <div class="status-item">
+                <span>Status:</span>
+                <span class="status-value" id="status">Running</span>
+            </div>
+        </div>
+    </header>
+
+    <main class="main-container">
+        <!-- Video Feed Panel -->
+        <div class="panel video-panel">
+            <div class="panel-header">
+                <span>Live Feed</span>
+                <div class="btn-group">
+                    <button class="btn btn-sm btn-secondary" onclick="togglePause()" id="pause-btn">Pause</button>
+                    <button class="btn btn-sm btn-danger" onclick="resetDetection()">Reset</button>
+                </div>
+            </div>
+            <div class="panel-content">
+                <div class="video-container">
+                    <img id="video-feed" src="/video_feed" alt="Live camera feed">
+                </div>
+
+                <!-- Controls -->
+                <div class="controls-panel" style="margin-top: 15px;">
+                    <div class="control-group">
+                        <label>Detection Prompts (comma-separated)</label>
+                        <input type="text" id="prompts-input" value="{{ prompts | join(', ') }}"
+                               placeholder="person, car, dog...">
+                        <div class="prompt-tags" id="prompt-tags"></div>
+                    </div>
+
+                    <div class="btn-group" style="margin-top: 10px;">
+                        <button class="btn" onclick="setPrompts()">Apply Prompts</button>
+                    </div>
+
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px;">
+                        <div class="control-group">
+                            <label>Confidence Threshold</label>
+                            <input type="number" id="threshold-input" value="{{ threshold }}"
+                                   min="0" max="1" step="0.05">
+                        </div>
+                        <div class="control-group">
+                            <label>Skip Frames</label>
+                            <input type="number" id="skip-frames-input" value="{{ skip_frames }}"
+                                   min="1" max="30">
+                        </div>
+                    </div>
+
+                    <div class="btn-group" style="margin-top: 10px;">
+                        <button class="btn btn-secondary" onclick="setThreshold()">Set Threshold</button>
+                        <button class="btn btn-secondary" onclick="setSkipFrames()">Set Skip Frames</button>
+                        <button class="btn btn-secondary" onclick="toggleTracking()" id="tracking-btn">
+                            Tracking: {{ 'ON' if tracking else 'OFF' }}
+                        </button>
+                    </div>
+
+                    <!-- Verbose Section -->
+                    <div class="verbose-section">
+                        <div class="verbose-toggle" onclick="toggleVerbose()">
+                            <div class="toggle-switch" id="verbose-toggle"></div>
+                            <span>Verbose Mode</span>
+                        </div>
+                        <div class="verbose-info" id="verbose-info" style="display: none;">
+                            <div>Tracking: <span class="value" id="v-tracking">-</span></div>
+                            <div>Frame: <span class="value" id="v-frame">-</span></div>
+                            <div>Queue: <span class="value" id="v-queue">-</span></div>
+                            <div>Limits: <span class="value" id="v-limits">-</span></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Right Sidebar -->
+        <div class="sidebar">
+            <!-- Detections Panel -->
+            <div class="panel" style="flex: 2;">
+                <div class="panel-header">
+                    <span>Detected Objects</span>
+                    <span id="detection-count">0</span>
+                </div>
+                <div class="panel-content" id="detections-list">
+                    <div class="empty-state">Waiting for detections...</div>
+                </div>
+            </div>
+
+            <!-- Analysis Panel -->
+            <div class="panel" style="flex: 2;">
+                <div class="panel-header">
+                    <span>Claude Analysis</span>
+                    <span id="analysis-status"></span>
+                </div>
+                <div class="panel-content" id="analysis-list">
+                    <div class="empty-state">Click "Analyze" on an object to get AI insights</div>
+                </div>
+            </div>
+
+            <!-- Logs Panel -->
+            <div class="panel log-panel" style="flex: 1;">
+                <div class="panel-header">
+                    <span>System Log</span>
+                    <button class="btn btn-sm btn-secondary" onclick="clearLogs()">Clear</button>
+                </div>
+                <div class="panel-content" id="log-list">
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        let verboseMode = false;
+        let trackingEnabled = {{ 'true' if tracking else 'false' }};
+        let promptLimits = {};
+        let showAllMatches = {};
+
+        // Update status periodically
+        async function updateStatus() {
+            try {
+                const response = await fetch('/api/status');
+                const data = await response.json();
+
+                // Update status bar
+                document.getElementById('fps').textContent = data.fps;
+                document.getElementById('device').textContent = data.device;
+                document.getElementById('object-count').textContent = data.detections.length;
+                document.getElementById('status').textContent = data.paused ? 'Paused' : 'Running';
+                document.getElementById('pause-btn').textContent = data.paused ? 'Resume' : 'Pause';
+
+                // Update verbose info
+                if (verboseMode) {
+                    document.getElementById('v-tracking').textContent = trackingEnabled ? 'ON' : 'OFF';
+                    document.getElementById('v-frame').textContent = data.frame_count;
+                    document.getElementById('v-queue').textContent = data.analysis_queue_size;
+                    document.getElementById('v-limits').textContent = JSON.stringify(data.max_objects);
+                }
+
+                // Update analysis status
+                document.getElementById('analysis-status').innerHTML = data.analyzing
+                    ? '<span class="loading-spinner"></span>' : '';
+
+                // Update detections list
+                updateDetections(data.detections, data.hidden_counts);
+
+                // Store state
+                promptLimits = data.max_objects;
+                showAllMatches = data.show_all;
+
+            } catch (e) {
+                console.error('Status update failed:', e);
+            }
+        }
+
+        function updateDetections(detections, hiddenCounts) {
+            const container = document.getElementById('detections-list');
+            document.getElementById('detection-count').textContent = detections.length;
+
+            if (detections.length === 0) {
+                container.innerHTML = '<div class="empty-state">No objects detected</div>';
+                return;
+            }
+
+            // Group by label
+            const byLabel = {};
+            detections.forEach(det => {
+                const label = det.label || 'object';
+                if (!byLabel[label]) byLabel[label] = [];
+                byLabel[label].push(det);
+            });
+
+            let html = '';
+
+            for (const [label, dets] of Object.entries(byLabel)) {
+                dets.forEach(det => {
+                    const conf = (det.confidence * 100).toFixed(0);
+                    const confClass = conf >= 70 ? 'conf-high' : conf >= 40 ? 'conf-medium' : 'conf-low';
+
+                    html += `
+                        <div class="detection-item" data-id="${det.id}">
+                            <div class="detection-header">
+                                <span class="detection-label">${det.label}</span>
+                                <span class="detection-confidence ${confClass}">${conf}%</span>
+                            </div>
+                            <div class="detection-info">
+                                ID: #${det.id} | Box: ${det.box ? det.box.map(v => v.toFixed(0)).join(', ') : 'N/A'}
+                            </div>
+                            <div class="detection-actions">
+                                <button class="btn btn-sm" onclick="analyzeObject(${det.id}, ${JSON.stringify(det.box)})">
+                                    Analyze with Claude
+                                </button>
+                            </div>
+                        </div>
+                    `;
+                });
+
+                // Show limit controls for this label
+                const limit = promptLimits[label];
+                const showAll = showAllMatches[label];
+                const hidden = hiddenCounts[label] || 0;
+
+                if (hidden > 0 || limit) {
+                    html += `
+                        <div class="limit-control">
+                            <label>Max ${label}:</label>
+                            <input type="number" value="${limit || ''}" placeholder="all"
+                                   onchange="setLimit('${label}', this.value)" min="1" max="100">
+                            ${hidden > 0 ? `
+                                <button class="btn btn-sm btn-warning" onclick="toggleShowAll('${label}')">
+                                    ${showAll ? 'Hide' : 'Show'} +${hidden} more
+                                </button>
+                            ` : ''}
+                        </div>
+                    `;
+                }
+            }
+
+            container.innerHTML = html;
+        }
+
+        async function updateLogs() {
+            try {
+                const response = await fetch('/api/logs');
+                const data = await response.json();
+
+                const container = document.getElementById('log-list');
+                let html = '';
+
+                data.logs.slice(-20).reverse().forEach(log => {
+                    html += `
+                        <div class="log-entry">
+                            <span class="log-timestamp">${log.timestamp}</span>
+                            <span class="log-level ${log.level}">${log.level}</span>
+                            <span class="log-message">${log.message}</span>
+                        </div>
+                    `;
+                });
+
+                container.innerHTML = html || '<div class="empty-state">No logs yet</div>';
+            } catch (e) {
+                console.error('Logs update failed:', e);
+            }
+        }
+
+        async function updateAnalysis() {
+            try {
+                const response = await fetch('/api/analysis_results');
+                const data = await response.json();
+
+                const container = document.getElementById('analysis-list');
+
+                if (data.results.length === 0) {
+                    container.innerHTML = '<div class="empty-state">Click "Analyze" on an object to get AI insights</div>';
+                    return;
+                }
+
+                let html = '';
+                data.results.slice().reverse().forEach(result => {
+                    html += `
+                        <div class="analysis-item">
+                            <div class="analysis-header">
+                                <span>Object #${result.id}</span>
+                                <span>${result.timestamp}</span>
+                            </div>
+                            <div class="analysis-text">${result.result}</div>
+                        </div>
+                    `;
+                });
+
+                container.innerHTML = html;
+            } catch (e) {
+                console.error('Analysis update failed:', e);
+            }
+        }
+
+        async function setPrompts() {
+            const prompts = document.getElementById('prompts-input').value;
+            await fetch('/api/set_prompts', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ prompts })
+            });
+        }
+
+        async function setThreshold() {
+            const threshold = parseFloat(document.getElementById('threshold-input').value);
+            await fetch('/api/set_threshold', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ threshold })
+            });
+        }
+
+        async function setSkipFrames() {
+            const skipFrames = parseInt(document.getElementById('skip-frames-input').value);
+            await fetch('/api/set_skip_frames', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ skip_frames: skipFrames })
+            });
+        }
+
+        async function togglePause() {
+            await fetch('/api/toggle_pause', { method: 'POST' });
+        }
+
+        async function resetDetection() {
+            await fetch('/api/reset', { method: 'POST' });
+        }
+
+        async function toggleTracking() {
+            const response = await fetch('/api/toggle_tracking', { method: 'POST' });
+            const data = await response.json();
+            trackingEnabled = data.tracking;
+            document.getElementById('tracking-btn').textContent = `Tracking: ${trackingEnabled ? 'ON' : 'OFF'}`;
+        }
+
+        async function setLimit(prompt, value) {
+            const limit = value ? parseInt(value) : null;
+            await fetch('/api/set_limit', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ prompt, limit })
+            });
+        }
+
+        async function toggleShowAll(prompt) {
+            await fetch('/api/toggle_show_all', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ prompt })
+            });
+        }
+
+        async function analyzeObject(detectionId, box) {
+            await fetch('/api/analyze_object', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ detection_id: detectionId, box })
+            });
+        }
+
+        function toggleVerbose() {
+            verboseMode = !verboseMode;
+            document.getElementById('verbose-toggle').classList.toggle('active', verboseMode);
+            document.getElementById('verbose-info').style.display = verboseMode ? 'block' : 'none';
+        }
+
+        function clearLogs() {
+            document.getElementById('log-list').innerHTML = '';
+        }
+
+        // Update prompt tags display
+        function updatePromptTags() {
+            const input = document.getElementById('prompts-input');
+            const container = document.getElementById('prompt-tags');
+            const prompts = input.value.split(',').map(p => p.trim()).filter(p => p);
+
+            container.innerHTML = prompts.map(p => `
+                <span class="prompt-tag">
+                    ${p}
+                </span>
+            `).join('');
+        }
+
+        document.getElementById('prompts-input').addEventListener('input', updatePromptTags);
+        updatePromptTags();
+
+        // Start periodic updates
+        setInterval(updateStatus, 500);
+        setInterval(updateLogs, 1000);
+        setInterval(updateAnalysis, 1000);
+
+        // Initial updates
+        updateStatus();
+        updateLogs();
+        updateAnalysis();
+    </script>
+</body>
+</html>
