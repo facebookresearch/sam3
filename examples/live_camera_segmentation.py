@@ -364,16 +364,19 @@ class LiveCameraSegmenter:
 
             # Add each detected object as a separate tracking target
             for obj_idx, mask in enumerate(masks):
+                # Ensure mask is float for interpolation
+                mask_float = mask.float() if mask.dtype == torch.bool else mask
+
                 # Resize mask to video resolution for the tracker
                 mask_resized = torch.nn.functional.interpolate(
-                    mask.unsqueeze(0) if mask.dim() == 3 else mask.unsqueeze(0).unsqueeze(0),
+                    mask_float.unsqueeze(0) if mask_float.dim() == 3 else mask_float.unsqueeze(0).unsqueeze(0),
                     size=(self.video_height, self.video_width),
                     mode="bilinear",
                     align_corners=False,
                 ).squeeze()
 
                 # Convert mask to binary
-                mask_binary = (mask_resized > 0).float()
+                mask_binary = (mask_resized > 0.5).float()
 
                 # Add mask to tracker
                 self.tracker.add_new_mask(
