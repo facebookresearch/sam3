@@ -109,6 +109,7 @@ class LiveCameraSegmenter:
         self.tracker_state = None
         self.last_masks = None
         self.last_boxes = None
+        self.last_scores = None  # Store confidence scores
         self.video_height = None
         self.video_width = None
 
@@ -221,6 +222,7 @@ class LiveCameraSegmenter:
         # Reset masks and optical flow state
         self.last_masks = None
         self.last_boxes = None
+        self.last_scores = None
         self.prev_gray = None
 
     def _track_frame(self, frame: np.ndarray, frame_idx: int) -> Optional[torch.Tensor]:
@@ -351,9 +353,11 @@ class LiveCameraSegmenter:
         self,
         frame: np.ndarray,
         masks: torch.Tensor,
+        boxes: torch.Tensor = None,
+        scores: torch.Tensor = None,
         alpha: float = 0.5,
     ) -> np.ndarray:
-        """Overlay segmentation masks on the frame."""
+        """Overlay segmentation masks on the frame with labels and confidence scores."""
         if masks is None or masks.numel() == 0:
             return frame
 
@@ -362,6 +366,16 @@ class LiveCameraSegmenter:
 
         # masks shape: [N, 1, H, W]
         masks_np = masks.squeeze(1).cpu().numpy()
+
+        # Get scores if available
+        scores_np = None
+        if scores is not None:
+            scores_np = scores.cpu().numpy()
+
+        # Get boxes if available
+        boxes_np = None
+        if boxes is not None:
+            boxes_np = boxes.cpu().numpy()
 
         for i, mask in enumerate(masks_np):
             # Resize mask to frame size if needed
@@ -386,19 +400,156 @@ class LiveCameraSegmenter:
             )
             cv2.drawContours(overlay, contours, -1, color, 2)
 
+            # Draw label with confidence score
+            # Find the top-center of the mask for label placement
+            if len(contours) > 0:
+                # Get bounding rect of largest contour
+                largest_contour = max(contours, key=cv2.contourArea)
+                x, y, cw, ch = cv2.boundingRect(largest_contour)
+
+                # Get confidence score
+                conf = scores_np[i] if scores_np is not None and i < len(scores_np) else 0.0
+
+                # Create label text
+                label = f"{self.text_prompt} #{i+1}"
+                conf_text = f"{conf:.0%}"
+
+                # Draw label background
+                font = cv2.FONT_HERSHEY_SIMPLEX
+                font_scale = 0.5
+                thickness = 1
+
+                # Get text sizes
+                (label_w, label_h), _ = cv2.getTextSize(label, font, font_scale, thickness)
+                (conf_w, conf_h), _ = cv2.getTextSize(conf_text, font, font_scale, thickness)
+
+                # Position at top of bounding box
+                label_x = x + cw // 2 - label_w // 2
+                label_y = max(y - 5, label_h + 5)
+
+                # Draw label background
+                cv2.rectangle(overlay,
+                    (label_x - 2, label_y - label_h - 2),
+                    (label_x + label_w + 2, label_y + 2),
+                    color, -1)
+
+                # Draw label text
+                cv2.putText(overlay, label,
+                    (label_x, label_y),
+                    font, font_scale, (255, 255, 255), thickness)
+
+                # Draw confidence below label
+                conf_x = x + cw // 2 - conf_w // 2
+                conf_y = label_y + conf_h + 8
+
+                cv2.rectangle(overlay,
+                    (conf_x - 2, conf_y - conf_h - 2),
+                    (conf_x + conf_w + 2, conf_y + 2),
+                    (0, 0, 0), -1)
+                cv2.putText(overlay, conf_text,
+                    (conf_x, conf_y),
+                    font, font_scale, (0, 255, 0), thickness)
+
         return overlay
 
-    def _draw_boxes(self, frame: np.ndarray, boxes: torch.Tensor) -> np.ndarray:
-        """Draw bounding boxes on the frame."""
+    def _draw_boxes(self, frame: np.ndarray, boxes: torch.Tensor, scores: torch.Tensor = None) -> np.ndarray:
+        """Draw bounding boxes on the frame with labels."""
         if boxes is None or boxes.numel() == 0:
             return frame
 
         boxes_np = boxes.cpu().numpy()
+        scores_np = scores.cpu().numpy() if scores is not None else None
 
         for i, box in enumerate(boxes_np):
             x1, y1, x2, y2 = box.astype(int)
             color = self.COLORS[i % len(self.COLORS)]
             cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+
+        return frame
+
+    def _draw_object_panel(self, frame: np.ndarray, masks: torch.Tensor,
+                           boxes: torch.Tensor, scores: torch.Tensor) -> np.ndarray:
+        """Draw an info panel on the right side showing detected objects."""
+        h, w = frame.shape[:2]
+
+        # Panel dimensions
+        panel_width = 200
+        panel_x = w - panel_width - 10
+
+        # Count objects
+        num_objects = len(masks) if masks is not None else 0
+
+        # Calculate panel height based on number of objects
+        header_height = 40
+        object_height = 50
+        panel_height = header_height + max(num_objects, 1) * object_height + 20
+
+        # Draw semi-transparent panel background
+        overlay = frame.copy()
+        cv2.rectangle(overlay,
+            (panel_x, 10),
+            (w - 10, min(10 + panel_height, h - 10)),
+            (0, 0, 0), -1)
+        frame = cv2.addWeighted(overlay, 0.7, frame, 0.3, 0)
+
+        # Draw panel header
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        cv2.putText(frame, "DETECTED OBJECTS",
+            (panel_x + 10, 35),
+            font, 0.5, (255, 255, 255), 1)
+        cv2.line(frame, (panel_x + 5, 45), (w - 15, 45), (100, 100, 100), 1)
+
+        if num_objects == 0:
+            cv2.putText(frame, "No objects found",
+                (panel_x + 10, 75),
+                font, 0.4, (150, 150, 150), 1)
+            return frame
+
+        # Draw each object
+        masks_np = masks.squeeze(1).cpu().numpy() if masks is not None else []
+        scores_np = scores.cpu().numpy() if scores is not None else []
+        boxes_np = boxes.cpu().numpy() if boxes is not None else []
+
+        for i in range(num_objects):
+            y_offset = header_height + 15 + i * object_height
+
+            if 10 + y_offset + 40 > h - 10:
+                # Panel would exceed frame height
+                cv2.putText(frame, f"... +{num_objects - i} more",
+                    (panel_x + 10, 10 + y_offset),
+                    font, 0.4, (150, 150, 150), 1)
+                break
+
+            color = self.COLORS[i % len(self.COLORS)]
+
+            # Color indicator
+            cv2.rectangle(frame,
+                (panel_x + 10, 10 + y_offset),
+                (panel_x + 25, 10 + y_offset + 15),
+                color, -1)
+
+            # Object label
+            label = f"{self.text_prompt} #{i+1}"
+            cv2.putText(frame, label,
+                (panel_x + 35, 10 + y_offset + 12),
+                font, 0.4, (255, 255, 255), 1)
+
+            # Confidence score
+            if i < len(scores_np):
+                conf = scores_np[i]
+                conf_color = (0, 255, 0) if conf > 0.7 else (0, 255, 255) if conf > 0.4 else (0, 0, 255)
+                cv2.putText(frame, f"Conf: {conf:.0%}",
+                    (panel_x + 35, 10 + y_offset + 28),
+                    font, 0.35, conf_color, 1)
+
+            # Bounding box size
+            if i < len(boxes_np):
+                box = boxes_np[i]
+                bw = int(box[2] - box[0])
+                bh = int(box[3] - box[1])
+                cv2.putText(frame, f"Size: {bw}x{bh}",
+                    (panel_x + 100, 10 + y_offset + 28),
+                    font, 0.35, (150, 150, 150), 1)
 
         return frame
 
@@ -529,10 +680,11 @@ class LiveCameraSegmenter:
                         # Full inference frame - run text detection
                         self._process_frame(frame)
 
-                        # Store masks for tracking and add to tracker
+                        # Store masks, boxes, and scores for tracking
                         if self.state is not None:
                             self.last_masks = self.state.get("masks")
                             self.last_boxes = self.state.get("boxes")
+                            self.last_scores = self.state.get("scores")
 
                             # Add masks to tracker for memory-based propagation
                             if self.enable_tracking and self.last_masks is not None:
@@ -551,18 +703,29 @@ class LiveCameraSegmenter:
                 # Overlay results - use last_masks if tracking is enabled
                 masks_to_display = None
                 boxes_to_display = None
+                scores_to_display = None
 
                 if self.enable_tracking:
                     masks_to_display = self.last_masks
                     boxes_to_display = self.last_boxes
+                    scores_to_display = self.last_scores
                 elif self.state is not None:
                     masks_to_display = self.state.get("masks")
                     boxes_to_display = self.state.get("boxes")
+                    scores_to_display = self.state.get("scores")
 
                 if masks_to_display is not None:
-                    display_frame = self._overlay_masks(display_frame, masks_to_display)
+                    display_frame = self._overlay_masks(
+                        display_frame, masks_to_display,
+                        boxes=boxes_to_display, scores=scores_to_display
+                    )
                 if boxes_to_display is not None:
-                    display_frame = self._draw_boxes(display_frame, boxes_to_display)
+                    display_frame = self._draw_boxes(display_frame, boxes_to_display, scores_to_display)
+
+                # Draw object info panel on the right
+                display_frame = self._draw_object_panel(
+                    display_frame, masks_to_display, boxes_to_display, scores_to_display
+                )
 
                 # Draw current box being drawn
                 if self.interactive:
@@ -597,8 +760,9 @@ class LiveCameraSegmenter:
                     self.state = None
                     self.last_masks = None
                     self.last_boxes = None
+                    self.last_scores = None
                     # Reset tracker state
-                    if self.enable_tracking and self.tracker is not None:
+                    if self.enable_tracking:
                         self._init_tracker_state(frame_height, frame_width)
 
                 elif key == ord('s'):  # Save
@@ -620,8 +784,9 @@ class LiveCameraSegmenter:
                         self.state = None
                         self.last_masks = None
                         self.last_boxes = None
+                        self.last_scores = None
                         # Reset tracker for new prompt
-                        if self.enable_tracking and self.tracker is not None:
+                        if self.enable_tracking:
                             self._init_tracker_state(frame_height, frame_width)
                         print(f"Text prompt set to: {self.text_prompt}")
                     self.paused = False
