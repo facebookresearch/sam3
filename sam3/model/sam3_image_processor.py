@@ -57,6 +57,11 @@ class Sam3Processor:
         image = v2.functional.to_image(image).to(self.device)
         image = self.transform(image).unsqueeze(0)
 
+        # Match model dtype (for half precision support)
+        model_dtype = next(self.model.parameters()).dtype
+        if image.dtype != model_dtype:
+            image = image.to(model_dtype)
+
         state["original_height"] = height
         state["original_width"] = width
         state["backbone_out"] = self.model.backbone.forward_image(image)
@@ -96,6 +101,12 @@ class Sam3Processor:
             for image in images
         ]
         images = torch.stack(images, dim=0)
+
+        # Match model dtype (for half precision support)
+        model_dtype = next(self.model.parameters()).dtype
+        if images.dtype != model_dtype:
+            images = images.to(model_dtype)
+
         state["backbone_out"] = self.model.backbone.forward_image(images)
         inst_interactivity_en = self.model.inst_interactive_predictor is not None
         if inst_interactivity_en and "sam2_backbone_out" in state["backbone_out"]:
