@@ -322,6 +322,23 @@ class CommandCenter:
         # Store pose results
         self.last_poses = {}  # object_id -> keypoints
 
+        # ===== VOICE SEARCH =====
+        self.voice_enabled = True
+        self.last_voice_query = ""
+        self.last_parsed_prompts = []
+        self.tts_enabled = True
+        self.tts_voice = "default"
+        self.voice_feedback_messages = deque(maxlen=10)
+
+    def add_voice_feedback(self, message: str, msg_type: str = "info"):
+        """Add a voice feedback message."""
+        with self.lock:
+            self.voice_feedback_messages.append({
+                "message": message,
+                "type": msg_type,
+                "timestamp": datetime.now().strftime("%H:%M:%S")
+            })
+
     def log(self, message: str, level: str = "INFO"):
         """Add a log entry."""
         timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
@@ -1549,6 +1566,181 @@ def api_coco_mapping():
         "mapping": SAM3_TO_COCO,
         "coco_classes": COCO_CLASSES
     })
+
+
+# ===== VOICE SEARCH ROUTES =====
+
+def parse_voice_query_with_claude(voice_text: str) -> Dict:
+    """
+    Use Claude to parse a voice query into search prompts.
+
+    Handles queries like:
+    - "help me find a red car"
+    - "can you search for a person and a dog"
+    - "look for my phone, keys, and wallet"
+    - "find the blue cup on the table"
+
+    Returns dict with:
+        - prompts: List of parsed object prompts (comma-separated format)
+        - is_multi: Whether multiple objects were requested
+        - feedback: Human-readable feedback message
+    """
+    try:
+        import anthropic
+
+        client = anthropic.Anthropic()
+
+        message = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=300,
+            messages=[
+                {
+                    "role": "user",
+                    "content": f"""Parse this voice command for an object detection system. Extract the objects the user wants to find.
+
+Voice command: "{voice_text}"
+
+Rules:
+1. Extract object names/descriptions that can be detected visually
+2. If multiple objects are mentioned, list them all
+3. Include color/size descriptors if mentioned (e.g., "red car", "large dog")
+4. Ignore filler words like "help me find", "can you search for", "look for"
+5. Return ONLY a JSON object, no other text
+
+Return JSON format:
+{{"prompts": ["object1", "object2"], "feedback": "Searching for object1 and object2"}}
+
+Examples:
+- "help me find a red car" -> {{"prompts": ["red car"], "feedback": "Searching for red car"}}
+- "search for people and dogs" -> {{"prompts": ["person", "dog"], "feedback": "Searching for person and dog"}}
+- "find my phone and keys" -> {{"prompts": ["phone", "keys"], "feedback": "Searching for phone and keys"}}
+- "look for a blue cup" -> {{"prompts": ["blue cup"], "feedback": "Searching for blue cup"}}"""
+                }
+            ],
+        )
+
+        response_text = message.content[0].text.strip()
+
+        # Parse JSON from response
+        # Handle potential markdown code blocks
+        if "```json" in response_text:
+            response_text = response_text.split("```json")[1].split("```")[0].strip()
+        elif "```" in response_text:
+            response_text = response_text.split("```")[1].split("```")[0].strip()
+
+        result = json.loads(response_text)
+
+        prompts = result.get("prompts", [])
+        feedback = result.get("feedback", f"Searching for {', '.join(prompts)}")
+
+        return {
+            "success": True,
+            "prompts": prompts,
+            "is_multi": len(prompts) > 1,
+            "feedback": feedback,
+            "raw_query": voice_text
+        }
+
+    except json.JSONDecodeError as e:
+        cc.log(f"Failed to parse Claude response as JSON: {e}", "ERROR")
+        # Fallback: just use the voice text directly
+        return {
+            "success": True,
+            "prompts": [voice_text],
+            "is_multi": False,
+            "feedback": f"Searching for {voice_text}",
+            "raw_query": voice_text
+        }
+    except Exception as e:
+        cc.log(f"Voice query parsing error: {e}", "ERROR")
+        return {
+            "success": False,
+            "error": str(e),
+            "prompts": [],
+            "feedback": "Failed to parse voice command"
+        }
+
+
+@app.route('/api/voice_search', methods=['POST'])
+def api_voice_search():
+    """Process a voice search query through Claude and set prompts."""
+    data = request.json
+    voice_text = data.get("text", "").strip()
+
+    if not voice_text:
+        return jsonify({"success": False, "error": "No voice text provided"})
+
+    cc.log(f"Voice query received: '{voice_text}'", "INFO")
+    cc.last_voice_query = voice_text
+
+    # Parse the voice query with Claude
+    result = parse_voice_query_with_claude(voice_text)
+
+    if result["success"] and result["prompts"]:
+        # Update prompts
+        cc.prompts = result["prompts"]
+        cc.last_parsed_prompts = result["prompts"]
+
+        # Reset detection state for new search
+        cc.state = None
+        cc.last_masks = None
+        cc.last_boxes = None
+        cc.last_scores = None
+        cc.last_labels = None
+        cc.tracked_objects = {}
+        cc.memory_bank = {}
+        cc.last_poses = {}
+
+        prompt_str = ", ".join(result["prompts"])
+        cc.log(f"Voice search: {prompt_str}", "SUCCESS")
+        cc.add_voice_feedback(result["feedback"], "success")
+
+        return jsonify({
+            "success": True,
+            "prompts": result["prompts"],
+            "prompt_string": prompt_str,
+            "is_multi": result["is_multi"],
+            "feedback": result["feedback"],
+            "tts_message": result["feedback"]
+        })
+    else:
+        error_msg = result.get("error", "Could not understand the voice command")
+        cc.add_voice_feedback(f"Error: {error_msg}", "error")
+        return jsonify({
+            "success": False,
+            "error": error_msg,
+            "feedback": result.get("feedback", "Failed to process voice command")
+        })
+
+
+@app.route('/api/voice_feedback')
+def api_voice_feedback():
+    """Get recent voice feedback messages."""
+    with cc.lock:
+        messages = list(cc.voice_feedback_messages)
+    return jsonify({
+        "messages": messages,
+        "last_query": cc.last_voice_query,
+        "last_prompts": cc.last_parsed_prompts
+    })
+
+
+@app.route('/api/toggle_voice', methods=['POST'])
+def api_toggle_voice():
+    """Toggle voice features."""
+    data = request.json
+    feature = data.get("feature", "voice")
+
+    if feature == "voice":
+        cc.voice_enabled = not cc.voice_enabled
+        cc.log(f"Voice input: {'ON' if cc.voice_enabled else 'OFF'}")
+        return jsonify({"success": True, "enabled": cc.voice_enabled})
+    elif feature == "tts":
+        cc.tts_enabled = not cc.tts_enabled
+        cc.log(f"TTS output: {'ON' if cc.tts_enabled else 'OFF'}")
+        return jsonify({"success": True, "enabled": cc.tts_enabled})
+
+    return jsonify({"success": False, "error": "Unknown feature"})
 
 
 def main():

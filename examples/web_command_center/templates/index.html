@@ -523,6 +523,129 @@
         .tab-content.active {
             display: block;
         }
+
+        /* Voice Search Styles */
+        .voice-input-container {
+            display: flex;
+            gap: 8px;
+            align-items: stretch;
+        }
+
+        .voice-input-container input {
+            flex: 1;
+        }
+
+        .mic-btn {
+            width: 44px;
+            height: 44px;
+            border-radius: 50%;
+            border: 2px solid var(--border-color);
+            background: var(--bg-card);
+            color: var(--text-primary);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+            flex-shrink: 0;
+        }
+
+        .mic-btn:hover {
+            border-color: var(--accent-blue);
+            background: var(--bg-dark);
+        }
+
+        .mic-btn.listening {
+            background: var(--accent-red);
+            border-color: var(--accent-red);
+            animation: pulse-mic 1s infinite;
+        }
+
+        .mic-btn.processing {
+            background: var(--accent-yellow);
+            border-color: var(--accent-yellow);
+        }
+
+        .mic-btn svg {
+            width: 20px;
+            height: 20px;
+        }
+
+        @keyframes pulse-mic {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+        }
+
+        .voice-status {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            margin-top: 6px;
+            min-height: 18px;
+        }
+
+        .voice-status.success { color: var(--accent-green); }
+        .voice-status.error { color: var(--accent-red); }
+        .voice-status.listening { color: var(--accent-yellow); }
+
+        .voice-feedback {
+            background: var(--bg-card);
+            border-radius: 6px;
+            padding: 10px 12px;
+            margin-top: 10px;
+            font-size: 0.85rem;
+            border-left: 3px solid var(--accent-purple);
+        }
+
+        .voice-feedback .query {
+            color: var(--text-secondary);
+            font-style: italic;
+            margin-bottom: 4px;
+        }
+
+        .voice-feedback .parsed {
+            color: var(--accent-green);
+            font-weight: 600;
+        }
+
+        .tts-controls {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-top: 10px;
+            padding: 10px;
+            background: var(--bg-card);
+            border-radius: 6px;
+        }
+
+        .tts-controls label {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+        }
+
+        .voice-history {
+            max-height: 120px;
+            overflow-y: auto;
+            margin-top: 10px;
+        }
+
+        .voice-history-item {
+            padding: 6px 10px;
+            background: var(--bg-dark);
+            border-radius: 4px;
+            margin-bottom: 6px;
+            font-size: 0.8rem;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .voice-history-item:hover {
+            background: var(--bg-card);
+        }
+
+        .voice-history-item .timestamp {
+            color: var(--text-secondary);
+            font-size: 0.7rem;
+        }
     </style>
 </head>
 <body>
@@ -567,9 +690,10 @@
                     <img id="video-feed" src="/video_feed" alt="Live camera feed">
                 </div>
 
-                <!-- Tabs for Controls and Features -->
+                <!-- Tabs for Controls, Voice, and Features -->
                 <div class="tabs" style="margin-top: 15px;">
                     <div class="tab active" onclick="switchTab('controls')">Controls</div>
+                    <div class="tab" onclick="switchTab('voice')">Voice Search</div>
                     <div class="tab" onclick="switchTab('features')">Features</div>
                 </div>
 
@@ -577,9 +701,18 @@
                 <div id="tab-controls" class="tab-content active">
                     <div class="controls-grid">
                         <div class="control-group full-width">
-                            <label>Detection Prompts (comma-separated)</label>
-                            <input type="text" id="prompts-input" value="{{ prompts | join(', ') }}"
-                                   placeholder="person, car, dog...">
+                            <label>Detection Prompts (comma-separated) - or use Voice Search tab</label>
+                            <div class="voice-input-container">
+                                <input type="text" id="prompts-input" value="{{ prompts | join(', ') }}"
+                                       placeholder="person, car, dog...">
+                                <button class="mic-btn" id="quick-mic-btn" onclick="startVoiceSearch()" title="Voice Search">
+                                    <svg viewBox="0 0 24 24" fill="currentColor">
+                                        <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
+                                        <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
+                                    </svg>
+                                </button>
+                            </div>
+                            <div class="voice-status" id="quick-voice-status"></div>
                             <button class="btn" style="margin-top: 8px; width: 100%;" onclick="setPrompts()">Apply Prompts</button>
                         </div>
 
@@ -595,6 +728,71 @@
                             <input type="number" id="skip-frames-input" value="{{ skip_frames }}"
                                    min="1" max="30">
                             <button class="btn btn-sm btn-secondary" style="margin-top: 6px;" onclick="setSkipFrames()">Set</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Voice Search Tab -->
+                <div id="tab-voice" class="tab-content">
+                    <div class="feature-section">
+                        <div class="feature-section-title">Voice-to-AI Search</div>
+                        <p style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 15px;">
+                            Click the microphone and say something like:<br>
+                            "Help me find a red car" or "Search for a person and a dog"
+                        </p>
+
+                        <div style="text-align: center; margin: 20px 0;">
+                            <button class="mic-btn" id="main-mic-btn" onclick="startVoiceSearch()" style="width: 80px; height: 80px;">
+                                <svg viewBox="0 0 24 24" fill="currentColor" style="width: 36px; height: 36px;">
+                                    <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
+                                    <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
+                                </svg>
+                            </button>
+                            <div class="voice-status" id="main-voice-status" style="text-align: center; margin-top: 10px;">
+                                Click microphone to start
+                            </div>
+                        </div>
+
+                        <div id="voice-feedback-container" style="display: none;">
+                            <div class="voice-feedback">
+                                <div class="query" id="voice-query-display"></div>
+                                <div class="parsed" id="voice-parsed-display"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="feature-section">
+                        <div class="feature-section-title">Text-to-Speech (TTS)</div>
+
+                        <div class="feature-toggle">
+                            <div class="feature-info">
+                                <span class="feature-name">Enable TTS Feedback</span>
+                                <span class="feature-desc">Speak search confirmations aloud</span>
+                            </div>
+                            <div class="toggle-switch active" id="toggle-tts" onclick="toggleTTS()"></div>
+                        </div>
+
+                        <div class="tts-controls">
+                            <label>Voice:</label>
+                            <select id="tts-voice-select" onchange="setTTSVoice(this.value)" style="
+                                flex: 1;
+                                background: var(--bg-dark);
+                                border: 1px solid var(--border-color);
+                                border-radius: 4px;
+                                padding: 6px 10px;
+                                color: var(--text-primary);
+                                font-size: 0.8rem;
+                            ">
+                                <option value="default">Default</option>
+                            </select>
+                            <button class="btn btn-sm btn-secondary" onclick="testTTS()">Test</button>
+                        </div>
+                    </div>
+
+                    <div class="feature-section">
+                        <div class="feature-section-title">Voice History</div>
+                        <div class="voice-history" id="voice-history-list">
+                            <div class="empty-state" style="padding: 15px;">No voice searches yet</div>
                         </div>
                     </div>
                 </div>
@@ -1041,8 +1239,298 @@
             document.getElementById('log-list').innerHTML = '';
         }
 
+        // ===== VOICE SEARCH FUNCTIONALITY =====
+
+        let recognition = null;
+        let isListening = false;
+        let ttsEnabled = true;
+        let selectedVoice = null;
+        let voiceHistory = [];
+
+        // Initialize Speech Recognition
+        function initSpeechRecognition() {
+            if ('webkitSpeechRecognition' in window) {
+                recognition = new webkitSpeechRecognition();
+            } else if ('SpeechRecognition' in window) {
+                recognition = new SpeechRecognition();
+            } else {
+                console.warn('Speech recognition not supported');
+                document.querySelectorAll('.mic-btn').forEach(btn => {
+                    btn.style.display = 'none';
+                });
+                return;
+            }
+
+            recognition.continuous = false;
+            recognition.interimResults = true;
+            recognition.lang = 'en-US';
+
+            recognition.onstart = function() {
+                isListening = true;
+                updateMicButtons('listening');
+                updateVoiceStatus('Listening... speak now', 'listening');
+            };
+
+            recognition.onresult = function(event) {
+                let interimTranscript = '';
+                let finalTranscript = '';
+
+                for (let i = event.resultIndex; i < event.results.length; i++) {
+                    const transcript = event.results[i][0].transcript;
+                    if (event.results[i].isFinal) {
+                        finalTranscript += transcript;
+                    } else {
+                        interimTranscript += transcript;
+                    }
+                }
+
+                if (interimTranscript) {
+                    updateVoiceStatus(`Hearing: "${interimTranscript}"`, 'listening');
+                }
+
+                if (finalTranscript) {
+                    processVoiceQuery(finalTranscript);
+                }
+            };
+
+            recognition.onerror = function(event) {
+                isListening = false;
+                updateMicButtons('idle');
+
+                let errorMsg = 'Voice recognition error';
+                if (event.error === 'no-speech') {
+                    errorMsg = 'No speech detected. Try again.';
+                } else if (event.error === 'audio-capture') {
+                    errorMsg = 'No microphone found.';
+                } else if (event.error === 'not-allowed') {
+                    errorMsg = 'Microphone access denied.';
+                }
+                updateVoiceStatus(errorMsg, 'error');
+            };
+
+            recognition.onend = function() {
+                isListening = false;
+                updateMicButtons('idle');
+            };
+        }
+
+        function updateMicButtons(state) {
+            const buttons = document.querySelectorAll('.mic-btn');
+            buttons.forEach(btn => {
+                btn.classList.remove('listening', 'processing');
+                if (state === 'listening') {
+                    btn.classList.add('listening');
+                } else if (state === 'processing') {
+                    btn.classList.add('processing');
+                }
+            });
+        }
+
+        function updateVoiceStatus(message, type = '') {
+            const statusElements = ['quick-voice-status', 'main-voice-status'];
+            statusElements.forEach(id => {
+                const el = document.getElementById(id);
+                if (el) {
+                    el.textContent = message;
+                    el.className = 'voice-status';
+                    if (type) el.classList.add(type);
+                }
+            });
+        }
+
+        function startVoiceSearch() {
+            if (!recognition) {
+                updateVoiceStatus('Speech recognition not supported in this browser', 'error');
+                return;
+            }
+
+            if (isListening) {
+                recognition.stop();
+                return;
+            }
+
+            try {
+                recognition.start();
+            } catch (e) {
+                console.error('Recognition start error:', e);
+                updateVoiceStatus('Error starting voice recognition', 'error');
+            }
+        }
+
+        async function processVoiceQuery(text) {
+            updateMicButtons('processing');
+            updateVoiceStatus(`Processing: "${text}"`, '');
+
+            try {
+                const response = await fetch('/api/voice_search', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    // Update prompts input
+                    document.getElementById('prompts-input').value = data.prompt_string;
+
+                    // Show feedback
+                    showVoiceFeedback(text, data.prompts, data.feedback);
+                    updateVoiceStatus(data.feedback, 'success');
+
+                    // Add to history
+                    addToVoiceHistory(text, data.prompts);
+
+                    // TTS feedback
+                    if (ttsEnabled) {
+                        speak(data.tts_message || data.feedback);
+                    }
+                } else {
+                    updateVoiceStatus(data.error || 'Failed to process voice command', 'error');
+                    if (ttsEnabled) {
+                        speak('Sorry, I could not understand that command.');
+                    }
+                }
+            } catch (e) {
+                console.error('Voice search error:', e);
+                updateVoiceStatus('Error processing voice command', 'error');
+            }
+
+            updateMicButtons('idle');
+        }
+
+        function showVoiceFeedback(query, prompts, feedback) {
+            const container = document.getElementById('voice-feedback-container');
+            const queryEl = document.getElementById('voice-query-display');
+            const parsedEl = document.getElementById('voice-parsed-display');
+
+            if (container && queryEl && parsedEl) {
+                queryEl.textContent = `"${query}"`;
+                parsedEl.textContent = feedback;
+                container.style.display = 'block';
+            }
+        }
+
+        function addToVoiceHistory(query, prompts) {
+            voiceHistory.unshift({
+                query,
+                prompts,
+                timestamp: new Date().toLocaleTimeString()
+            });
+
+            // Keep only last 10
+            if (voiceHistory.length > 10) {
+                voiceHistory.pop();
+            }
+
+            updateVoiceHistoryDisplay();
+        }
+
+        function updateVoiceHistoryDisplay() {
+            const container = document.getElementById('voice-history-list');
+            if (!container) return;
+
+            if (voiceHistory.length === 0) {
+                container.innerHTML = '<div class="empty-state" style="padding: 15px;">No voice searches yet</div>';
+                return;
+            }
+
+            let html = '';
+            voiceHistory.forEach((item, index) => {
+                html += `
+                    <div class="voice-history-item" onclick="replayVoiceSearch(${index})">
+                        <div>${item.prompts.join(', ')}</div>
+                        <div class="timestamp">${item.timestamp} - "${item.query}"</div>
+                    </div>
+                `;
+            });
+
+            container.innerHTML = html;
+        }
+
+        function replayVoiceSearch(index) {
+            if (index < voiceHistory.length) {
+                const item = voiceHistory[index];
+                const promptString = item.prompts.join(', ');
+                document.getElementById('prompts-input').value = promptString;
+                setPrompts();
+                updateVoiceStatus(`Reapplied: ${promptString}`, 'success');
+            }
+        }
+
+        // ===== TTS FUNCTIONALITY =====
+
+        function initTTS() {
+            if (!('speechSynthesis' in window)) {
+                console.warn('TTS not supported');
+                return;
+            }
+
+            // Load available voices
+            function loadVoices() {
+                const voices = speechSynthesis.getVoices();
+                const select = document.getElementById('tts-voice-select');
+
+                if (select && voices.length > 0) {
+                    select.innerHTML = '<option value="default">Default</option>';
+
+                    voices.forEach((voice, index) => {
+                        const option = document.createElement('option');
+                        option.value = index;
+                        option.textContent = `${voice.name} (${voice.lang})`;
+                        select.appendChild(option);
+                    });
+                }
+            }
+
+            // Voices are loaded asynchronously
+            speechSynthesis.onvoiceschanged = loadVoices;
+            loadVoices();
+        }
+
+        function speak(text) {
+            if (!('speechSynthesis' in window) || !ttsEnabled) return;
+
+            // Cancel any ongoing speech
+            speechSynthesis.cancel();
+
+            const utterance = new SpeechSynthesisUtterance(text);
+
+            if (selectedVoice !== null && selectedVoice !== 'default') {
+                const voices = speechSynthesis.getVoices();
+                const voiceIndex = parseInt(selectedVoice);
+                if (voiceIndex < voices.length) {
+                    utterance.voice = voices[voiceIndex];
+                }
+            }
+
+            utterance.rate = 1.0;
+            utterance.pitch = 1.0;
+
+            speechSynthesis.speak(utterance);
+        }
+
+        function toggleTTS() {
+            ttsEnabled = !ttsEnabled;
+            const toggle = document.getElementById('toggle-tts');
+            if (toggle) {
+                toggle.classList.toggle('active', ttsEnabled);
+            }
+        }
+
+        function setTTSVoice(value) {
+            selectedVoice = value;
+        }
+
+        function testTTS() {
+            speak('Voice search is ready. Say something like: help me find a red car.');
+        }
+
         // Initialize
         updateToggles();
+        initSpeechRecognition();
+        initTTS();
+
         setInterval(updateStatus, 500);
         setInterval(updateLogs, 1000);
         setInterval(updateAnalysis, 1000);
