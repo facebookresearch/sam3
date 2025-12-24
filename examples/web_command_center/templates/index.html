@@ -646,6 +646,101 @@
             color: var(--text-secondary);
             font-size: 0.7rem;
         }
+
+        /* Camera Controls Styles */
+        .camera-controls {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .camera-select-container {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .camera-select {
+            flex: 1;
+            background: var(--bg-dark);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            padding: 8px 12px;
+            color: var(--text-primary);
+            font-size: 0.85rem;
+            cursor: pointer;
+        }
+
+        .camera-select:focus {
+            outline: none;
+            border-color: var(--accent-blue);
+        }
+
+        .flip-controls {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .flip-btn {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 12px;
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            color: var(--text-primary);
+            font-size: 0.8rem;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .flip-btn:hover {
+            border-color: var(--accent-blue);
+        }
+
+        .flip-btn.active {
+            background: var(--accent-blue);
+            border-color: var(--accent-blue);
+            color: #000;
+        }
+
+        .flip-btn svg {
+            width: 16px;
+            height: 16px;
+        }
+
+        .camera-info {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            margin-top: 4px;
+        }
+
+        .refresh-btn {
+            padding: 8px;
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            color: var(--text-primary);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .refresh-btn:hover {
+            border-color: var(--accent-blue);
+        }
+
+        .refresh-btn svg {
+            width: 16px;
+            height: 16px;
+        }
+
+        .refresh-btn.spinning svg {
+            animation: spin 1s linear infinite;
+        }
     </style>
 </head>
 <body>
@@ -690,9 +785,10 @@
                     <img id="video-feed" src="/video_feed" alt="Live camera feed">
                 </div>
 
-                <!-- Tabs for Controls, Voice, and Features -->
+                <!-- Tabs for Controls, Camera, Voice, and Features -->
                 <div class="tabs" style="margin-top: 15px;">
                     <div class="tab active" onclick="switchTab('controls')">Controls</div>
+                    <div class="tab" onclick="switchTab('camera')">Camera</div>
                     <div class="tab" onclick="switchTab('voice')">Voice Search</div>
                     <div class="tab" onclick="switchTab('features')">Features</div>
                 </div>
@@ -729,6 +825,58 @@
                                    min="1" max="30">
                             <button class="btn btn-sm btn-secondary" style="margin-top: 6px;" onclick="setSkipFrames()">Set</button>
                         </div>
+                    </div>
+                </div>
+
+                <!-- Camera Tab -->
+                <div id="tab-camera" class="tab-content">
+                    <div class="feature-section">
+                        <div class="feature-section-title">Camera Selection</div>
+                        <div class="camera-controls">
+                            <div class="camera-select-container">
+                                <select id="camera-select" class="camera-select" onchange="switchCamera(this.value)">
+                                    <option value="">Loading cameras...</option>
+                                </select>
+                                <button class="refresh-btn" onclick="refreshCameras()" title="Refresh camera list">
+                                    <svg viewBox="0 0 24 24" fill="currentColor">
+                                        <path d="M17.65 6.35A7.958 7.958 0 0012 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08A5.99 5.99 0 0112 18c-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/>
+                                    </svg>
+                                </button>
+                            </div>
+                            <div class="camera-info" id="camera-info">Select a camera</div>
+                        </div>
+                    </div>
+
+                    <div class="feature-section">
+                        <div class="feature-section-title">Flip / Mirror</div>
+                        <p style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 12px;">
+                            Flip the camera feed if the image appears reversed
+                        </p>
+                        <div class="flip-controls">
+                            <button class="flip-btn" id="flip-h-btn" onclick="toggleFlip('horizontal')">
+                                <svg viewBox="0 0 24 24" fill="currentColor">
+                                    <path d="M15 21h2v-2h-2v2zm4-12h2V7h-2v2zM3 5v14c0 1.1.9 2 2 2h4v-2H5V5h4V3H5c-1.1 0-2 .9-2 2zm16-2v2h2c0-1.1-.9-2-2-2zm-8 20h2V1h-2v22zm8-6h2v-2h-2v2zM15 5h2V3h-2v2zm4 8h2v-2h-2v2zm0 8c1.1 0 2-.9 2-2h-2v2z"/>
+                                </svg>
+                                Flip Horizontal
+                            </button>
+                            <button class="flip-btn" id="flip-v-btn" onclick="toggleFlip('vertical')">
+                                <svg viewBox="0 0 24 24" fill="currentColor" style="transform: rotate(90deg);">
+                                    <path d="M15 21h2v-2h-2v2zm4-12h2V7h-2v2zM3 5v14c0 1.1.9 2 2 2h4v-2H5V5h4V3H5c-1.1 0-2 .9-2 2zm16-2v2h2c0-1.1-.9-2-2-2zm-8 20h2V1h-2v22zm8-6h2v-2h-2v2zM15 5h2V3h-2v2zm4 8h2v-2h-2v2zm0 8c1.1 0 2-.9 2-2h-2v2z"/>
+                                </svg>
+                                Flip Vertical
+                            </button>
+                        </div>
+                        <div class="camera-info" id="flip-status" style="margin-top: 8px;">No flip applied</div>
+                    </div>
+
+                    <div class="feature-section">
+                        <div class="feature-section-title">Camera Tips</div>
+                        <ul style="font-size: 0.8rem; color: var(--text-secondary); padding-left: 20px; margin: 0;">
+                            <li>Use <strong>Flip Horizontal</strong> to mirror the image (for front-facing cameras)</li>
+                            <li>Changing cameras resets all tracked objects</li>
+                            <li>If a camera doesn't work, try refreshing the list</li>
+                            <li>External cameras may take a moment to initialize</li>
+                        </ul>
                     </div>
                 </div>
 
@@ -1526,10 +1674,154 @@
             speak('Voice search is ready. Say something like: help me find a red car.');
         }
 
+        // ===== CAMERA CONTROLS =====
+
+        let availableCameras = [];
+        let currentCameraId = 0;
+        let flipHorizontal = false;
+        let flipVertical = false;
+
+        async function loadCameras() {
+            try {
+                const response = await fetch('/api/cameras');
+                const data = await response.json();
+
+                availableCameras = data.cameras;
+                currentCameraId = data.current_camera;
+                flipHorizontal = data.flip_horizontal;
+                flipVertical = data.flip_vertical;
+
+                updateCameraSelect();
+                updateFlipButtons();
+                updateFlipStatus();
+
+            } catch (e) {
+                console.error('Failed to load cameras:', e);
+            }
+        }
+
+        function updateCameraSelect() {
+            const select = document.getElementById('camera-select');
+            if (!select) return;
+
+            if (availableCameras.length === 0) {
+                select.innerHTML = '<option value="">No cameras found</option>';
+                return;
+            }
+
+            select.innerHTML = availableCameras.map(cam =>
+                `<option value="${cam.id}" ${cam.id === currentCameraId ? 'selected' : ''}>
+                    ${cam.description}
+                </option>`
+            ).join('');
+
+            // Update camera info
+            const currentCam = availableCameras.find(c => c.id === currentCameraId);
+            if (currentCam) {
+                document.getElementById('camera-info').textContent =
+                    `Current: ${currentCam.name} (${currentCam.resolution})`;
+            }
+        }
+
+        async function switchCamera(cameraId) {
+            if (cameraId === '' || cameraId === null) return;
+
+            const select = document.getElementById('camera-select');
+            const info = document.getElementById('camera-info');
+
+            info.textContent = 'Switching camera...';
+            select.disabled = true;
+
+            try {
+                const response = await fetch('/api/switch_camera', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ camera_id: parseInt(cameraId) })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    currentCameraId = data.current_camera;
+                    const cam = availableCameras.find(c => c.id === currentCameraId);
+                    info.textContent = `Switched to: ${cam ? cam.name : 'Camera ' + currentCameraId}`;
+                } else {
+                    info.textContent = `Error: ${data.message}`;
+                    // Revert selection
+                    select.value = currentCameraId;
+                }
+            } catch (e) {
+                info.textContent = 'Error switching camera';
+                console.error('Switch camera error:', e);
+                select.value = currentCameraId;
+            }
+
+            select.disabled = false;
+        }
+
+        async function refreshCameras() {
+            const btn = document.querySelector('.refresh-btn');
+            btn.classList.add('spinning');
+
+            await loadCameras();
+
+            setTimeout(() => {
+                btn.classList.remove('spinning');
+            }, 500);
+        }
+
+        async function toggleFlip(direction) {
+            try {
+                const response = await fetch('/api/flip_camera', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ direction })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    flipHorizontal = data.flip_horizontal;
+                    flipVertical = data.flip_vertical;
+                    updateFlipButtons();
+                    updateFlipStatus();
+                }
+            } catch (e) {
+                console.error('Flip toggle error:', e);
+            }
+        }
+
+        function updateFlipButtons() {
+            const hBtn = document.getElementById('flip-h-btn');
+            const vBtn = document.getElementById('flip-v-btn');
+
+            if (hBtn) {
+                hBtn.classList.toggle('active', flipHorizontal);
+            }
+            if (vBtn) {
+                vBtn.classList.toggle('active', flipVertical);
+            }
+        }
+
+        function updateFlipStatus() {
+            const status = document.getElementById('flip-status');
+            if (!status) return;
+
+            if (!flipHorizontal && !flipVertical) {
+                status.textContent = 'No flip applied';
+            } else {
+                const parts = [];
+                if (flipHorizontal) parts.push('Horizontal');
+                if (flipVertical) parts.push('Vertical');
+                status.textContent = `Flip active: ${parts.join(' + ')}`;
+            }
+        }
+
         // Initialize
         updateToggles();
         initSpeechRecognition();
         initTTS();
+        loadCameras();
 
         setInterval(updateStatus, 500);
         setInterval(updateLogs, 1000);

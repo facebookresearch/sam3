@@ -330,6 +330,12 @@ class CommandCenter:
         self.tts_voice = "default"
         self.voice_feedback_messages = deque(maxlen=10)
 
+        # ===== CAMERA SETTINGS =====
+        self.current_camera_id = 0
+        self.available_cameras = []  # List of {id, name, description}
+        self.flip_horizontal = False
+        self.flip_vertical = False
+
     def add_voice_feedback(self, message: str, msg_type: str = "info"):
         """Add a voice feedback message."""
         with self.lock:
@@ -752,6 +758,126 @@ def load_model(checkpoint_path: Optional[str] = None):
 
     # Load YOLO models
     load_yolo_models()
+
+
+# ===== CAMERA FUNCTIONS =====
+
+def detect_available_cameras(max_cameras: int = 10) -> List[Dict]:
+    """
+    Detect available cameras on the system.
+
+    Returns list of dicts with:
+        - id: Camera index
+        - name: Camera name/description
+        - resolution: (width, height) if detectable
+    """
+    cameras = []
+
+    for i in range(max_cameras):
+        cap = cv2.VideoCapture(i)
+        if cap.isOpened():
+            # Get camera properties
+            width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            fps = cap.get(cv2.CAP_PROP_FPS)
+
+            # Try to get backend name
+            backend = cap.getBackendName()
+
+            # Create descriptive name
+            if i == 0:
+                name = "Default Camera"
+            else:
+                name = f"Camera {i}"
+
+            # Add platform-specific hints
+            import platform
+            if platform.system() == "Darwin":  # macOS
+                if i == 0:
+                    name = "FaceTime HD Camera (Built-in)"
+                elif i == 1:
+                    name = "External Camera"
+            elif platform.system() == "Linux":
+                # Try to read device name from v4l2
+                try:
+                    import subprocess
+                    result = subprocess.run(
+                        ['v4l2-ctl', '--device', f'/dev/video{i}', '--info'],
+                        capture_output=True, text=True, timeout=1
+                    )
+                    for line in result.stdout.split('\n'):
+                        if 'Card type' in line:
+                            name = line.split(':')[1].strip()
+                            break
+                except Exception:
+                    pass
+
+            cameras.append({
+                "id": i,
+                "name": name,
+                "resolution": f"{width}x{height}",
+                "fps": fps,
+                "backend": backend,
+                "description": f"{name} ({width}x{height} @ {fps:.0f}fps)"
+            })
+
+            cap.release()
+
+    return cameras
+
+
+def switch_camera(camera_id: int) -> bool:
+    """Switch to a different camera and reset detection state."""
+    global cc
+
+    cc.log(f"Switching to camera {camera_id}...")
+
+    # Release current camera
+    if cc.camera is not None:
+        cc.camera.release()
+        cc.camera = None
+
+    # Open new camera
+    new_camera = cv2.VideoCapture(camera_id)
+
+    if not new_camera.isOpened():
+        cc.log(f"Failed to open camera {camera_id}", "ERROR")
+        # Try to reopen previous camera
+        cc.camera = cv2.VideoCapture(cc.current_camera_id)
+        return False
+
+    cc.camera = new_camera
+    cc.current_camera_id = camera_id
+
+    # Get camera info
+    width = int(cc.camera.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(cc.camera.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+    # Reset detection state
+    reset_detection_state()
+
+    cc.log(f"Switched to camera {camera_id} ({width}x{height})", "SUCCESS")
+    return True
+
+
+def reset_detection_state():
+    """Reset all detection state for a fresh start."""
+    global cc
+
+    cc.state = None
+    cc.last_masks = None
+    cc.last_boxes = None
+    cc.last_scores = None
+    cc.last_labels = None
+    cc.tracked_objects = {}
+    cc.memory_bank = {}
+    cc.object_colors = {}
+    cc.next_object_id = 1
+    cc.pending_detections = {}
+    cc.last_poses = {}
+    cc.prev_gray = None
+    cc.current_detections = []
+    cc.frame_count = 0
 
 
 # ===== MASK REFINEMENT FUNCTIONS =====
@@ -1181,6 +1307,14 @@ def generate_frames():
         if not ret:
             time.sleep(0.1)
             continue
+
+        # Apply flip transformations
+        if cc.flip_horizontal and cc.flip_vertical:
+            frame = cv2.flip(frame, -1)  # Flip both
+        elif cc.flip_horizontal:
+            frame = cv2.flip(frame, 1)  # Flip horizontally (mirror)
+        elif cc.flip_vertical:
+            frame = cv2.flip(frame, 0)  # Flip vertically
 
         start = time.time()
 
@@ -1743,6 +1877,109 @@ def api_toggle_voice():
     return jsonify({"success": False, "error": "Unknown feature"})
 
 
+# ===== CAMERA ROUTES =====
+
+@app.route('/api/cameras')
+def api_cameras():
+    """Get list of available cameras."""
+    cameras = detect_available_cameras()
+    cc.available_cameras = cameras
+    return jsonify({
+        "cameras": cameras,
+        "current_camera": cc.current_camera_id,
+        "flip_horizontal": cc.flip_horizontal,
+        "flip_vertical": cc.flip_vertical
+    })
+
+
+@app.route('/api/switch_camera', methods=['POST'])
+def api_switch_camera():
+    """Switch to a different camera."""
+    data = request.json
+    camera_id = data.get("camera_id")
+
+    if camera_id is None:
+        return jsonify({"success": False, "error": "No camera_id provided"})
+
+    camera_id = int(camera_id)
+
+    success = switch_camera(camera_id)
+
+    return jsonify({
+        "success": success,
+        "current_camera": cc.current_camera_id,
+        "message": f"Switched to camera {camera_id}" if success else f"Failed to switch to camera {camera_id}"
+    })
+
+
+@app.route('/api/flip_camera', methods=['POST'])
+def api_flip_camera():
+    """Toggle camera flip (horizontal/vertical)."""
+    data = request.json
+    direction = data.get("direction", "horizontal")
+
+    if direction == "horizontal":
+        cc.flip_horizontal = not cc.flip_horizontal
+        cc.log(f"Horizontal flip: {'ON' if cc.flip_horizontal else 'OFF'}")
+        # Reset detection state when flip changes
+        reset_detection_state()
+        return jsonify({
+            "success": True,
+            "flip_horizontal": cc.flip_horizontal,
+            "flip_vertical": cc.flip_vertical
+        })
+    elif direction == "vertical":
+        cc.flip_vertical = not cc.flip_vertical
+        cc.log(f"Vertical flip: {'ON' if cc.flip_vertical else 'OFF'}")
+        # Reset detection state when flip changes
+        reset_detection_state()
+        return jsonify({
+            "success": True,
+            "flip_horizontal": cc.flip_horizontal,
+            "flip_vertical": cc.flip_vertical
+        })
+    elif direction == "both":
+        cc.flip_horizontal = not cc.flip_horizontal
+        cc.flip_vertical = not cc.flip_vertical
+        cc.log(f"Flip both: H={'ON' if cc.flip_horizontal else 'OFF'}, V={'ON' if cc.flip_vertical else 'OFF'}")
+        reset_detection_state()
+        return jsonify({
+            "success": True,
+            "flip_horizontal": cc.flip_horizontal,
+            "flip_vertical": cc.flip_vertical
+        })
+
+    return jsonify({"success": False, "error": "Invalid direction"})
+
+
+@app.route('/api/set_flip', methods=['POST'])
+def api_set_flip():
+    """Set flip state explicitly."""
+    data = request.json
+    flip_h = data.get("flip_horizontal")
+    flip_v = data.get("flip_vertical")
+
+    changed = False
+
+    if flip_h is not None and flip_h != cc.flip_horizontal:
+        cc.flip_horizontal = bool(flip_h)
+        changed = True
+
+    if flip_v is not None and flip_v != cc.flip_vertical:
+        cc.flip_vertical = bool(flip_v)
+        changed = True
+
+    if changed:
+        cc.log(f"Flip set: H={'ON' if cc.flip_horizontal else 'OFF'}, V={'ON' if cc.flip_vertical else 'OFF'}")
+        reset_detection_state()
+
+    return jsonify({
+        "success": True,
+        "flip_horizontal": cc.flip_horizontal,
+        "flip_vertical": cc.flip_vertical
+    })
+
+
 def main():
     global cc
 
@@ -1776,9 +2013,17 @@ def main():
         cc.yolo_available = False
         cc.log("YOLO disabled via command line")
 
+    # Detect available cameras
+    cc.log("Detecting available cameras...")
+    cc.available_cameras = detect_available_cameras()
+    cc.log(f"Found {len(cc.available_cameras)} camera(s)", "SUCCESS")
+    for cam in cc.available_cameras:
+        cc.log(f"  Camera {cam['id']}: {cam['description']}")
+
     # Open camera
     cc.log(f"Opening camera {args.camera}...")
     cc.camera = cv2.VideoCapture(args.camera)
+    cc.current_camera_id = args.camera
 
     if not cc.camera.isOpened():
         cc.log(f"Failed to open camera {args.camera}", "ERROR")
