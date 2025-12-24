@@ -958,6 +958,108 @@ def match_detection_to_object(mask: np.ndarray, existing_masks: Dict[int, np.nda
     return best_match
 
 
+def get_bounding_box_from_mask(mask: np.ndarray) -> Optional[List[float]]:
+    """Extract bounding box from a binary mask."""
+    if mask is None or mask.sum() == 0:
+        return None
+
+    rows = np.any(mask, axis=1)
+    cols = np.any(mask, axis=0)
+
+    if not rows.any() or not cols.any():
+        return None
+
+    y_min, y_max = np.where(rows)[0][[0, -1]]
+    x_min, x_max = np.where(cols)[0][[0, -1]]
+
+    return [float(x_min), float(y_min), float(x_max), float(y_max)]
+
+
+def is_mask_valid(mask: np.ndarray, frame_shape: Tuple[int, int], min_area: int = 50,
+                   boundary_margin: int = 5) -> bool:
+    """
+    Check if a tracked mask is still valid.
+    Returns False if:
+    - Mask is too small (object left frame)
+    - Mask is mostly outside the frame boundaries
+    """
+    if mask is None:
+        return False
+
+    mask_area = mask.sum()
+    if mask_area < min_area:
+        return False
+
+    h, w = frame_shape[:2]
+
+    # Check if mask is mostly within frame bounds
+    if mask.shape != (h, w):
+        return False
+
+    # Get bounding box
+    box = get_bounding_box_from_mask(mask)
+    if box is None:
+        return False
+
+    x1, y1, x2, y2 = box
+
+    # Check if box is mostly outside frame
+    if x2 < boundary_margin or x1 > w - boundary_margin:
+        return False
+    if y2 < boundary_margin or y1 > h - boundary_margin:
+        return False
+
+    return True
+
+
+def update_detections_from_tracked_masks(tracked_masks: torch.Tensor, frame_shape: Tuple[int, int]):
+    """
+    Update current_detections based on tracked masks.
+    Removes detections for masks that are no longer valid (left frame).
+    Updates bounding boxes for masks that moved.
+    """
+    global cc
+
+    if tracked_masks is None or len(cc.current_detections) == 0:
+        return
+
+    h, w = frame_shape[:2]
+    masks_np = tracked_masks.squeeze(1).cpu().numpy()
+
+    updated_detections = []
+    valid_mask_indices = []
+
+    for i, det in enumerate(cc.current_detections):
+        if i >= len(masks_np):
+            break
+
+        mask = masks_np[i]
+        if mask.shape != (h, w):
+            mask = cv2.resize(mask.astype(np.float32), (w, h)) > 0.5
+
+        # Check if mask is still valid
+        if is_mask_valid(mask, frame_shape):
+            # Update bounding box from tracked mask
+            new_box = get_bounding_box_from_mask(mask)
+            if new_box:
+                det = det.copy()  # Don't modify original
+                det["box"] = new_box
+                det["tracked"] = True  # Mark as being tracked (not fresh detection)
+            updated_detections.append(det)
+            valid_mask_indices.append(i)
+        else:
+            # Object has left the frame or tracking failed
+            label = det.get("label", "object")
+            obj_id = det.get("id", i)
+            cc.log(f"Object #{obj_id} ({label}) left frame", "INFO")
+
+    # Update global state
+    with cc.lock:
+        cc.current_detections = updated_detections
+
+    return valid_mask_indices
+
+
 # ===== MEMORY TRACKING FUNCTIONS =====
 
 def update_memory_bank(object_id: int, mask_features: torch.Tensor):
@@ -988,8 +1090,8 @@ def process_frame(frame: np.ndarray) -> np.ndarray:
 
         cc.state = cc.processor.set_image(pil_image, cc.state)
 
-        # Clear current detections
-        cc.clear_detections()
+        # Build new detections list (don't clear until we have new ones)
+        new_detections = []
         cc.last_poses = {}
 
         all_masks = []
@@ -1100,8 +1202,9 @@ def process_frame(frame: np.ndarray) -> np.ndarray:
                         "box": box,
                         "persistent_id": object_id if cc.enable_persistent_ids else None,
                         "yolo": yolo_info if yolo_info else None,
+                        "tracked": False,  # Fresh detection from SAM3
                     }
-                    cc.add_detection(detection)
+                    new_detections.append(detection)
 
                     all_masks.append(mask_np)
                     all_object_ids.append(object_id)
@@ -1147,6 +1250,14 @@ def process_frame(frame: np.ndarray) -> np.ndarray:
             cc.last_scores = None
             cc.last_labels = None
 
+        # Atomically update detections (only update if we have new detections,
+        # otherwise keep the existing tracked detections)
+        if new_detections:
+            with cc.lock:
+                cc.current_detections = new_detections
+        # Note: If SAM3 found nothing but we have tracked objects, keep them
+        # They will be removed by tracking when they actually leave the frame
+
         if all_labels:
             cc.log(f"Detected: {', '.join(all_labels)}")
 
@@ -1155,6 +1266,34 @@ def process_frame(frame: np.ndarray) -> np.ndarray:
         tracked = track_frame(frame)
         if tracked is not None:
             cc.last_masks = tracked
+
+            # Update detections based on tracked masks and remove objects that left frame
+            valid_indices = update_detections_from_tracked_masks(tracked, frame.shape)
+
+            # If some masks were invalidated, update the mask list too
+            if valid_indices is not None and len(valid_indices) < len(tracked):
+                # Keep only valid masks
+                valid_masks = [tracked[i] for i in valid_indices]
+                if valid_masks:
+                    cc.last_masks = torch.stack(valid_masks)
+                else:
+                    cc.last_masks = None
+
+                # Also update labels, scores, boxes to stay in sync
+                if cc.last_labels:
+                    cc.last_labels = [cc.last_labels[i] for i in valid_indices if i < len(cc.last_labels)]
+                if cc.last_scores is not None and len(cc.last_scores) > 0:
+                    try:
+                        idx_tensor = torch.tensor(valid_indices, dtype=torch.long)
+                        cc.last_scores = cc.last_scores[idx_tensor] if len(valid_indices) > 0 else None
+                    except Exception:
+                        cc.last_scores = None
+                if cc.last_boxes is not None and len(cc.last_boxes) > 0:
+                    try:
+                        idx_tensor = torch.tensor(valid_indices, dtype=torch.long)
+                        cc.last_boxes = cc.last_boxes[idx_tensor] if len(valid_indices) > 0 else None
+                    except Exception:
+                        cc.last_boxes = None
 
     # Overlay masks on frame
     display = frame.copy()
