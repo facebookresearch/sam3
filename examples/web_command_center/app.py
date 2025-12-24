@@ -14,6 +14,7 @@ using SAM3. Features include:
 - Multi-object tracking with persistent IDs
 - Mask refinement (fill holes, non-overlap)
 - Advanced detection controls (boundary/occlusion suppression, hotstart)
+- YOLO integration for classification and pose estimation
 - Command center style interface with verbose logging
 
 Usage:
@@ -48,6 +49,172 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 from sam3.utils.device import get_device, get_device_str, setup_device_optimizations, empty_cache
 
 app = Flask(__name__)
+
+
+# ===== SAM3 to COCO Label Mapping =====
+# Maps open-vocabulary SAM3 labels to COCO class indices for YOLO
+SAM3_TO_COCO = {
+    # Person variations -> COCO class 0
+    "person": 0, "human": 0, "man": 0, "woman": 0, "child": 0, "kid": 0,
+    "boy": 0, "girl": 0, "people": 0, "pedestrian": 0, "worker": 0,
+    "player": 0, "athlete": 0, "runner": 0, "cyclist": 0,
+
+    # Vehicles
+    "bicycle": 1, "bike": 1, "cycle": 1,
+    "car": 2, "automobile": 2, "vehicle": 2, "sedan": 2, "suv": 2,
+    "motorcycle": 3, "motorbike": 3, "scooter": 3,
+    "airplane": 4, "plane": 4, "aircraft": 4, "jet": 4,
+    "bus": 5, "coach": 5,
+    "train": 6, "locomotive": 6, "railway": 6,
+    "truck": 7, "lorry": 7, "pickup": 7,
+    "boat": 8, "ship": 8, "vessel": 8, "yacht": 8,
+
+    # Traffic
+    "traffic light": 9, "stoplight": 9,
+    "fire hydrant": 10, "hydrant": 10,
+    "stop sign": 11,
+    "parking meter": 12,
+
+    # Animals
+    "bird": 14, "sparrow": 14, "pigeon": 14, "crow": 14,
+    "cat": 15, "kitten": 15, "feline": 15, "kitty": 15,
+    "dog": 16, "puppy": 16, "canine": 16, "hound": 16,
+    "horse": 17, "pony": 17, "stallion": 17, "mare": 17,
+    "sheep": 18, "lamb": 18,
+    "cow": 19, "cattle": 19, "bull": 19,
+    "elephant": 20,
+    "bear": 21, "grizzly": 21,
+    "zebra": 22,
+    "giraffe": 23,
+
+    # Accessories
+    "backpack": 24, "bag": 24, "rucksack": 24,
+    "umbrella": 25, "parasol": 25,
+    "handbag": 26, "purse": 26,
+    "tie": 27, "necktie": 27,
+    "suitcase": 28, "luggage": 28,
+
+    # Sports
+    "frisbee": 29,
+    "skis": 30, "ski": 30,
+    "snowboard": 31,
+    "sports ball": 32, "ball": 32, "football": 32, "soccer ball": 32,
+    "kite": 33,
+    "baseball bat": 34, "bat": 34,
+    "baseball glove": 35, "glove": 35,
+    "skateboard": 36,
+    "surfboard": 37,
+    "tennis racket": 38, "racket": 38,
+
+    # Kitchen
+    "bottle": 39, "water bottle": 39,
+    "wine glass": 40, "glass": 40,
+    "cup": 41, "mug": 41, "coffee cup": 41,
+    "fork": 42,
+    "knife": 43,
+    "spoon": 44,
+    "bowl": 45,
+
+    # Food
+    "banana": 46,
+    "apple": 47,
+    "sandwich": 48,
+    "orange": 49,
+    "broccoli": 50,
+    "carrot": 51,
+    "hot dog": 52, "hotdog": 52,
+    "pizza": 53,
+    "donut": 54, "doughnut": 54,
+    "cake": 55,
+
+    # Furniture
+    "chair": 56, "seat": 56,
+    "couch": 57, "sofa": 57,
+    "potted plant": 58, "plant": 58, "houseplant": 58,
+    "bed": 59,
+    "dining table": 60, "table": 60, "desk": 60,
+    "toilet": 61,
+
+    # Electronics
+    "tv": 62, "television": 62, "monitor": 62, "screen": 62,
+    "laptop": 63, "notebook": 63, "computer": 63,
+    "mouse": 64, "computer mouse": 64,
+    "remote": 65, "remote control": 65,
+    "keyboard": 66,
+    "cell phone": 67, "phone": 67, "mobile": 67, "smartphone": 67,
+
+    # Appliances
+    "microwave": 68,
+    "oven": 69, "stove": 69,
+    "toaster": 70,
+    "sink": 71,
+    "refrigerator": 72, "fridge": 72,
+
+    # Other
+    "book": 73,
+    "clock": 74, "watch": 74,
+    "vase": 75,
+    "scissors": 76,
+    "teddy bear": 77, "stuffed animal": 77,
+    "hair drier": 78, "hairdryer": 78,
+    "toothbrush": 79,
+}
+
+# COCO class names (80 classes)
+COCO_CLASSES = [
+    'person', 'bicycle', 'car', 'motorcycle', 'airplane', 'bus', 'train', 'truck', 'boat',
+    'traffic light', 'fire hydrant', 'stop sign', 'parking meter', 'bench', 'bird', 'cat',
+    'dog', 'horse', 'sheep', 'cow', 'elephant', 'bear', 'zebra', 'giraffe', 'backpack',
+    'umbrella', 'handbag', 'tie', 'suitcase', 'frisbee', 'skis', 'snowboard', 'sports ball',
+    'kite', 'baseball bat', 'baseball glove', 'skateboard', 'surfboard', 'tennis racket',
+    'bottle', 'wine glass', 'cup', 'fork', 'knife', 'spoon', 'bowl', 'banana', 'apple',
+    'sandwich', 'orange', 'broccoli', 'carrot', 'hot dog', 'pizza', 'donut', 'cake', 'chair',
+    'couch', 'potted plant', 'bed', 'dining table', 'toilet', 'tv', 'laptop', 'mouse',
+    'remote', 'keyboard', 'cell phone', 'microwave', 'oven', 'toaster', 'sink', 'refrigerator',
+    'book', 'clock', 'vase', 'scissors', 'teddy bear', 'hair drier', 'toothbrush'
+]
+
+# Pose keypoint names (COCO format - 17 keypoints)
+POSE_KEYPOINTS = [
+    'nose', 'left_eye', 'right_eye', 'left_ear', 'right_ear',
+    'left_shoulder', 'right_shoulder', 'left_elbow', 'right_elbow',
+    'left_wrist', 'right_wrist', 'left_hip', 'right_hip',
+    'left_knee', 'right_knee', 'left_ankle', 'right_ankle'
+]
+
+# Skeleton connections for drawing
+SKELETON_CONNECTIONS = [
+    (0, 1), (0, 2), (1, 3), (2, 4),  # Face
+    (5, 6), (5, 7), (7, 9), (6, 8), (8, 10),  # Arms
+    (5, 11), (6, 12), (11, 12),  # Torso
+    (11, 13), (13, 15), (12, 14), (14, 16)  # Legs
+]
+
+# Keypoint colors (BGR)
+KEYPOINT_COLORS = {
+    'face': (255, 200, 100),      # Light blue for face points
+    'left_arm': (0, 255, 0),      # Green for left side
+    'right_arm': (0, 0, 255),     # Red for right side
+    'left_leg': (0, 200, 0),      # Darker green
+    'right_leg': (0, 0, 200),     # Darker red
+    'torso': (255, 255, 0),       # Cyan
+}
+
+
+def get_keypoint_color(idx: int) -> Tuple[int, int, int]:
+    """Get color for a keypoint based on its index."""
+    if idx <= 4:
+        return KEYPOINT_COLORS['face']
+    elif idx in [5, 7, 9]:
+        return KEYPOINT_COLORS['left_arm']
+    elif idx in [6, 8, 10]:
+        return KEYPOINT_COLORS['right_arm']
+    elif idx in [11, 13, 15]:
+        return KEYPOINT_COLORS['left_leg']
+    elif idx in [12, 14, 16]:
+        return KEYPOINT_COLORS['right_leg']
+    else:
+        return KEYPOINT_COLORS['torso']
 
 
 # Global state
@@ -98,31 +265,31 @@ class CommandCenter:
         self.last_labels = None
         self.prev_gray = None
 
-        # ===== NEW FEATURE TOGGLES =====
+        # ===== FEATURE TOGGLES =====
 
-        # Feature 2: Video Tracking with Memory (SAM3 tracker)
+        # Video Tracking with Memory (SAM3 tracker)
         self.enable_memory_tracking = False
         self.memory_bank = {}  # object_id -> list of mask features
         self.memory_max_frames = 10  # Max frames to keep in memory per object
 
-        # Feature 3: Multi-Object Tracking with Persistent IDs
+        # Multi-Object Tracking with Persistent IDs
         self.enable_persistent_ids = False
         self.object_registry = {}  # object_id -> {label, first_seen, last_seen, color, ...}
         self.next_object_id = 1
         self.iou_threshold = 0.3  # IoU threshold for matching objects
 
-        # Feature 5: Multi-Object Video Tracking
+        # Multi-Object Video Tracking
         self.tracked_objects = {}  # object_id -> tracking state
         self.object_colors = {}  # object_id -> color
 
-        # Feature 6: Mask Refinement Options
+        # Mask Refinement Options
         self.enable_fill_holes = False
         self.fill_hole_area = 100  # Max hole area to fill (pixels)
         self.enable_non_overlap = False  # Prevent mask overlaps
         self.enable_smooth_edges = False
         self.smooth_kernel_size = 5
 
-        # Feature 7: Advanced Detection Controls
+        # Advanced Detection Controls
         self.enable_boundary_suppression = False
         self.boundary_margin = 10  # Pixels from edge to suppress
         self.enable_occlusion_suppression = False
@@ -130,6 +297,30 @@ class CommandCenter:
         self.enable_hotstart = False
         self.hotstart_frames = 5  # Frames before confirming new detection
         self.pending_detections = {}  # id -> {frames_seen, detection_data}
+
+        # ===== YOLO FEATURES =====
+        self.yolo_classify_model = None
+        self.yolo_pose_model = None
+        self.yolo_available = False
+
+        # YOLO Classification
+        self.enable_yolo_classify = False
+        self.yolo_classify_threshold = 0.3
+        self.yolo_classify_every_n = 1  # Run classification every N keyframes
+
+        # YOLO Pose Estimation
+        self.enable_yolo_pose = False
+        self.yolo_pose_threshold = 0.5
+        self.show_keypoint_labels = False
+        self.show_skeleton = True
+        self.keypoint_radius = 4
+        self.skeleton_thickness = 2
+
+        # Label spoofing (use SAM3->COCO mapping)
+        self.enable_label_spoofing = True
+
+        # Store pose results
+        self.last_poses = {}  # object_id -> keypoints
 
     def log(self, message: str, level: str = "INFO"):
         """Add a log entry."""
@@ -219,6 +410,11 @@ class CommandCenter:
             "boundary_suppression": self.enable_boundary_suppression,
             "occlusion_suppression": self.enable_occlusion_suppression,
             "hotstart": self.enable_hotstart,
+            "yolo_classify": self.enable_yolo_classify,
+            "yolo_pose": self.enable_yolo_pose,
+            "show_keypoint_labels": self.show_keypoint_labels,
+            "show_skeleton": self.show_skeleton,
+            "label_spoofing": self.enable_label_spoofing,
         }
 
 
@@ -239,6 +435,273 @@ COLORS = [
     (128, 255, 0),  # Lime
     (0, 128, 255),  # Sky blue
 ]
+
+
+def load_yolo_models():
+    """Load YOLO models for classification and pose estimation."""
+    global cc
+
+    try:
+        from ultralytics import YOLO
+
+        cc.log("Loading YOLO models...")
+
+        # Load classification model (YOLOv12)
+        try:
+            cc.yolo_classify_model = YOLO('yolo12n-cls.pt')
+            cc.log("YOLO classification model loaded (yolo12n-cls)", "SUCCESS")
+        except Exception as e:
+            cc.log(f"Could not load YOLO classify model: {e}", "WARN")
+            cc.yolo_classify_model = None
+
+        # Load pose estimation model (YOLOv12)
+        try:
+            cc.yolo_pose_model = YOLO('yolo12n-pose.pt')
+            cc.log("YOLO pose model loaded (yolo12n-pose)", "SUCCESS")
+        except Exception as e:
+            cc.log(f"Could not load YOLO pose model: {e}", "WARN")
+            cc.yolo_pose_model = None
+
+        cc.yolo_available = cc.yolo_classify_model is not None or cc.yolo_pose_model is not None
+
+        if cc.yolo_available:
+            cc.log("YOLO models ready", "SUCCESS")
+        else:
+            cc.log("No YOLO models available", "WARN")
+
+    except ImportError:
+        cc.log("ultralytics not installed. YOLO features disabled. Install with: pip install ultralytics", "WARN")
+        cc.yolo_available = False
+
+
+def get_coco_class_for_label(sam3_label: str) -> Optional[int]:
+    """Get COCO class ID for a SAM3 label using the mapping."""
+    label_lower = sam3_label.lower().strip()
+
+    # Direct lookup
+    if label_lower in SAM3_TO_COCO:
+        return SAM3_TO_COCO[label_lower]
+
+    # Try partial match
+    for key, coco_id in SAM3_TO_COCO.items():
+        if key in label_lower or label_lower in key:
+            return coco_id
+
+    return None
+
+
+def is_person_label(label: str) -> bool:
+    """Check if a label refers to a person."""
+    coco_id = get_coco_class_for_label(label)
+    return coco_id == 0
+
+
+def classify_region(frame: np.ndarray, box: List[float], sam3_label: str) -> Dict:
+    """
+    Run YOLO classification on a detected region.
+
+    Returns dict with:
+        - yolo_class: Top predicted class name
+        - yolo_confidence: Confidence score
+        - top5_classes: List of top 5 (class, confidence) tuples
+        - matches_sam3: Whether YOLO agrees with SAM3 label
+    """
+    if cc.yolo_classify_model is None:
+        return None
+
+    try:
+        # Crop region from frame
+        x1, y1, x2, y2 = [int(v) for v in box]
+        h, w = frame.shape[:2]
+
+        # Add padding
+        pad = 10
+        x1 = max(0, x1 - pad)
+        y1 = max(0, y1 - pad)
+        x2 = min(w, x2 + pad)
+        y2 = min(h, y2 + pad)
+
+        crop = frame[y1:y2, x1:x2]
+
+        if crop.size == 0:
+            return None
+
+        # Run classification
+        results = cc.yolo_classify_model(crop, verbose=False)
+
+        if len(results) == 0:
+            return None
+
+        probs = results[0].probs
+
+        if probs is None:
+            return None
+
+        # Get top 5 predictions
+        top5_indices = probs.top5
+        top5_confs = probs.top5conf.cpu().numpy()
+
+        # Get class names from model
+        names = cc.yolo_classify_model.names
+
+        top5_classes = [(names[idx], float(conf)) for idx, conf in zip(top5_indices, top5_confs)]
+
+        top_class = top5_classes[0][0] if top5_classes else "unknown"
+        top_conf = top5_classes[0][1] if top5_classes else 0.0
+
+        # Check if YOLO agrees with SAM3
+        sam3_coco_id = get_coco_class_for_label(sam3_label)
+        matches = False
+
+        if sam3_coco_id is not None and sam3_coco_id < len(COCO_CLASSES):
+            sam3_coco_name = COCO_CLASSES[sam3_coco_id]
+            # Check if any top-5 class matches
+            for cls_name, conf in top5_classes:
+                if cls_name.lower() == sam3_coco_name.lower() or sam3_coco_name.lower() in cls_name.lower():
+                    matches = True
+                    break
+
+        return {
+            "yolo_class": top_class,
+            "yolo_confidence": top_conf,
+            "top5_classes": top5_classes,
+            "matches_sam3": matches
+        }
+
+    except Exception as e:
+        cc.log(f"YOLO classification error: {e}", "ERROR")
+        return None
+
+
+def estimate_pose(frame: np.ndarray, box: List[float]) -> Dict:
+    """
+    Run YOLO pose estimation on a person region.
+
+    Returns dict with:
+        - keypoints: List of 17 (x, y, confidence) tuples
+        - keypoint_names: List of keypoint names
+        - confidence: Overall pose confidence
+    """
+    if cc.yolo_pose_model is None:
+        return None
+
+    try:
+        # Crop region from frame (with extra padding for pose)
+        x1, y1, x2, y2 = [int(v) for v in box]
+        h, w = frame.shape[:2]
+
+        # Add generous padding for pose estimation
+        box_w = x2 - x1
+        box_h = y2 - y1
+        pad_x = int(box_w * 0.2)
+        pad_y = int(box_h * 0.1)
+
+        x1 = max(0, x1 - pad_x)
+        y1 = max(0, y1 - pad_y)
+        x2 = min(w, x2 + pad_x)
+        y2 = min(h, y2 + pad_y)
+
+        crop = frame[y1:y2, x1:x2]
+
+        if crop.size == 0:
+            return None
+
+        # Run pose estimation
+        results = cc.yolo_pose_model(crop, verbose=False)
+
+        if len(results) == 0 or results[0].keypoints is None:
+            return None
+
+        keypoints_data = results[0].keypoints
+
+        if keypoints_data.xy is None or len(keypoints_data.xy) == 0:
+            return None
+
+        # Get first person's keypoints (we're analyzing one box at a time)
+        kpts = keypoints_data.xy[0].cpu().numpy()  # Shape: (17, 2)
+        confs = keypoints_data.conf[0].cpu().numpy() if keypoints_data.conf is not None else np.ones(17)
+
+        # Convert coordinates back to full frame
+        keypoints = []
+        for i, (pt, conf) in enumerate(zip(kpts, confs)):
+            # Add offset back to get coordinates in original frame
+            frame_x = pt[0] + x1
+            frame_y = pt[1] + y1
+            keypoints.append((float(frame_x), float(frame_y), float(conf)))
+
+        # Calculate overall confidence
+        valid_confs = [c for x, y, c in keypoints if c > 0.1]
+        overall_conf = np.mean(valid_confs) if valid_confs else 0.0
+
+        return {
+            "keypoints": keypoints,
+            "keypoint_names": POSE_KEYPOINTS,
+            "confidence": float(overall_conf),
+            "box_offset": (x1, y1)  # For reference
+        }
+
+    except Exception as e:
+        cc.log(f"YOLO pose estimation error: {e}", "ERROR")
+        return None
+
+
+def draw_pose_overlay(frame: np.ndarray, pose_data: Dict, object_id: int = None) -> np.ndarray:
+    """Draw pose keypoints and skeleton on frame."""
+    if pose_data is None or "keypoints" not in pose_data:
+        return frame
+
+    overlay = frame.copy()
+    keypoints = pose_data["keypoints"]
+
+    # Draw skeleton connections first (so points are on top)
+    if cc.show_skeleton:
+        for start_idx, end_idx in SKELETON_CONNECTIONS:
+            if start_idx < len(keypoints) and end_idx < len(keypoints):
+                x1, y1, c1 = keypoints[start_idx]
+                x2, y2, c2 = keypoints[end_idx]
+
+                # Only draw if both points have sufficient confidence
+                if c1 > cc.yolo_pose_threshold and c2 > cc.yolo_pose_threshold:
+                    pt1 = (int(x1), int(y1))
+                    pt2 = (int(x2), int(y2))
+
+                    # Get color based on connection type
+                    color = get_keypoint_color(start_idx)
+                    cv2.line(overlay, pt1, pt2, color, cc.skeleton_thickness)
+
+    # Draw keypoints
+    for i, (x, y, conf) in enumerate(keypoints):
+        if conf > cc.yolo_pose_threshold:
+            pt = (int(x), int(y))
+            color = get_keypoint_color(i)
+
+            # Draw filled circle
+            cv2.circle(overlay, pt, cc.keypoint_radius, color, -1)
+            # Draw outline
+            cv2.circle(overlay, pt, cc.keypoint_radius, (255, 255, 255), 1)
+
+            # Draw label if enabled
+            if cc.show_keypoint_labels and i < len(POSE_KEYPOINTS):
+                label = POSE_KEYPOINTS[i].replace('_', ' ')
+                font = cv2.FONT_HERSHEY_SIMPLEX
+                font_scale = 0.35
+                (tw, th), _ = cv2.getTextSize(label, font, font_scale, 1)
+
+                # Position label above point
+                label_x = int(x - tw/2)
+                label_y = int(y - cc.keypoint_radius - 3)
+
+                # Background
+                cv2.rectangle(overlay,
+                    (label_x - 1, label_y - th - 1),
+                    (label_x + tw + 1, label_y + 1),
+                    (0, 0, 0), -1)
+
+                # Text
+                cv2.putText(overlay, label, (label_x, label_y),
+                    font, font_scale, (255, 255, 255), 1)
+
+    return overlay
 
 
 def load_model(checkpoint_path: Optional[str] = None):
@@ -269,6 +732,9 @@ def load_model(checkpoint_path: Optional[str] = None):
     )
 
     cc.log(f"Model loaded on {cc.device_str}", "SUCCESS")
+
+    # Load YOLO models
+    load_yolo_models()
 
 
 # ===== MASK REFINEMENT FUNCTIONS =====
@@ -381,6 +847,7 @@ def process_frame(frame: np.ndarray) -> np.ndarray:
 
         # Clear current detections
         cc.clear_detections()
+        cc.last_poses = {}
 
         all_masks = []
         all_boxes = []
@@ -404,13 +871,12 @@ def process_frame(frame: np.ndarray) -> np.ndarray:
                     box = boxes[i].cpu().numpy().tolist() if boxes is not None and i < len(boxes) else None
                     score = float(scores[i].cpu()) if scores is not None and i < len(scores) else 0.0
 
-                    # Feature 7: Boundary suppression
+                    # Boundary suppression
                     if cc.enable_boundary_suppression and box:
                         if is_near_boundary(box, frame.shape, cc.boundary_margin):
-                            cc.log(f"Suppressed boundary detection: {prompt}", "DEBUG")
                             continue
 
-                    # Feature 7: Hotstart - require multiple frames before confirming
+                    # Hotstart
                     if cc.enable_hotstart:
                         det_hash = f"{prompt}_{int(box[0]) if box else 0}_{int(box[1]) if box else 0}"
                         if det_hash not in cc.pending_detections:
@@ -420,22 +886,19 @@ def process_frame(frame: np.ndarray) -> np.ndarray:
                             cc.pending_detections[det_hash]["frames"] += 1
                             if cc.pending_detections[det_hash]["frames"] < cc.hotstart_frames:
                                 continue
-                            # Confirmed - remove from pending
                             del cc.pending_detections[det_hash]
 
-                    # Feature 6: Fill holes in mask
+                    # Fill holes
                     if cc.enable_fill_holes:
                         mask_np = fill_holes_in_mask(mask_np, cc.fill_hole_area)
 
-                    # Feature 6: Smooth edges
+                    # Smooth edges
                     if cc.enable_smooth_edges:
                         mask_np = smooth_mask_edges(mask_np, cc.smooth_kernel_size)
 
-                    # Feature 3 & 5: Persistent object IDs
-                    object_id = len(all_masks)  # Default sequential ID
+                    # Persistent object IDs
+                    object_id = len(all_masks)
                     if cc.enable_persistent_ids:
-                        # Try to match with existing objects
-                        existing_masks = {oid: m for oid, m in zip(all_object_ids, all_masks)}
                         if cc.tracked_objects:
                             match_id = match_detection_to_object(
                                 mask_np,
@@ -449,7 +912,6 @@ def process_frame(frame: np.ndarray) -> np.ndarray:
                                 object_id = cc.next_object_id
                                 cc.next_object_id += 1
 
-                        # Update tracked object
                         if object_id not in cc.tracked_objects:
                             cc.tracked_objects[object_id] = {
                                 "label": prompt.strip(),
@@ -462,11 +924,31 @@ def process_frame(frame: np.ndarray) -> np.ndarray:
                         cc.tracked_objects[object_id]["last_mask"] = mask_np
                         cc.tracked_objects[object_id]["confidence"] = score
 
-                    # Feature 2: Update memory bank
+                    # Memory tracking
                     if cc.enable_memory_tracking:
-                        # Store mask features for memory-based tracking
                         mask_tensor = torch.from_numpy(mask_np).unsqueeze(0)
                         update_memory_bank(object_id, mask_tensor)
+
+                    # ===== YOLO INTEGRATION =====
+                    yolo_info = {}
+
+                    # YOLO Classification
+                    if cc.enable_yolo_classify and box and cc.yolo_classify_model is not None:
+                        if cc.frame_count % cc.yolo_classify_every_n == 0:
+                            classify_result = classify_region(frame, box, prompt.strip())
+                            if classify_result:
+                                yolo_info["classify"] = classify_result
+                                if classify_result["yolo_confidence"] >= cc.yolo_classify_threshold:
+                                    cc.log(f"YOLO: {classify_result['yolo_class']} ({classify_result['yolo_confidence']:.0%})")
+
+                    # YOLO Pose Estimation (only for person-like labels)
+                    if cc.enable_yolo_pose and box and cc.yolo_pose_model is not None:
+                        if is_person_label(prompt.strip()):
+                            pose_result = estimate_pose(frame, box)
+                            if pose_result and pose_result["confidence"] >= cc.yolo_pose_threshold:
+                                yolo_info["pose"] = pose_result
+                                cc.last_poses[object_id] = pose_result
+                                cc.log(f"Pose detected for {prompt} (conf: {pose_result['confidence']:.0%})")
 
                     detection = {
                         "id": object_id,
@@ -474,6 +956,7 @@ def process_frame(frame: np.ndarray) -> np.ndarray:
                         "confidence": score,
                         "box": box,
                         "persistent_id": object_id if cc.enable_persistent_ids else None,
+                        "yolo": yolo_info if yolo_info else None,
                     }
                     cc.add_detection(detection)
 
@@ -484,13 +967,12 @@ def process_frame(frame: np.ndarray) -> np.ndarray:
                     all_scores.append(score)
                     all_labels.append(prompt.strip())
 
-        # Feature 6: Remove overlapping masks
+        # Remove overlapping masks
         if cc.enable_non_overlap and len(all_masks) > 1:
             all_masks = remove_mask_overlaps(all_masks, all_scores)
 
-        # Feature 7: Occlusion suppression
+        # Occlusion suppression
         if cc.enable_occlusion_suppression and len(all_masks) > 1:
-            # Remove heavily overlapped lower-confidence detections
             keep_indices = []
             for i, mask_i in enumerate(all_masks):
                 is_occluded = False
@@ -536,6 +1018,11 @@ def process_frame(frame: np.ndarray) -> np.ndarray:
     if cc.last_masks is not None:
         display = overlay_masks(display, cc.last_masks, cc.last_boxes, cc.last_scores, cc.last_labels)
 
+    # Draw pose overlays
+    if cc.enable_yolo_pose and cc.last_poses:
+        for obj_id, pose_data in cc.last_poses.items():
+            display = draw_pose_overlay(display, pose_data, obj_id)
+
     return display
 
 
@@ -578,7 +1065,6 @@ def track_frame(frame: np.ndarray) -> Optional[torch.Tensor]:
             )
             warped = (warped > 0.5).astype(np.float32)
 
-            # Apply refinements to tracked masks too
             if cc.enable_fill_holes:
                 warped = fill_holes_in_mask(warped, cc.fill_hole_area)
             if cc.enable_smooth_edges:
@@ -637,12 +1123,24 @@ def overlay_masks(frame: np.ndarray, masks: torch.Tensor, boxes=None, scores=Non
             label = labels[i] if labels and i < len(labels) else "object"
             conf = scores_np[i] if scores_np is not None and i < len(scores_np) else 0.0
 
-            # Add persistent ID to label if enabled
+            # Add persistent ID and YOLO info to label
+            text_parts = []
             if cc.enable_persistent_ids and i < len(cc.current_detections):
                 obj_id = cc.current_detections[i].get("persistent_id")
-                text = f"#{obj_id} {label} {conf:.0%}"
-            else:
-                text = f"{label} {conf:.0%}"
+                text_parts.append(f"#{obj_id}")
+
+            text_parts.append(f"{label} {conf:.0%}")
+
+            # Add YOLO classification if available
+            if i < len(cc.current_detections):
+                det = cc.current_detections[i]
+                yolo_info = det.get("yolo")
+                if yolo_info and "classify" in yolo_info:
+                    yolo_class = yolo_info["classify"]["yolo_class"]
+                    yolo_conf = yolo_info["classify"]["yolo_confidence"]
+                    text_parts.append(f"[{yolo_class} {yolo_conf:.0%}]")
+
+            text = " ".join(text_parts)
 
             font = cv2.FONT_HERSHEY_SIMPLEX
             (tw, th), _ = cv2.getTextSize(text, font, 0.5, 1)
@@ -766,7 +1264,8 @@ def index():
                           threshold=cc.confidence_threshold,
                           skip_frames=cc.skip_frames,
                           tracking=cc.enable_tracking,
-                          features=cc.get_feature_status())
+                          features=cc.get_feature_status(),
+                          yolo_available=cc.yolo_available)
 
 
 @app.route('/video_feed')
@@ -796,6 +1295,8 @@ def api_status():
         "features": cc.get_feature_status(),
         "tracked_objects_count": len(cc.tracked_objects),
         "memory_bank_size": len(cc.memory_bank),
+        "yolo_available": cc.yolo_available,
+        "poses_count": len(cc.last_poses),
     })
 
 
@@ -826,6 +1327,7 @@ def api_set_prompts():
     cc.last_labels = None
     cc.tracked_objects = {}
     cc.memory_bank = {}
+    cc.last_poses = {}
     cc.log(f"Prompts updated: {', '.join(cc.prompts)}")
     return jsonify({"success": True, "prompts": cc.prompts})
 
@@ -877,6 +1379,7 @@ def api_reset():
     cc.object_colors = {}
     cc.next_object_id = 1
     cc.pending_detections = {}
+    cc.last_poses = {}
     cc.clear_detections()
     cc.log("Detection state reset")
     return jsonify({"success": True})
@@ -920,6 +1423,11 @@ def api_toggle_feature():
         "boundary_suppression": "enable_boundary_suppression",
         "occlusion_suppression": "enable_occlusion_suppression",
         "hotstart": "enable_hotstart",
+        "yolo_classify": "enable_yolo_classify",
+        "yolo_pose": "enable_yolo_pose",
+        "show_keypoint_labels": "show_keypoint_labels",
+        "show_skeleton": "show_skeleton",
+        "label_spoofing": "enable_label_spoofing",
     }
 
     if feature in feature_map:
@@ -948,6 +1456,11 @@ def api_set_feature_param():
         "hotstart_frames": ("hotstart_frames", int),
         "iou_threshold": ("iou_threshold", float),
         "memory_max_frames": ("memory_max_frames", int),
+        "yolo_classify_threshold": ("yolo_classify_threshold", float),
+        "yolo_pose_threshold": ("yolo_pose_threshold", float),
+        "yolo_classify_every_n": ("yolo_classify_every_n", int),
+        "keypoint_radius": ("keypoint_radius", int),
+        "skeleton_thickness": ("skeleton_thickness", int),
     }
 
     if param in param_map:
@@ -1013,6 +1526,31 @@ def api_tracked_objects():
     return jsonify({"objects": objects})
 
 
+@app.route('/api/poses')
+def api_poses():
+    """Get current pose data for all detected persons."""
+    poses = []
+    for obj_id, pose_data in cc.last_poses.items():
+        poses.append({
+            "object_id": obj_id,
+            "confidence": pose_data.get("confidence", 0),
+            "keypoints": [
+                {"name": name, "x": kp[0], "y": kp[1], "confidence": kp[2]}
+                for name, kp in zip(POSE_KEYPOINTS, pose_data.get("keypoints", []))
+            ]
+        })
+    return jsonify({"poses": poses})
+
+
+@app.route('/api/coco_mapping')
+def api_coco_mapping():
+    """Get SAM3 to COCO label mapping."""
+    return jsonify({
+        "mapping": SAM3_TO_COCO,
+        "coco_classes": COCO_CLASSES
+    })
+
+
 def main():
     global cc
 
@@ -1025,6 +1563,7 @@ def main():
     parser.add_argument("--port", type=int, default=5000, help="Web server port")
     parser.add_argument("--skip-frames", type=int, default=3, help="Process every N frames")
     parser.add_argument("--no-tracking", action="store_true", help="Disable optical flow tracking")
+    parser.add_argument("--no-yolo", action="store_true", help="Disable YOLO models")
 
     args = parser.parse_args()
 
@@ -1039,6 +1578,11 @@ def main():
 
     # Load model
     load_model(args.checkpoint)
+
+    # Skip YOLO if requested
+    if args.no_yolo:
+        cc.yolo_available = False
+        cc.log("YOLO disabled via command line")
 
     # Open camera
     cc.log(f"Opening camera {args.camera}...")
@@ -1062,6 +1606,7 @@ def main():
     print(f"SAM3 Web Command Center")
     print(f"{'='*50}")
     print(f"Open http://localhost:{args.port} in your browser")
+    print(f"YOLO: {'Available' if cc.yolo_available else 'Not available'}")
     print(f"{'='*50}\n")
 
     try:

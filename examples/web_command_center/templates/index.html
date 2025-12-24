@@ -723,6 +723,76 @@
                                        onchange="setFeatureParam('hotstart_frames', this.value)">
                             </div>
                         </div>
+
+                        <!-- YOLO Integration -->
+                        <div class="feature-section">
+                            <div class="feature-section-title">YOLO Integration (v12)</div>
+
+                            <div class="feature-toggle">
+                                <div class="feature-info">
+                                    <span class="feature-name">YOLO Classification</span>
+                                    <span class="feature-desc">Run YOLOv12 classification on detected regions</span>
+                                </div>
+                                <div class="toggle-switch" id="toggle-yolo_classify" onclick="toggleFeature('yolo_classify')"></div>
+                            </div>
+                            <div class="feature-param">
+                                <label>Confidence threshold:</label>
+                                <input type="number" id="param-yolo_classify_threshold" value="0.3" min="0.1" max="0.9" step="0.1"
+                                       onchange="setFeatureParam('yolo_classify_threshold', this.value)">
+                            </div>
+                            <div class="feature-param">
+                                <label>Run every N frames:</label>
+                                <input type="number" id="param-yolo_classify_every_n" value="1" min="1" max="10"
+                                       onchange="setFeatureParam('yolo_classify_every_n', this.value)">
+                            </div>
+
+                            <div class="feature-toggle">
+                                <div class="feature-info">
+                                    <span class="feature-name">YOLO Pose Estimation</span>
+                                    <span class="feature-desc">Detect body keypoints for person-like objects</span>
+                                </div>
+                                <div class="toggle-switch" id="toggle-yolo_pose" onclick="toggleFeature('yolo_pose')"></div>
+                            </div>
+                            <div class="feature-param">
+                                <label>Pose threshold:</label>
+                                <input type="number" id="param-yolo_pose_threshold" value="0.5" min="0.1" max="0.9" step="0.1"
+                                       onchange="setFeatureParam('yolo_pose_threshold', this.value)">
+                            </div>
+
+                            <div class="feature-toggle">
+                                <div class="feature-info">
+                                    <span class="feature-name">Show Skeleton</span>
+                                    <span class="feature-desc">Draw skeleton lines connecting keypoints</span>
+                                </div>
+                                <div class="toggle-switch" id="toggle-show_skeleton" onclick="toggleFeature('show_skeleton')"></div>
+                            </div>
+                            <div class="feature-param">
+                                <label>Line thickness:</label>
+                                <input type="number" id="param-skeleton_thickness" value="2" min="1" max="5"
+                                       onchange="setFeatureParam('skeleton_thickness', this.value)">
+                            </div>
+
+                            <div class="feature-toggle">
+                                <div class="feature-info">
+                                    <span class="feature-name">Show Keypoint Labels</span>
+                                    <span class="feature-desc">Display names for each detected keypoint</span>
+                                </div>
+                                <div class="toggle-switch" id="toggle-show_keypoint_labels" onclick="toggleFeature('show_keypoint_labels')"></div>
+                            </div>
+                            <div class="feature-param">
+                                <label>Keypoint radius:</label>
+                                <input type="number" id="param-keypoint_radius" value="4" min="2" max="10"
+                                       onchange="setFeatureParam('keypoint_radius', this.value)">
+                            </div>
+
+                            <div class="feature-toggle">
+                                <div class="feature-info">
+                                    <span class="feature-name">Label Spoofing</span>
+                                    <span class="feature-desc">Map SAM3 labels to COCO classes for YOLO</span>
+                                </div>
+                                <div class="toggle-switch" id="toggle-label_spoofing" onclick="toggleFeature('label_spoofing')"></div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
