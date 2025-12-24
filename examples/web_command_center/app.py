@@ -10,6 +10,10 @@ using SAM3. Features include:
 - Multi-prompt detection configuration
 - Object count limits with show/hide functionality
 - Claude Vision API integration for detailed object analysis
+- Video tracking with memory (SAM3 tracker)
+- Multi-object tracking with persistent IDs
+- Mask refinement (fill holes, non-overlap)
+- Advanced detection controls (boundary/occlusion suppression, hotstart)
 - Command center style interface with verbose logging
 
 Usage:
@@ -26,15 +30,17 @@ import os
 import sys
 import threading
 import time
+import uuid
 from collections import deque
 from datetime import datetime
-from typing import Optional, Dict, List, Any
+from typing import Optional, Dict, List, Any, Tuple
 
 import cv2
 import numpy as np
 import torch
 from PIL import Image
 from flask import Flask, Response, render_template, request, jsonify
+from scipy import ndimage
 
 # Add parent directory to path for sam3 imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
@@ -42,6 +48,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 from sam3.utils.device import get_device, get_device_str, setup_device_optimizations, empty_cache
 
 app = Flask(__name__)
+
 
 # Global state
 class CommandCenter:
@@ -80,8 +87,9 @@ class CommandCenter:
         self.camera = None
         self.processor = None
         self.state = None
+        self.video_predictor = None  # SAM3 video predictor for memory tracking
 
-        # Tracking state
+        # Basic tracking state (optical flow)
         self.enable_tracking = True
         self.skip_frames = 3
         self.last_masks = None
@@ -89,6 +97,39 @@ class CommandCenter:
         self.last_scores = None
         self.last_labels = None
         self.prev_gray = None
+
+        # ===== NEW FEATURE TOGGLES =====
+
+        # Feature 2: Video Tracking with Memory (SAM3 tracker)
+        self.enable_memory_tracking = False
+        self.memory_bank = {}  # object_id -> list of mask features
+        self.memory_max_frames = 10  # Max frames to keep in memory per object
+
+        # Feature 3: Multi-Object Tracking with Persistent IDs
+        self.enable_persistent_ids = False
+        self.object_registry = {}  # object_id -> {label, first_seen, last_seen, color, ...}
+        self.next_object_id = 1
+        self.iou_threshold = 0.3  # IoU threshold for matching objects
+
+        # Feature 5: Multi-Object Video Tracking
+        self.tracked_objects = {}  # object_id -> tracking state
+        self.object_colors = {}  # object_id -> color
+
+        # Feature 6: Mask Refinement Options
+        self.enable_fill_holes = False
+        self.fill_hole_area = 100  # Max hole area to fill (pixels)
+        self.enable_non_overlap = False  # Prevent mask overlaps
+        self.enable_smooth_edges = False
+        self.smooth_kernel_size = 5
+
+        # Feature 7: Advanced Detection Controls
+        self.enable_boundary_suppression = False
+        self.boundary_margin = 10  # Pixels from edge to suppress
+        self.enable_occlusion_suppression = False
+        self.occlusion_threshold = 0.5  # Overlap ratio to suppress
+        self.enable_hotstart = False
+        self.hotstart_frames = 5  # Frames before confirming new detection
+        self.pending_detections = {}  # id -> {frames_seen, detection_data}
 
     def log(self, message: str, level: str = "INFO"):
         """Add a log entry."""
@@ -116,7 +157,7 @@ class CommandCenter:
         with self.lock:
             self.current_detections = []
 
-    def get_filtered_detections(self) -> List[Dict]:
+    def get_filtered_detections(self) -> Tuple[List[Dict], Dict]:
         """Get detections filtered by max count settings."""
         with self.lock:
             detections = self.current_detections.copy()
@@ -138,7 +179,6 @@ class CommandCenter:
             show_all = self.show_all_matches.get(prompt, False)
 
             if max_count is not None and not show_all:
-                # Sort by confidence and take top N
                 dets_sorted = sorted(dets, key=lambda d: d.get("confidence", 0), reverse=True)
                 filtered.extend(dets_sorted[:max_count])
                 hidden = len(dets_sorted) - max_count
@@ -167,6 +207,20 @@ class CommandCenter:
                 "timestamp": datetime.now().strftime("%H:%M:%S")
             })
 
+    def get_feature_status(self) -> Dict:
+        """Get status of all feature toggles."""
+        return {
+            "tracking": self.enable_tracking,
+            "memory_tracking": self.enable_memory_tracking,
+            "persistent_ids": self.enable_persistent_ids,
+            "fill_holes": self.enable_fill_holes,
+            "non_overlap": self.enable_non_overlap,
+            "smooth_edges": self.enable_smooth_edges,
+            "boundary_suppression": self.enable_boundary_suppression,
+            "occlusion_suppression": self.enable_occlusion_suppression,
+            "hotstart": self.enable_hotstart,
+        }
+
 
 # Global command center instance
 cc = CommandCenter()
@@ -182,6 +236,8 @@ COLORS = [
     (0, 255, 255),  # Yellow
     (128, 0, 255),  # Purple
     (255, 128, 0),  # Orange
+    (128, 255, 0),  # Lime
+    (0, 128, 255),  # Sky blue
 ]
 
 
@@ -215,6 +271,100 @@ def load_model(checkpoint_path: Optional[str] = None):
     cc.log(f"Model loaded on {cc.device_str}", "SUCCESS")
 
 
+# ===== MASK REFINEMENT FUNCTIONS =====
+
+def fill_holes_in_mask(mask: np.ndarray, max_hole_area: int = 100) -> np.ndarray:
+    """Fill small holes in a binary mask."""
+    mask_bool = mask.astype(bool)
+    # Find holes (inverted connected components)
+    inverted = ~mask_bool
+    labeled, num_features = ndimage.label(inverted)
+
+    # Fill small holes
+    for i in range(1, num_features + 1):
+        hole = labeled == i
+        if hole.sum() <= max_hole_area:
+            mask_bool[hole] = True
+
+    return mask_bool.astype(np.float32)
+
+
+def smooth_mask_edges(mask: np.ndarray, kernel_size: int = 5) -> np.ndarray:
+    """Smooth mask edges using morphological operations."""
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (kernel_size, kernel_size))
+    # Close then open to smooth
+    smoothed = cv2.morphologyEx(mask.astype(np.uint8), cv2.MORPH_CLOSE, kernel)
+    smoothed = cv2.morphologyEx(smoothed, cv2.MORPH_OPEN, kernel)
+    return smoothed.astype(np.float32)
+
+
+def remove_mask_overlaps(masks: List[np.ndarray], scores: List[float]) -> List[np.ndarray]:
+    """Remove overlapping regions, keeping higher confidence masks."""
+    if len(masks) <= 1:
+        return masks
+
+    # Sort by score (highest first)
+    sorted_indices = np.argsort(scores)[::-1]
+    result_masks = [None] * len(masks)
+    occupied = np.zeros_like(masks[0], dtype=bool)
+
+    for idx in sorted_indices:
+        mask = masks[idx].astype(bool)
+        # Remove already occupied regions
+        mask = mask & ~occupied
+        result_masks[idx] = mask.astype(np.float32)
+        occupied |= mask
+
+    return result_masks
+
+
+# ===== DETECTION CONTROL FUNCTIONS =====
+
+def is_near_boundary(box: List[float], frame_shape: Tuple[int, int], margin: int = 10) -> bool:
+    """Check if a bounding box is near the frame boundary."""
+    h, w = frame_shape[:2]
+    x1, y1, x2, y2 = box
+    return x1 < margin or y1 < margin or x2 > w - margin or y2 > h - margin
+
+
+def calculate_iou(mask1: np.ndarray, mask2: np.ndarray) -> float:
+    """Calculate Intersection over Union between two masks."""
+    intersection = np.logical_and(mask1, mask2).sum()
+    union = np.logical_or(mask1, mask2).sum()
+    return intersection / union if union > 0 else 0
+
+
+def match_detection_to_object(mask: np.ndarray, existing_masks: Dict[int, np.ndarray],
+                               threshold: float = 0.3) -> Optional[int]:
+    """Match a detection to an existing tracked object by IoU."""
+    best_match = None
+    best_iou = threshold
+
+    for obj_id, existing_mask in existing_masks.items():
+        iou = calculate_iou(mask, existing_mask)
+        if iou > best_iou:
+            best_iou = iou
+            best_match = obj_id
+
+    return best_match
+
+
+# ===== MEMORY TRACKING FUNCTIONS =====
+
+def update_memory_bank(object_id: int, mask_features: torch.Tensor):
+    """Update memory bank for an object."""
+    if object_id not in cc.memory_bank:
+        cc.memory_bank[object_id] = []
+
+    cc.memory_bank[object_id].append(mask_features)
+
+    # Keep only recent frames
+    if len(cc.memory_bank[object_id]) > cc.memory_max_frames:
+        cc.memory_bank[object_id].pop(0)
+
+
+# ===== FRAME PROCESSING =====
+
 def process_frame(frame: np.ndarray) -> np.ndarray:
     """Process a frame through SAM3 and overlay results."""
     global cc
@@ -236,6 +386,7 @@ def process_frame(frame: np.ndarray) -> np.ndarray:
         all_boxes = []
         all_scores = []
         all_labels = []
+        all_object_ids = []
 
         for prompt in cc.prompts:
             if "geometric_prompt" in cc.state:
@@ -249,26 +400,120 @@ def process_frame(frame: np.ndarray) -> np.ndarray:
 
             if masks is not None and masks.numel() > 0:
                 for i in range(len(masks)):
+                    mask_np = masks[i].squeeze().cpu().numpy()
+                    box = boxes[i].cpu().numpy().tolist() if boxes is not None and i < len(boxes) else None
+                    score = float(scores[i].cpu()) if scores is not None and i < len(scores) else 0.0
+
+                    # Feature 7: Boundary suppression
+                    if cc.enable_boundary_suppression and box:
+                        if is_near_boundary(box, frame.shape, cc.boundary_margin):
+                            cc.log(f"Suppressed boundary detection: {prompt}", "DEBUG")
+                            continue
+
+                    # Feature 7: Hotstart - require multiple frames before confirming
+                    if cc.enable_hotstart:
+                        det_hash = f"{prompt}_{int(box[0]) if box else 0}_{int(box[1]) if box else 0}"
+                        if det_hash not in cc.pending_detections:
+                            cc.pending_detections[det_hash] = {"frames": 1, "data": None}
+                            continue
+                        else:
+                            cc.pending_detections[det_hash]["frames"] += 1
+                            if cc.pending_detections[det_hash]["frames"] < cc.hotstart_frames:
+                                continue
+                            # Confirmed - remove from pending
+                            del cc.pending_detections[det_hash]
+
+                    # Feature 6: Fill holes in mask
+                    if cc.enable_fill_holes:
+                        mask_np = fill_holes_in_mask(mask_np, cc.fill_hole_area)
+
+                    # Feature 6: Smooth edges
+                    if cc.enable_smooth_edges:
+                        mask_np = smooth_mask_edges(mask_np, cc.smooth_kernel_size)
+
+                    # Feature 3 & 5: Persistent object IDs
+                    object_id = len(all_masks)  # Default sequential ID
+                    if cc.enable_persistent_ids:
+                        # Try to match with existing objects
+                        existing_masks = {oid: m for oid, m in zip(all_object_ids, all_masks)}
+                        if cc.tracked_objects:
+                            match_id = match_detection_to_object(
+                                mask_np,
+                                {oid: obj["last_mask"] for oid, obj in cc.tracked_objects.items()
+                                 if "last_mask" in obj},
+                                cc.iou_threshold
+                            )
+                            if match_id is not None:
+                                object_id = match_id
+                            else:
+                                object_id = cc.next_object_id
+                                cc.next_object_id += 1
+
+                        # Update tracked object
+                        if object_id not in cc.tracked_objects:
+                            cc.tracked_objects[object_id] = {
+                                "label": prompt.strip(),
+                                "first_seen": cc.frame_count,
+                                "color": COLORS[object_id % len(COLORS)],
+                            }
+                            cc.object_colors[object_id] = COLORS[object_id % len(COLORS)]
+
+                        cc.tracked_objects[object_id]["last_seen"] = cc.frame_count
+                        cc.tracked_objects[object_id]["last_mask"] = mask_np
+                        cc.tracked_objects[object_id]["confidence"] = score
+
+                    # Feature 2: Update memory bank
+                    if cc.enable_memory_tracking:
+                        # Store mask features for memory-based tracking
+                        mask_tensor = torch.from_numpy(mask_np).unsqueeze(0)
+                        update_memory_bank(object_id, mask_tensor)
+
                     detection = {
-                        "id": len(all_masks),
+                        "id": object_id,
                         "label": prompt.strip(),
-                        "confidence": float(scores[i].cpu()) if scores is not None and i < len(scores) else 0.0,
-                        "box": boxes[i].cpu().numpy().tolist() if boxes is not None and i < len(boxes) else None,
+                        "confidence": score,
+                        "box": box,
+                        "persistent_id": object_id if cc.enable_persistent_ids else None,
                     }
                     cc.add_detection(detection)
 
-                    all_masks.append(masks[i:i+1])
-                    if boxes is not None and i < len(boxes):
-                        all_boxes.append(boxes[i:i+1])
-                    if scores is not None and i < len(scores):
-                        all_scores.append(scores[i:i+1])
+                    all_masks.append(mask_np)
+                    all_object_ids.append(object_id)
+                    if box:
+                        all_boxes.append(box)
+                    all_scores.append(score)
                     all_labels.append(prompt.strip())
+
+        # Feature 6: Remove overlapping masks
+        if cc.enable_non_overlap and len(all_masks) > 1:
+            all_masks = remove_mask_overlaps(all_masks, all_scores)
+
+        # Feature 7: Occlusion suppression
+        if cc.enable_occlusion_suppression and len(all_masks) > 1:
+            # Remove heavily overlapped lower-confidence detections
+            keep_indices = []
+            for i, mask_i in enumerate(all_masks):
+                is_occluded = False
+                for j, mask_j in enumerate(all_masks):
+                    if i != j and all_scores[j] > all_scores[i]:
+                        overlap = np.logical_and(mask_i, mask_j).sum() / (mask_i.sum() + 1e-6)
+                        if overlap > cc.occlusion_threshold:
+                            is_occluded = True
+                            break
+                if not is_occluded:
+                    keep_indices.append(i)
+
+            all_masks = [all_masks[i] for i in keep_indices]
+            all_boxes = [all_boxes[i] for i in keep_indices if i < len(all_boxes)]
+            all_scores = [all_scores[i] for i in keep_indices]
+            all_labels = [all_labels[i] for i in keep_indices]
+            all_object_ids = [all_object_ids[i] for i in keep_indices]
 
         # Store for tracking
         if all_masks:
-            cc.last_masks = torch.cat(all_masks, dim=0)
-            cc.last_boxes = torch.cat(all_boxes, dim=0) if all_boxes else None
-            cc.last_scores = torch.cat(all_scores, dim=0) if all_scores else None
+            cc.last_masks = torch.stack([torch.from_numpy(m).unsqueeze(0) for m in all_masks])
+            cc.last_boxes = torch.tensor(all_boxes) if all_boxes else None
+            cc.last_scores = torch.tensor(all_scores) if all_scores else None
             cc.last_labels = all_labels
             cc.prev_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         else:
@@ -332,6 +577,13 @@ def track_frame(frame: np.ndarray) -> Optional[torch.Tensor]:
                 borderValue=0
             )
             warped = (warped > 0.5).astype(np.float32)
+
+            # Apply refinements to tracked masks too
+            if cc.enable_fill_holes:
+                warped = fill_holes_in_mask(warped, cc.fill_hole_area)
+            if cc.enable_smooth_edges:
+                warped = smooth_mask_edges(warped, cc.smooth_kernel_size)
+
             tracked_masks.append(torch.from_numpy(warped).unsqueeze(0).to(cc.device_str))
 
         cc.prev_gray = curr_gray
@@ -354,13 +606,20 @@ def overlay_masks(frame: np.ndarray, masks: torch.Tensor, boxes=None, scores=Non
     h, w = frame.shape[:2]
     masks_np = masks.squeeze(1).cpu().numpy()
 
-    scores_np = scores.cpu().numpy() if scores is not None else None
+    scores_np = scores.cpu().numpy() if scores is not None and isinstance(scores, torch.Tensor) else scores
 
     for i, mask in enumerate(masks_np):
         if mask.shape != (h, w):
             mask = cv2.resize(mask.astype(np.float32), (w, h)) > 0.5
 
-        color = COLORS[i % len(COLORS)]
+        # Use persistent color if available
+        if cc.enable_persistent_ids and i < len(cc.current_detections):
+            det = cc.current_detections[i]
+            obj_id = det.get("persistent_id")
+            color = cc.object_colors.get(obj_id, COLORS[i % len(COLORS)])
+        else:
+            color = COLORS[i % len(COLORS)]
+
         mask_region = mask.astype(bool)
         overlay[mask_region] = (
             overlay[mask_region] * (1 - alpha) + np.array(color) * alpha
@@ -377,7 +636,13 @@ def overlay_masks(frame: np.ndarray, masks: torch.Tensor, boxes=None, scores=Non
 
             label = labels[i] if labels and i < len(labels) else "object"
             conf = scores_np[i] if scores_np is not None and i < len(scores_np) else 0.0
-            text = f"{label} {conf:.0%}"
+
+            # Add persistent ID to label if enabled
+            if cc.enable_persistent_ids and i < len(cc.current_detections):
+                obj_id = cc.current_detections[i].get("persistent_id")
+                text = f"#{obj_id} {label} {conf:.0%}"
+            else:
+                text = f"{label} {conf:.0%}"
 
             font = cv2.FONT_HERSHEY_SIMPLEX
             (tw, th), _ = cv2.getTextSize(text, font, 0.5, 1)
@@ -427,7 +692,6 @@ def analyze_with_claude(image_data: str, label: str) -> str:
 
         client = anthropic.Anthropic()
 
-        # Remove data URL prefix if present
         if image_data.startswith("data:"):
             image_data = image_data.split(",", 1)[1]
 
@@ -477,7 +741,6 @@ def analysis_worker():
             if item:
                 cc.log(f"Analyzing object #{item['id']}...", "INFO")
 
-                # Find the detection to get its label
                 detections = cc.current_detections
                 label = "object"
                 for det in detections:
@@ -493,7 +756,7 @@ def analysis_worker():
             time.sleep(0.5)
 
 
-# Flask routes
+# ===== FLASK ROUTES =====
 
 @app.route('/')
 def index():
@@ -502,7 +765,8 @@ def index():
                           prompts=cc.prompts,
                           threshold=cc.confidence_threshold,
                           skip_frames=cc.skip_frames,
-                          tracking=cc.enable_tracking)
+                          tracking=cc.enable_tracking,
+                          features=cc.get_feature_status())
 
 
 @app.route('/video_feed')
@@ -529,6 +793,9 @@ def api_status():
         "show_all": cc.show_all_matches,
         "analyzing": cc.analyzing,
         "analysis_queue_size": len(cc.analysis_queue),
+        "features": cc.get_feature_status(),
+        "tracked_objects_count": len(cc.tracked_objects),
+        "memory_bank_size": len(cc.memory_bank),
     })
 
 
@@ -552,11 +819,13 @@ def api_set_prompts():
     data = request.json
     prompts_str = data.get("prompts", "object")
     cc.prompts = [p.strip() for p in prompts_str.split(",") if p.strip()]
-    cc.state = None  # Reset detection state
+    cc.state = None
     cc.last_masks = None
     cc.last_boxes = None
     cc.last_scores = None
     cc.last_labels = None
+    cc.tracked_objects = {}
+    cc.memory_bank = {}
     cc.log(f"Prompts updated: {', '.join(cc.prompts)}")
     return jsonify({"success": True, "prompts": cc.prompts})
 
@@ -566,7 +835,7 @@ def api_set_limit():
     """Set max objects limit for a prompt."""
     data = request.json
     prompt = data.get("prompt")
-    limit = data.get("limit")  # None for unlimited
+    limit = data.get("limit")
 
     if limit is not None:
         cc.max_objects_per_prompt[prompt] = int(limit)
@@ -603,6 +872,11 @@ def api_reset():
     cc.last_boxes = None
     cc.last_scores = None
     cc.last_labels = None
+    cc.tracked_objects = {}
+    cc.memory_bank = {}
+    cc.object_colors = {}
+    cc.next_object_id = 1
+    cc.pending_detections = {}
     cc.clear_detections()
     cc.log("Detection state reset")
     return jsonify({"success": True})
@@ -628,12 +902,61 @@ def api_set_skip_frames():
     return jsonify({"success": True})
 
 
-@app.route('/api/toggle_tracking', methods=['POST'])
-def api_toggle_tracking():
-    """Toggle tracking."""
-    cc.enable_tracking = not cc.enable_tracking
-    cc.log(f"Tracking {'enabled' if cc.enable_tracking else 'disabled'}")
-    return jsonify({"success": True, "tracking": cc.enable_tracking})
+# ===== FEATURE TOGGLE ROUTES =====
+
+@app.route('/api/toggle_feature', methods=['POST'])
+def api_toggle_feature():
+    """Toggle a feature on/off."""
+    data = request.json
+    feature = data.get("feature")
+
+    feature_map = {
+        "tracking": "enable_tracking",
+        "memory_tracking": "enable_memory_tracking",
+        "persistent_ids": "enable_persistent_ids",
+        "fill_holes": "enable_fill_holes",
+        "non_overlap": "enable_non_overlap",
+        "smooth_edges": "enable_smooth_edges",
+        "boundary_suppression": "enable_boundary_suppression",
+        "occlusion_suppression": "enable_occlusion_suppression",
+        "hotstart": "enable_hotstart",
+    }
+
+    if feature in feature_map:
+        attr = feature_map[feature]
+        current = getattr(cc, attr)
+        setattr(cc, attr, not current)
+        new_val = getattr(cc, attr)
+        cc.log(f"{feature}: {'ON' if new_val else 'OFF'}")
+        return jsonify({"success": True, "feature": feature, "enabled": new_val})
+
+    return jsonify({"success": False, "error": "Unknown feature"})
+
+
+@app.route('/api/set_feature_param', methods=['POST'])
+def api_set_feature_param():
+    """Set a feature parameter value."""
+    data = request.json
+    param = data.get("param")
+    value = data.get("value")
+
+    param_map = {
+        "fill_hole_area": ("fill_hole_area", int),
+        "smooth_kernel_size": ("smooth_kernel_size", int),
+        "boundary_margin": ("boundary_margin", int),
+        "occlusion_threshold": ("occlusion_threshold", float),
+        "hotstart_frames": ("hotstart_frames", int),
+        "iou_threshold": ("iou_threshold", float),
+        "memory_max_frames": ("memory_max_frames", int),
+    }
+
+    if param in param_map:
+        attr, type_fn = param_map[param]
+        setattr(cc, attr, type_fn(value))
+        cc.log(f"{param} set to {value}")
+        return jsonify({"success": True})
+
+    return jsonify({"success": False, "error": "Unknown parameter"})
 
 
 @app.route('/api/analyze_object', methods=['POST'])
@@ -647,12 +970,10 @@ def api_analyze_object():
         return jsonify({"success": False, "error": "No frame available"})
 
     try:
-        # Crop the object from current frame
         frame = cc.current_frame.copy()
 
         if box:
             x1, y1, x2, y2 = [int(v) for v in box]
-            # Add padding
             h, w = frame.shape[:2]
             pad = 20
             x1 = max(0, x1 - pad)
@@ -663,7 +984,6 @@ def api_analyze_object():
         else:
             crop = frame
 
-        # Encode to base64
         _, buffer = cv2.imencode('.jpg', crop, [cv2.IMWRITE_JPEG_QUALITY, 90])
         image_data = base64.b64encode(buffer).decode('utf-8')
 
@@ -675,6 +995,22 @@ def api_analyze_object():
     except Exception as e:
         cc.log(f"Failed to queue analysis: {e}", "ERROR")
         return jsonify({"success": False, "error": str(e)})
+
+
+@app.route('/api/tracked_objects')
+def api_tracked_objects():
+    """Get list of tracked objects with persistent IDs."""
+    objects = []
+    for obj_id, data in cc.tracked_objects.items():
+        objects.append({
+            "id": obj_id,
+            "label": data.get("label"),
+            "first_seen": data.get("first_seen"),
+            "last_seen": data.get("last_seen"),
+            "confidence": data.get("confidence", 0),
+            "frames_tracked": data.get("last_seen", 0) - data.get("first_seen", 0),
+        })
+    return jsonify({"objects": objects})
 
 
 def main():

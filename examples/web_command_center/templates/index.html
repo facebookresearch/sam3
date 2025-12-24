@@ -17,6 +17,7 @@
             --accent-red: #ff4757;
             --accent-yellow: #ffc107;
             --accent-purple: #a855f7;
+            --accent-orange: #ff9500;
         }
 
         * {
@@ -85,8 +86,7 @@
 
         .main-container {
             display: grid;
-            grid-template-columns: 1fr 350px;
-            grid-template-rows: auto 1fr;
+            grid-template-columns: 1fr 380px;
             gap: 15px;
             padding: 15px;
             height: calc(100vh - 70px);
@@ -118,13 +118,14 @@
 
         /* Video Panel */
         .video-panel {
-            grid-row: span 2;
+            display: flex;
+            flex-direction: column;
         }
 
         .video-container {
             position: relative;
             width: 100%;
-            padding-top: 56.25%; /* 16:9 aspect ratio */
+            padding-top: 56.25%;
             background: #000;
             border-radius: 4px;
             overflow: hidden;
@@ -139,17 +140,22 @@
             object-fit: contain;
         }
 
-        /* Controls Panel */
-        .controls-panel {
-            display: flex;
-            flex-direction: column;
+        /* Controls */
+        .controls-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
             gap: 10px;
+            margin-top: 15px;
         }
 
         .control-group {
             background: var(--bg-card);
             border-radius: 6px;
             padding: 12px;
+        }
+
+        .control-group.full-width {
+            grid-column: span 2;
         }
 
         .control-group label {
@@ -208,11 +214,6 @@
             color: #000;
         }
 
-        .btn-warning {
-            background: var(--accent-yellow);
-            color: #000;
-        }
-
         .btn-sm {
             padding: 4px 10px;
             font-size: 0.75rem;
@@ -222,6 +223,108 @@
             display: flex;
             gap: 8px;
             flex-wrap: wrap;
+        }
+
+        /* Feature Toggles Section */
+        .features-panel {
+            margin-top: 15px;
+        }
+
+        .feature-section {
+            background: var(--bg-card);
+            border-radius: 6px;
+            padding: 12px;
+            margin-bottom: 10px;
+        }
+
+        .feature-section-title {
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: var(--accent-blue);
+            margin-bottom: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .feature-toggle {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 0;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .feature-toggle:last-child {
+            border-bottom: none;
+        }
+
+        .feature-info {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .feature-name {
+            font-size: 0.85rem;
+            color: var(--text-primary);
+        }
+
+        .feature-desc {
+            font-size: 0.7rem;
+            color: var(--text-secondary);
+        }
+
+        .toggle-switch {
+            width: 44px;
+            height: 24px;
+            background: var(--bg-dark);
+            border-radius: 12px;
+            position: relative;
+            cursor: pointer;
+            transition: background 0.2s;
+            flex-shrink: 0;
+        }
+
+        .toggle-switch.active {
+            background: var(--accent-green);
+        }
+
+        .toggle-switch::after {
+            content: '';
+            position: absolute;
+            top: 2px;
+            left: 2px;
+            width: 20px;
+            height: 20px;
+            background: white;
+            border-radius: 50%;
+            transition: left 0.2s;
+        }
+
+        .toggle-switch.active::after {
+            left: 22px;
+        }
+
+        .feature-param {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-top: 6px;
+            padding-left: 10px;
+        }
+
+        .feature-param input {
+            width: 70px;
+            background: var(--bg-dark);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            padding: 4px 8px;
+            color: var(--text-primary);
+            font-size: 0.8rem;
+        }
+
+        .feature-param label {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
         }
 
         /* Detections Panel */
@@ -243,6 +346,12 @@
         .detection-label {
             font-weight: 600;
             color: var(--accent-blue);
+        }
+
+        .detection-id {
+            font-size: 0.75rem;
+            color: var(--accent-purple);
+            margin-left: 6px;
         }
 
         .detection-confidence {
@@ -267,35 +376,7 @@
             gap: 6px;
         }
 
-        .hidden-count {
-            background: var(--bg-card);
-            padding: 10px;
-            border-radius: 6px;
-            text-align: center;
-            color: var(--accent-yellow);
-            font-size: 0.85rem;
-            margin-top: 10px;
-        }
-
-        .limit-control {
-            display: flex;
-            gap: 8px;
-            align-items: center;
-            margin-top: 8px;
-            padding-top: 8px;
-            border-top: 1px solid var(--border-color);
-        }
-
-        .limit-control input {
-            width: 60px;
-            text-align: center;
-        }
-
         /* Log Panel */
-        .log-panel {
-            max-height: 200px;
-        }
-
         .log-entry {
             font-family: 'Consolas', monospace;
             font-size: 0.75rem;
@@ -318,11 +399,7 @@
         .log-level.INFO { color: var(--accent-blue); }
         .log-level.SUCCESS { color: var(--accent-green); }
         .log-level.ERROR { color: var(--accent-red); }
-        .log-level.WARN { color: var(--accent-yellow); }
-
-        .log-message {
-            color: var(--text-primary);
-        }
+        .log-level.DEBUG { color: var(--accent-purple); }
 
         /* Analysis Panel */
         .analysis-item {
@@ -336,10 +413,9 @@
         .analysis-header {
             display: flex;
             justify-content: space-between;
-            align-items: center;
-            margin-bottom: 8px;
             font-size: 0.8rem;
             color: var(--text-secondary);
+            margin-bottom: 8px;
         }
 
         .analysis-text {
@@ -361,7 +437,7 @@
             to { transform: rotate(360deg); }
         }
 
-        /* Right sidebar layout */
+        /* Sidebar */
         .sidebar {
             display: flex;
             flex-direction: column;
@@ -382,89 +458,70 @@
             overflow-y: auto;
         }
 
-        /* Verbose toggle */
-        .verbose-section {
-            background: var(--bg-card);
-            border-radius: 6px;
-            padding: 12px;
-            margin-top: 10px;
+        /* Tracked Objects Panel */
+        .tracked-objects-list {
+            max-height: 150px;
+            overflow-y: auto;
         }
 
-        .verbose-toggle {
+        .tracked-object {
             display: flex;
             align-items: center;
-            gap: 10px;
-            cursor: pointer;
-        }
-
-        .toggle-switch {
-            width: 40px;
-            height: 20px;
-            background: var(--bg-dark);
-            border-radius: 10px;
-            position: relative;
-            transition: background 0.2s;
-        }
-
-        .toggle-switch.active {
-            background: var(--accent-blue);
-        }
-
-        .toggle-switch::after {
-            content: '';
-            position: absolute;
-            top: 2px;
-            left: 2px;
-            width: 16px;
-            height: 16px;
-            background: white;
-            border-radius: 50%;
-            transition: left 0.2s;
-        }
-
-        .toggle-switch.active::after {
-            left: 22px;
-        }
-
-        .verbose-info {
-            margin-top: 10px;
+            gap: 8px;
+            padding: 6px 0;
+            border-bottom: 1px solid var(--border-color);
             font-size: 0.8rem;
-            color: var(--text-secondary);
         }
 
-        .verbose-info .value {
-            color: var(--accent-green);
+        .tracked-object-color {
+            width: 12px;
+            height: 12px;
+            border-radius: 3px;
         }
 
-        /* Empty state */
         .empty-state {
             text-align: center;
             padding: 30px;
             color: var(--text-secondary);
         }
 
-        /* Prompt tags */
-        .prompt-tags {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 6px;
-            margin-top: 8px;
+        /* Scrollable content area */
+        .left-panel-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 15px;
         }
 
-        .prompt-tag {
-            background: var(--bg-dark);
-            padding: 4px 10px;
-            border-radius: 4px;
-            font-size: 0.8rem;
+        /* Tabs */
+        .tabs {
             display: flex;
-            align-items: center;
-            gap: 6px;
+            border-bottom: 1px solid var(--border-color);
         }
 
-        .prompt-tag .remove {
+        .tab {
+            padding: 10px 20px;
             cursor: pointer;
-            color: var(--accent-red);
-            font-weight: bold;
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+            border-bottom: 2px solid transparent;
+            transition: all 0.2s;
+        }
+
+        .tab:hover {
+            color: var(--text-primary);
+        }
+
+        .tab.active {
+            color: var(--accent-blue);
+            border-bottom-color: var(--accent-blue);
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
         }
     </style>
 </head>
@@ -485,6 +542,10 @@
                 <span class="status-value" id="object-count">0</span>
             </div>
             <div class="status-item">
+                <span>Tracked:</span>
+                <span class="status-value" id="tracked-count">0</span>
+            </div>
+            <div class="status-item">
                 <span>Status:</span>
                 <span class="status-value" id="status">Running</span>
             </div>
@@ -492,7 +553,7 @@
     </header>
 
     <main class="main-container">
-        <!-- Video Feed Panel -->
+        <!-- Left Panel - Video and Controls -->
         <div class="panel video-panel">
             <div class="panel-header">
                 <span>Live Feed</span>
@@ -501,56 +562,166 @@
                     <button class="btn btn-sm btn-danger" onclick="resetDetection()">Reset</button>
                 </div>
             </div>
-            <div class="panel-content">
+            <div class="left-panel-content">
                 <div class="video-container">
                     <img id="video-feed" src="/video_feed" alt="Live camera feed">
                 </div>
 
-                <!-- Controls -->
-                <div class="controls-panel" style="margin-top: 15px;">
-                    <div class="control-group">
-                        <label>Detection Prompts (comma-separated)</label>
-                        <input type="text" id="prompts-input" value="{{ prompts | join(', ') }}"
-                               placeholder="person, car, dog...">
-                        <div class="prompt-tags" id="prompt-tags"></div>
-                    </div>
+                <!-- Tabs for Controls and Features -->
+                <div class="tabs" style="margin-top: 15px;">
+                    <div class="tab active" onclick="switchTab('controls')">Controls</div>
+                    <div class="tab" onclick="switchTab('features')">Features</div>
+                </div>
 
-                    <div class="btn-group" style="margin-top: 10px;">
-                        <button class="btn" onclick="setPrompts()">Apply Prompts</button>
-                    </div>
+                <!-- Controls Tab -->
+                <div id="tab-controls" class="tab-content active">
+                    <div class="controls-grid">
+                        <div class="control-group full-width">
+                            <label>Detection Prompts (comma-separated)</label>
+                            <input type="text" id="prompts-input" value="{{ prompts | join(', ') }}"
+                                   placeholder="person, car, dog...">
+                            <button class="btn" style="margin-top: 8px; width: 100%;" onclick="setPrompts()">Apply Prompts</button>
+                        </div>
 
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px;">
                         <div class="control-group">
                             <label>Confidence Threshold</label>
                             <input type="number" id="threshold-input" value="{{ threshold }}"
                                    min="0" max="1" step="0.05">
+                            <button class="btn btn-sm btn-secondary" style="margin-top: 6px;" onclick="setThreshold()">Set</button>
                         </div>
+
                         <div class="control-group">
                             <label>Skip Frames</label>
                             <input type="number" id="skip-frames-input" value="{{ skip_frames }}"
                                    min="1" max="30">
+                            <button class="btn btn-sm btn-secondary" style="margin-top: 6px;" onclick="setSkipFrames()">Set</button>
                         </div>
                     </div>
+                </div>
 
-                    <div class="btn-group" style="margin-top: 10px;">
-                        <button class="btn btn-secondary" onclick="setThreshold()">Set Threshold</button>
-                        <button class="btn btn-secondary" onclick="setSkipFrames()">Set Skip Frames</button>
-                        <button class="btn btn-secondary" onclick="toggleTracking()" id="tracking-btn">
-                            Tracking: {{ 'ON' if tracking else 'OFF' }}
-                        </button>
-                    </div>
+                <!-- Features Tab -->
+                <div id="tab-features" class="tab-content">
+                    <div class="features-panel">
+                        <!-- Tracking Features -->
+                        <div class="feature-section">
+                            <div class="feature-section-title">Tracking</div>
 
-                    <!-- Verbose Section -->
-                    <div class="verbose-section">
-                        <div class="verbose-toggle" onclick="toggleVerbose()">
-                            <div class="toggle-switch" id="verbose-toggle"></div>
-                            <span>Verbose Mode</span>
+                            <div class="feature-toggle">
+                                <div class="feature-info">
+                                    <span class="feature-name">Optical Flow Tracking</span>
+                                    <span class="feature-desc">Track masks between keyframes</span>
+                                </div>
+                                <div class="toggle-switch" id="toggle-tracking" onclick="toggleFeature('tracking')"></div>
+                            </div>
+
+                            <div class="feature-toggle">
+                                <div class="feature-info">
+                                    <span class="feature-name">Memory Tracking</span>
+                                    <span class="feature-desc">Store mask history for re-identification</span>
+                                </div>
+                                <div class="toggle-switch" id="toggle-memory_tracking" onclick="toggleFeature('memory_tracking')"></div>
+                            </div>
+                            <div class="feature-param">
+                                <label>Max frames:</label>
+                                <input type="number" id="param-memory_max_frames" value="10" min="1" max="50"
+                                       onchange="setFeatureParam('memory_max_frames', this.value)">
+                            </div>
+
+                            <div class="feature-toggle">
+                                <div class="feature-info">
+                                    <span class="feature-name">Persistent Object IDs</span>
+                                    <span class="feature-desc">Assign stable IDs to tracked objects</span>
+                                </div>
+                                <div class="toggle-switch" id="toggle-persistent_ids" onclick="toggleFeature('persistent_ids')"></div>
+                            </div>
+                            <div class="feature-param">
+                                <label>IoU threshold:</label>
+                                <input type="number" id="param-iou_threshold" value="0.3" min="0.1" max="0.9" step="0.1"
+                                       onchange="setFeatureParam('iou_threshold', this.value)">
+                            </div>
                         </div>
-                        <div class="verbose-info" id="verbose-info" style="display: none;">
-                            <div>Tracking: <span class="value" id="v-tracking">-</span></div>
-                            <div>Frame: <span class="value" id="v-frame">-</span></div>
-                            <div>Queue: <span class="value" id="v-queue">-</span></div>
-                            <div>Limits: <span class="value" id="v-limits">-</span></div>
+
+                        <!-- Mask Refinement -->
+                        <div class="feature-section">
+                            <div class="feature-section-title">Mask Refinement</div>
+
+                            <div class="feature-toggle">
+                                <div class="feature-info">
+                                    <span class="feature-name">Fill Holes</span>
+                                    <span class="feature-desc">Fill small gaps in masks</span>
+                                </div>
+                                <div class="toggle-switch" id="toggle-fill_holes" onclick="toggleFeature('fill_holes')"></div>
+                            </div>
+                            <div class="feature-param">
+                                <label>Max hole area (px):</label>
+                                <input type="number" id="param-fill_hole_area" value="100" min="10" max="1000"
+                                       onchange="setFeatureParam('fill_hole_area', this.value)">
+                            </div>
+
+                            <div class="feature-toggle">
+                                <div class="feature-info">
+                                    <span class="feature-name">Smooth Edges</span>
+                                    <span class="feature-desc">Morphological smoothing of mask edges</span>
+                                </div>
+                                <div class="toggle-switch" id="toggle-smooth_edges" onclick="toggleFeature('smooth_edges')"></div>
+                            </div>
+                            <div class="feature-param">
+                                <label>Kernel size:</label>
+                                <input type="number" id="param-smooth_kernel_size" value="5" min="3" max="15" step="2"
+                                       onchange="setFeatureParam('smooth_kernel_size', this.value)">
+                            </div>
+
+                            <div class="feature-toggle">
+                                <div class="feature-info">
+                                    <span class="feature-name">Non-Overlapping Masks</span>
+                                    <span class="feature-desc">Prevent mask overlaps (higher conf wins)</span>
+                                </div>
+                                <div class="toggle-switch" id="toggle-non_overlap" onclick="toggleFeature('non_overlap')"></div>
+                            </div>
+                        </div>
+
+                        <!-- Detection Controls -->
+                        <div class="feature-section">
+                            <div class="feature-section-title">Detection Controls</div>
+
+                            <div class="feature-toggle">
+                                <div class="feature-info">
+                                    <span class="feature-name">Boundary Suppression</span>
+                                    <span class="feature-desc">Ignore detections near frame edges</span>
+                                </div>
+                                <div class="toggle-switch" id="toggle-boundary_suppression" onclick="toggleFeature('boundary_suppression')"></div>
+                            </div>
+                            <div class="feature-param">
+                                <label>Margin (px):</label>
+                                <input type="number" id="param-boundary_margin" value="10" min="5" max="100"
+                                       onchange="setFeatureParam('boundary_margin', this.value)">
+                            </div>
+
+                            <div class="feature-toggle">
+                                <div class="feature-info">
+                                    <span class="feature-name">Occlusion Suppression</span>
+                                    <span class="feature-desc">Remove heavily overlapped detections</span>
+                                </div>
+                                <div class="toggle-switch" id="toggle-occlusion_suppression" onclick="toggleFeature('occlusion_suppression')"></div>
+                            </div>
+                            <div class="feature-param">
+                                <label>Overlap threshold:</label>
+                                <input type="number" id="param-occlusion_threshold" value="0.5" min="0.1" max="0.9" step="0.1"
+                                       onchange="setFeatureParam('occlusion_threshold', this.value)">
+                            </div>
+
+                            <div class="feature-toggle">
+                                <div class="feature-info">
+                                    <span class="feature-name">Hotstart Mode</span>
+                                    <span class="feature-desc">Require N frames before confirming detection</span>
+                                </div>
+                                <div class="toggle-switch" id="toggle-hotstart" onclick="toggleFeature('hotstart')"></div>
+                            </div>
+                            <div class="feature-param">
+                                <label>Frames required:</label>
+                                <input type="number" id="param-hotstart_frames" value="5" min="2" max="30"
+                                       onchange="setFeatureParam('hotstart_frames', this.value)">
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -577,59 +748,85 @@
                     <span id="analysis-status"></span>
                 </div>
                 <div class="panel-content" id="analysis-list">
-                    <div class="empty-state">Click "Analyze" on an object to get AI insights</div>
+                    <div class="empty-state">Click "Analyze" on an object</div>
                 </div>
             </div>
 
             <!-- Logs Panel -->
-            <div class="panel log-panel" style="flex: 1;">
+            <div class="panel" style="flex: 1; min-height: 150px;">
                 <div class="panel-header">
                     <span>System Log</span>
                     <button class="btn btn-sm btn-secondary" onclick="clearLogs()">Clear</button>
                 </div>
-                <div class="panel-content" id="log-list">
-                </div>
+                <div class="panel-content" id="log-list"></div>
             </div>
         </div>
     </main>
 
     <script>
-        let verboseMode = false;
-        let trackingEnabled = {{ 'true' if tracking else 'false' }};
-        let promptLimits = {};
-        let showAllMatches = {};
+        let features = {{ features | tojson }};
 
-        // Update status periodically
+        // Tab switching
+        function switchTab(tabName) {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+            event.target.classList.add('active');
+            document.getElementById('tab-' + tabName).classList.add('active');
+        }
+
+        // Update toggle states from features object
+        function updateToggles() {
+            for (const [feature, enabled] of Object.entries(features)) {
+                const toggle = document.getElementById('toggle-' + feature);
+                if (toggle) {
+                    toggle.classList.toggle('active', enabled);
+                }
+            }
+        }
+
+        // Toggle a feature
+        async function toggleFeature(feature) {
+            const response = await fetch('/api/toggle_feature', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ feature })
+            });
+            const data = await response.json();
+            if (data.success) {
+                features[feature] = data.enabled;
+                updateToggles();
+            }
+        }
+
+        // Set a feature parameter
+        async function setFeatureParam(param, value) {
+            await fetch('/api/set_feature_param', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ param, value })
+            });
+        }
+
+        // Update status
         async function updateStatus() {
             try {
                 const response = await fetch('/api/status');
                 const data = await response.json();
 
-                // Update status bar
                 document.getElementById('fps').textContent = data.fps;
                 document.getElementById('device').textContent = data.device;
                 document.getElementById('object-count').textContent = data.detections.length;
+                document.getElementById('tracked-count').textContent = data.tracked_objects_count || 0;
                 document.getElementById('status').textContent = data.paused ? 'Paused' : 'Running';
                 document.getElementById('pause-btn').textContent = data.paused ? 'Resume' : 'Pause';
 
-                // Update verbose info
-                if (verboseMode) {
-                    document.getElementById('v-tracking').textContent = trackingEnabled ? 'ON' : 'OFF';
-                    document.getElementById('v-frame').textContent = data.frame_count;
-                    document.getElementById('v-queue').textContent = data.analysis_queue_size;
-                    document.getElementById('v-limits').textContent = JSON.stringify(data.max_objects);
-                }
-
-                // Update analysis status
                 document.getElementById('analysis-status').innerHTML = data.analyzing
                     ? '<span class="loading-spinner"></span>' : '';
 
-                // Update detections list
-                updateDetections(data.detections, data.hidden_counts);
+                features = data.features;
+                updateToggles();
 
-                // Store state
-                promptLimits = data.max_objects;
-                showAllMatches = data.show_all;
+                updateDetections(data.detections, data.hidden_counts);
 
             } catch (e) {
                 console.error('Status update failed:', e);
@@ -645,59 +842,29 @@
                 return;
             }
 
-            // Group by label
-            const byLabel = {};
-            detections.forEach(det => {
-                const label = det.label || 'object';
-                if (!byLabel[label]) byLabel[label] = [];
-                byLabel[label].push(det);
-            });
-
             let html = '';
+            detections.forEach(det => {
+                const conf = (det.confidence * 100).toFixed(0);
+                const confClass = conf >= 70 ? 'conf-high' : conf >= 40 ? 'conf-medium' : 'conf-low';
+                const persistentId = det.persistent_id ? `<span class="detection-id">#${det.persistent_id}</span>` : '';
 
-            for (const [label, dets] of Object.entries(byLabel)) {
-                dets.forEach(det => {
-                    const conf = (det.confidence * 100).toFixed(0);
-                    const confClass = conf >= 70 ? 'conf-high' : conf >= 40 ? 'conf-medium' : 'conf-low';
-
-                    html += `
-                        <div class="detection-item" data-id="${det.id}">
-                            <div class="detection-header">
-                                <span class="detection-label">${det.label}</span>
-                                <span class="detection-confidence ${confClass}">${conf}%</span>
-                            </div>
-                            <div class="detection-info">
-                                ID: #${det.id} | Box: ${det.box ? det.box.map(v => v.toFixed(0)).join(', ') : 'N/A'}
-                            </div>
-                            <div class="detection-actions">
-                                <button class="btn btn-sm" onclick="analyzeObject(${det.id}, ${JSON.stringify(det.box)})">
-                                    Analyze with Claude
-                                </button>
-                            </div>
+                html += `
+                    <div class="detection-item">
+                        <div class="detection-header">
+                            <span class="detection-label">${det.label}${persistentId}</span>
+                            <span class="detection-confidence ${confClass}">${conf}%</span>
                         </div>
-                    `;
-                });
-
-                // Show limit controls for this label
-                const limit = promptLimits[label];
-                const showAll = showAllMatches[label];
-                const hidden = hiddenCounts[label] || 0;
-
-                if (hidden > 0 || limit) {
-                    html += `
-                        <div class="limit-control">
-                            <label>Max ${label}:</label>
-                            <input type="number" value="${limit || ''}" placeholder="all"
-                                   onchange="setLimit('${label}', this.value)" min="1" max="100">
-                            ${hidden > 0 ? `
-                                <button class="btn btn-sm btn-warning" onclick="toggleShowAll('${label}')">
-                                    ${showAll ? 'Hide' : 'Show'} +${hidden} more
-                                </button>
-                            ` : ''}
+                        <div class="detection-info">
+                            ID: ${det.id} | Box: ${det.box ? det.box.map(v => v.toFixed(0)).join(', ') : 'N/A'}
                         </div>
-                    `;
-                }
-            }
+                        <div class="detection-actions">
+                            <button class="btn btn-sm" onclick="analyzeObject(${det.id}, ${JSON.stringify(det.box)})">
+                                Analyze with Claude
+                            </button>
+                        </div>
+                    </div>
+                `;
+            });
 
             container.innerHTML = html;
         }
@@ -734,7 +901,7 @@
                 const container = document.getElementById('analysis-list');
 
                 if (data.results.length === 0) {
-                    container.innerHTML = '<div class="empty-state">Click "Analyze" on an object to get AI insights</div>';
+                    container.innerHTML = '<div class="empty-state">Click "Analyze" on an object</div>';
                     return;
                 }
 
@@ -792,30 +959,6 @@
             await fetch('/api/reset', { method: 'POST' });
         }
 
-        async function toggleTracking() {
-            const response = await fetch('/api/toggle_tracking', { method: 'POST' });
-            const data = await response.json();
-            trackingEnabled = data.tracking;
-            document.getElementById('tracking-btn').textContent = `Tracking: ${trackingEnabled ? 'ON' : 'OFF'}`;
-        }
-
-        async function setLimit(prompt, value) {
-            const limit = value ? parseInt(value) : null;
-            await fetch('/api/set_limit', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ prompt, limit })
-            });
-        }
-
-        async function toggleShowAll(prompt) {
-            await fetch('/api/toggle_show_all', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ prompt })
-            });
-        }
-
         async function analyzeObject(detectionId, box) {
             await fetch('/api/analyze_object', {
                 method: 'POST',
@@ -824,38 +967,16 @@
             });
         }
 
-        function toggleVerbose() {
-            verboseMode = !verboseMode;
-            document.getElementById('verbose-toggle').classList.toggle('active', verboseMode);
-            document.getElementById('verbose-info').style.display = verboseMode ? 'block' : 'none';
-        }
-
         function clearLogs() {
             document.getElementById('log-list').innerHTML = '';
         }
 
-        // Update prompt tags display
-        function updatePromptTags() {
-            const input = document.getElementById('prompts-input');
-            const container = document.getElementById('prompt-tags');
-            const prompts = input.value.split(',').map(p => p.trim()).filter(p => p);
-
-            container.innerHTML = prompts.map(p => `
-                <span class="prompt-tag">
-                    ${p}
-                </span>
-            `).join('');
-        }
-
-        document.getElementById('prompts-input').addEventListener('input', updatePromptTags);
-        updatePromptTags();
-
-        // Start periodic updates
+        // Initialize
+        updateToggles();
         setInterval(updateStatus, 500);
         setInterval(updateLogs, 1000);
         setInterval(updateAnalysis, 1000);
 
-        // Initial updates
         updateStatus();
         updateLogs();
         updateAnalysis();
