@@ -43,12 +43,29 @@ from PIL import Image
 from flask import Flask, Response, render_template, request, jsonify
 from scipy import ndimage
 
+# Load environment variables from .env file if present
+try:
+    from dotenv import load_dotenv
+    # Look for .env in the web_command_center directory
+    env_path = os.path.join(os.path.dirname(__file__), '.env')
+    if os.path.exists(env_path):
+        load_dotenv(env_path)
+        print(f"Loaded environment from {env_path}")
+    else:
+        # Also check current working directory
+        load_dotenv()
+except ImportError:
+    pass  # python-dotenv not installed, rely on system environment
+
 # Add parent directory to path for sam3 imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
 from sam3.utils.device import get_device, get_device_str, setup_device_optimizations, empty_cache
 
 app = Flask(__name__)
+
+# Global API key storage (can be set via CLI arg or environment)
+ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY')
 
 
 # ===== SAM3 to COCO Label Mapping =====
@@ -1475,10 +1492,15 @@ def generate_frames():
 
 def analyze_with_claude(image_data: str, label: str) -> str:
     """Send image to Claude for analysis."""
+    global ANTHROPIC_API_KEY
+
+    if not ANTHROPIC_API_KEY:
+        return "Error: ANTHROPIC_API_KEY not set. Set it via environment variable or --api-key argument."
+
     try:
         import anthropic
 
-        client = anthropic.Anthropic()
+        client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
         if image_data.startswith("data:"):
             image_data = image_data.split(",", 1)[1]
@@ -1858,10 +1880,20 @@ def parse_voice_query_with_claude(voice_text: str) -> Dict:
         - is_multi: Whether multiple objects were requested
         - feedback: Human-readable feedback message
     """
+    global ANTHROPIC_API_KEY
+
+    if not ANTHROPIC_API_KEY:
+        return {
+            "success": False,
+            "error": "ANTHROPIC_API_KEY not set",
+            "prompts": [voice_text],  # Fallback: use raw text
+            "feedback": f"API key not set. Searching for: {voice_text}"
+        }
+
     try:
         import anthropic
 
-        client = anthropic.Anthropic()
+        client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
         message = client.messages.create(
             model="claude-sonnet-4-20250514",
@@ -2132,8 +2164,20 @@ def main():
     parser.add_argument("--skip-frames", type=int, default=3, help="Process every N frames")
     parser.add_argument("--no-tracking", action="store_true", help="Disable optical flow tracking")
     parser.add_argument("--no-yolo", action="store_true", help="Disable YOLO models")
+    parser.add_argument("--api-key", type=str, default=None, help="Anthropic API key (or set ANTHROPIC_API_KEY env var)")
 
     args = parser.parse_args()
+
+    # Set API key from argument if provided
+    global ANTHROPIC_API_KEY
+    if args.api_key:
+        ANTHROPIC_API_KEY = args.api_key
+        print("Using API key from command line argument")
+    elif ANTHROPIC_API_KEY:
+        print("Using API key from environment variable")
+    else:
+        print("WARNING: No Anthropic API key set. Claude features (analysis, voice search) will not work.")
+        print("  Set via: --api-key YOUR_KEY or ANTHROPIC_API_KEY=YOUR_KEY")
 
     # Configure command center
     cc.prompts = [p.strip() for p in args.prompt.split(",") if p.strip()]
