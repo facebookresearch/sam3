@@ -990,6 +990,108 @@
             0%, 100% { opacity: 0.5; }
             50% { opacity: 1; }
         }
+
+        /* ===== OBSTACLE ALERT STYLES ===== */
+        .obstacle-alert {
+            position: absolute;
+            top: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: linear-gradient(135deg, #dc2626 0%, #f97316 100%);
+            color: white;
+            padding: 15px 30px;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            font-size: 1.2rem;
+            font-weight: bold;
+            box-shadow: 0 4px 20px rgba(220, 38, 38, 0.5);
+            animation: obstacle-alert-pulse 0.5s ease-in-out;
+            z-index: 1100;
+        }
+
+        .obstacle-alert-icon {
+            font-size: 2rem;
+        }
+
+        @keyframes obstacle-alert-pulse {
+            0% { transform: translateX(-50%) scale(0.9); opacity: 0; }
+            50% { transform: translateX(-50%) scale(1.1); }
+            100% { transform: translateX(-50%) scale(1); opacity: 1; }
+        }
+
+        /* ===== POST-NAVIGATION DIALOG ===== */
+        .post-nav-dialog {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.8);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 2000;
+            animation: fadeIn 0.3s ease;
+        }
+
+        .post-nav-content {
+            background: var(--panel-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 40px;
+            text-align: center;
+            max-width: 400px;
+            animation: slideUp 0.3s ease;
+        }
+
+        .post-nav-content h3 {
+            font-size: 1.8rem;
+            color: var(--accent-color);
+            margin-bottom: 15px;
+        }
+
+        .post-nav-content p {
+            color: var(--text-secondary);
+            margin-bottom: 30px;
+        }
+
+        .post-nav-buttons {
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+        }
+
+        .post-nav-btn-continue {
+            background: var(--success-color);
+            padding: 15px 30px;
+            font-size: 1.1rem;
+        }
+
+        .post-nav-btn-continue:hover {
+            background: #059669;
+        }
+
+        .post-nav-btn-pause {
+            background: var(--text-secondary);
+            padding: 15px 30px;
+            font-size: 1.1rem;
+        }
+
+        .post-nav-btn-pause:hover {
+            background: #6b7280;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        @keyframes slideUp {
+            from { transform: translateY(20px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
     </style>
 </head>
 <body>
@@ -2735,7 +2837,14 @@
 
                     // Update proximity beeps
                     updateProximityBeeps(data.guidance.distance);
-                } else if (data.searching) {
+                }
+
+                // Handle obstacle alerts
+                if (data.obstacles && data.obstacles.length > 0) {
+                    handleObstacleAlerts(data.obstacles);
+                }
+
+                if (data.searching) {
                     // Object not currently visible
                     document.getElementById('nav-direction-icon').textContent = '🔍';
                     document.getElementById('nav-direction-text').textContent = 'Searching...';
@@ -2963,11 +3072,202 @@
             }
         }
 
+        // ===== OBSTACLE ALERTS =====
+
+        let lastObstacleAlert = '';
+        let lastObstacleAlertTime = 0;
+
+        function handleObstacleAlerts(obstacles) {
+            const now = Date.now();
+
+            for (const obstacle of obstacles) {
+                // Only alert for high/medium severity or close obstacles
+                if (obstacle.type === 'high' ||
+                    (obstacle.type === 'medium' && obstacle.distance !== 'far') ||
+                    obstacle.distance === 'very_close' || obstacle.distance === 'close') {
+
+                    const alertKey = `${obstacle.label}_${obstacle.distance}`;
+
+                    // Cooldown check
+                    if (alertKey !== lastObstacleAlert || now - lastObstacleAlertTime > 3000) {
+                        // Play warning sound
+                        playObstacleWarning(obstacle.type);
+
+                        // TTS alert
+                        if (navTTSEnabled) {
+                            speak(obstacle.alert_text);
+                        }
+
+                        lastObstacleAlert = alertKey;
+                        lastObstacleAlertTime = now;
+
+                        // Show visual alert
+                        showObstacleVisualAlert(obstacle);
+                    }
+                }
+            }
+        }
+
+        function playObstacleWarning(severity) {
+            try {
+                const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                const oscillator = audioCtx.createOscillator();
+                const gainNode = audioCtx.createGain();
+
+                oscillator.connect(gainNode);
+                gainNode.connect(audioCtx.destination);
+
+                // Different sounds for different severity
+                if (severity === 'high') {
+                    // Urgent double beep
+                    oscillator.frequency.value = 800;
+                    gainNode.gain.setValueAtTime(0.3, audioCtx.currentTime);
+                    gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.15);
+                    oscillator.start(audioCtx.currentTime);
+                    oscillator.stop(audioCtx.currentTime + 0.15);
+
+                    // Second beep
+                    const osc2 = audioCtx.createOscillator();
+                    const gain2 = audioCtx.createGain();
+                    osc2.connect(gain2);
+                    gain2.connect(audioCtx.destination);
+                    osc2.frequency.value = 800;
+                    gain2.gain.setValueAtTime(0.3, audioCtx.currentTime + 0.2);
+                    gain2.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.35);
+                    osc2.start(audioCtx.currentTime + 0.2);
+                    osc2.stop(audioCtx.currentTime + 0.35);
+                } else {
+                    // Single warning beep
+                    oscillator.frequency.value = 500;
+                    gainNode.gain.setValueAtTime(0.2, audioCtx.currentTime);
+                    gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.2);
+                    oscillator.start(audioCtx.currentTime);
+                    oscillator.stop(audioCtx.currentTime + 0.2);
+                }
+            } catch (e) {
+                // Audio not available
+            }
+        }
+
+        function showObstacleVisualAlert(obstacle) {
+            // Create temporary visual alert overlay
+            const alertDiv = document.createElement('div');
+            alertDiv.className = 'obstacle-alert';
+            alertDiv.innerHTML = `
+                <span class="obstacle-alert-icon">⚠️</span>
+                <span class="obstacle-alert-text">${obstacle.alert_text}</span>
+            `;
+
+            const overlay = document.getElementById('navigation-overlay');
+            overlay.appendChild(alertDiv);
+
+            // Remove after 2 seconds
+            setTimeout(() => {
+                alertDiv.remove();
+            }, 2000);
+        }
+
+        // ===== POST-NAVIGATION DIALOG =====
+
+        function showPostNavigationDialog(reached) {
+            const dialog = document.createElement('div');
+            dialog.className = 'post-nav-dialog';
+            dialog.innerHTML = `
+                <div class="post-nav-content">
+                    <h3>${reached ? 'Object Reached!' : 'Navigation Ended'}</h3>
+                    <p>${reached ? 'You successfully found the object.' : 'What would you like to do next?'}</p>
+                    <div class="post-nav-buttons">
+                        <button class="btn post-nav-btn-continue" onclick="continueDetection()">
+                            Continue Detecting
+                        </button>
+                        <button class="btn post-nav-btn-pause" onclick="pauseDetection()">
+                            Pause
+                        </button>
+                    </div>
+                </div>
+            `;
+
+            document.body.appendChild(dialog);
+
+            // TTS announcement
+            if (ttsEnabled) {
+                speak(reached ?
+                    'Object reached! Say continue to keep detecting, or pause to stop.' :
+                    'Navigation ended. Say continue to keep detecting, or pause to stop.');
+            }
+        }
+
+        function continueDetection() {
+            // Remove dialog
+            const dialog = document.querySelector('.post-nav-dialog');
+            if (dialog) dialog.remove();
+
+            // Continue with normal detection
+            if (ttsEnabled) {
+                speak('Continuing detection mode');
+            }
+        }
+
+        async function pauseDetection() {
+            // Remove dialog
+            const dialog = document.querySelector('.post-nav-dialog');
+            if (dialog) dialog.remove();
+
+            // Pause the system
+            await fetch('/api/toggle_pause', { method: 'POST' });
+
+            if (ttsEnabled) {
+                speak('Detection paused. Click resume when ready.');
+            }
+        }
+
+        // Override stopNavigation to show dialog
+        const originalStopNavigation = stopNavigation;
+        stopNavigation = async function() {
+            navigationActive = false;
+
+            // Stop update loop
+            if (navigationInterval) {
+                clearInterval(navigationInterval);
+                navigationInterval = null;
+            }
+
+            // Stop proximity beeps
+            if (proximityBeepTimer) {
+                clearInterval(proximityBeepTimer);
+                proximityBeepTimer = null;
+            }
+
+            // Hide navigation overlay
+            document.getElementById('navigation-overlay').style.display = 'none';
+            document.getElementById('nav-memory-hint').style.display = 'none';
+
+            // Stop navigation on server
+            try {
+                const response = await fetch('/api/navigation/stop', { method: 'POST' });
+                const data = await response.json();
+
+                // Show post-navigation dialog
+                if (data.show_post_nav_dialog) {
+                    showPostNavigationDialog(data.reached);
+                }
+            } catch (e) {
+                console.error('Navigation stop error:', e);
+            }
+
+            navigationTarget = null;
+            navigationTargetId = null;
+            navigationReached = false;
+        };
+
         // Make navigation functions globally accessible
         window.startNavigation = startNavigation;
         window.stopNavigation = stopNavigation;
         window.toggleNavTTS = toggleNavTTS;
         window.reanalyzeScene = reanalyzeScene;
+        window.handleObstacleAlerts = handleObstacleAlerts;
+        window.continueDetection = continueDetection;
+        window.pauseDetection = pauseDetection;
     </script>
 </body>
 </html>

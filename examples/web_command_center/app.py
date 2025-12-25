@@ -29,6 +29,7 @@ import io
 import ipaddress
 import json
 import os
+import sqlite3
 import ssl
 import sys
 import threading
@@ -236,6 +237,571 @@ def get_keypoint_color(idx: int) -> Tuple[int, int, int]:
         return KEYPOINT_COLORS['torso']
 
 
+# ===== DATABASE =====
+class Database:
+    """SQLite database for storing all command center data."""
+
+    def __init__(self, db_path: str = None):
+        if db_path is None:
+            db_path = os.path.join(os.path.dirname(__file__), 'command_center.db')
+        self.db_path = db_path
+        self.lock = threading.Lock()
+        self._init_db()
+
+    def _get_connection(self) -> sqlite3.Connection:
+        """Get a thread-local database connection."""
+        conn = sqlite3.connect(self.db_path, check_same_thread=False)
+        conn.row_factory = sqlite3.Row
+        return conn
+
+    def _init_db(self):
+        """Initialize database tables."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+
+            # Sessions table - tracks each app run
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS sessions (
+                    id TEXT PRIMARY KEY,
+                    started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    ended_at TIMESTAMP,
+                    device TEXT,
+                    prompts TEXT,
+                    settings TEXT
+                )
+            ''')
+
+            # Detections table - all detected objects
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS detections (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    session_id TEXT,
+                    detection_id INTEGER,
+                    persistent_id INTEGER,
+                    label TEXT,
+                    confidence REAL,
+                    box TEXT,
+                    mask_area INTEGER,
+                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    frame_number INTEGER,
+                    yolo_class TEXT,
+                    yolo_confidence REAL,
+                    FOREIGN KEY (session_id) REFERENCES sessions(id)
+                )
+            ''')
+
+            # Analysis results from Claude
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS analysis_results (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    session_id TEXT,
+                    detection_id INTEGER,
+                    label TEXT,
+                    analysis TEXT,
+                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    image_data TEXT,
+                    FOREIGN KEY (session_id) REFERENCES sessions(id)
+                )
+            ''')
+
+            # Location memory - where objects are typically found
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS location_memory (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    label TEXT NOT NULL,
+                    context TEXT,
+                    position TEXT,
+                    frequency INTEGER DEFAULT 1,
+                    first_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(label, context)
+                )
+            ''')
+
+            # Navigation sessions
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS navigation_sessions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    session_id TEXT,
+                    target_label TEXT,
+                    target_id INTEGER,
+                    started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    ended_at TIMESTAMP,
+                    reached BOOLEAN DEFAULT FALSE,
+                    path_history TEXT,
+                    scene_context TEXT,
+                    FOREIGN KEY (session_id) REFERENCES sessions(id)
+                )
+            ''')
+
+            # Obstacles detected during navigation
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS obstacles (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    navigation_id INTEGER,
+                    label TEXT,
+                    obstacle_type TEXT,
+                    box TEXT,
+                    distance TEXT,
+                    alert_sent BOOLEAN DEFAULT FALSE,
+                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (navigation_id) REFERENCES navigation_sessions(id)
+                )
+            ''')
+
+            # Voice queries and results
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS voice_queries (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    session_id TEXT,
+                    query TEXT,
+                    parsed_prompts TEXT,
+                    was_search BOOLEAN,
+                    was_describe BOOLEAN,
+                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (session_id) REFERENCES sessions(id)
+                )
+            ''')
+
+            # General event log
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS event_log (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    session_id TEXT,
+                    event_type TEXT,
+                    level TEXT DEFAULT 'INFO',
+                    message TEXT,
+                    data TEXT,
+                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (session_id) REFERENCES sessions(id)
+                )
+            ''')
+
+            # Create indexes for common queries
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_detections_session ON detections(session_id)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_detections_label ON detections(label)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_location_label ON location_memory(label)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_obstacles_nav ON obstacles(navigation_id)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_events_session ON event_log(session_id)')
+
+            conn.commit()
+            print(f"Database initialized: {self.db_path}")
+
+    # ===== SESSION METHODS =====
+
+    def create_session(self, device: str, prompts: List[str], settings: Dict) -> str:
+        """Create a new session and return its ID."""
+        session_id = str(uuid.uuid4())
+        with self.lock:
+            with self._get_connection() as conn:
+                conn.execute(
+                    'INSERT INTO sessions (id, device, prompts, settings) VALUES (?, ?, ?, ?)',
+                    (session_id, device, json.dumps(prompts), json.dumps(settings))
+                )
+                conn.commit()
+        return session_id
+
+    def end_session(self, session_id: str):
+        """Mark a session as ended."""
+        with self.lock:
+            with self._get_connection() as conn:
+                conn.execute(
+                    'UPDATE sessions SET ended_at = CURRENT_TIMESTAMP WHERE id = ?',
+                    (session_id,)
+                )
+                conn.commit()
+
+    # ===== DETECTION METHODS =====
+
+    def save_detection(self, session_id: str, detection: Dict, frame_number: int):
+        """Save a detection to the database."""
+        with self.lock:
+            with self._get_connection() as conn:
+                conn.execute('''
+                    INSERT INTO detections
+                    (session_id, detection_id, persistent_id, label, confidence, box, mask_area, frame_number, yolo_class, yolo_confidence)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    session_id,
+                    detection.get('id'),
+                    detection.get('persistent_id'),
+                    detection.get('label'),
+                    detection.get('confidence'),
+                    json.dumps(detection.get('box')),
+                    detection.get('mask_area'),
+                    frame_number,
+                    detection.get('yolo_class'),
+                    detection.get('yolo_confidence')
+                ))
+                conn.commit()
+
+    def save_detections_batch(self, session_id: str, detections: List[Dict], frame_number: int):
+        """Save multiple detections in a batch."""
+        if not detections:
+            return
+        with self.lock:
+            with self._get_connection() as conn:
+                conn.executemany('''
+                    INSERT INTO detections
+                    (session_id, detection_id, persistent_id, label, confidence, box, mask_area, frame_number, yolo_class, yolo_confidence)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', [(
+                    session_id,
+                    d.get('id'),
+                    d.get('persistent_id'),
+                    d.get('label'),
+                    d.get('confidence'),
+                    json.dumps(d.get('box')),
+                    d.get('mask_area'),
+                    frame_number,
+                    d.get('yolo_class'),
+                    d.get('yolo_confidence')
+                ) for d in detections])
+                conn.commit()
+
+    def get_detection_history(self, session_id: str = None, label: str = None, limit: int = 100) -> List[Dict]:
+        """Get detection history with optional filters."""
+        query = 'SELECT * FROM detections WHERE 1=1'
+        params = []
+
+        if session_id:
+            query += ' AND session_id = ?'
+            params.append(session_id)
+        if label:
+            query += ' AND label LIKE ?'
+            params.append(f'%{label}%')
+
+        query += ' ORDER BY timestamp DESC LIMIT ?'
+        params.append(limit)
+
+        with self._get_connection() as conn:
+            rows = conn.execute(query, params).fetchall()
+            return [dict(row) for row in rows]
+
+    # ===== ANALYSIS METHODS =====
+
+    def save_analysis(self, session_id: str, detection_id: int, label: str, analysis: str, image_data: str = None):
+        """Save Claude analysis result."""
+        with self.lock:
+            with self._get_connection() as conn:
+                conn.execute('''
+                    INSERT INTO analysis_results (session_id, detection_id, label, analysis, image_data)
+                    VALUES (?, ?, ?, ?, ?)
+                ''', (session_id, detection_id, label, analysis, image_data))
+                conn.commit()
+
+    def get_analysis_history(self, session_id: str = None, limit: int = 50) -> List[Dict]:
+        """Get analysis history."""
+        query = 'SELECT * FROM analysis_results'
+        params = []
+
+        if session_id:
+            query += ' WHERE session_id = ?'
+            params.append(session_id)
+
+        query += ' ORDER BY timestamp DESC LIMIT ?'
+        params.append(limit)
+
+        with self._get_connection() as conn:
+            rows = conn.execute(query, params).fetchall()
+            return [dict(row) for row in rows]
+
+    # ===== LOCATION MEMORY METHODS =====
+
+    def remember_location(self, label: str, context: str, position: Dict = None):
+        """Remember where an object was found."""
+        label_key = label.lower().strip()
+        context_key = context.lower().strip() if context else ""
+
+        with self.lock:
+            with self._get_connection() as conn:
+                # Try to update existing entry
+                cursor = conn.execute('''
+                    UPDATE location_memory
+                    SET frequency = frequency + 1,
+                        last_seen = CURRENT_TIMESTAMP,
+                        position = ?
+                    WHERE label = ? AND context = ?
+                ''', (json.dumps(position) if position else None, label_key, context_key))
+
+                if cursor.rowcount == 0:
+                    # Insert new entry
+                    conn.execute('''
+                        INSERT INTO location_memory (label, context, position, frequency)
+                        VALUES (?, ?, ?, 1)
+                    ''', (label_key, context_key, json.dumps(position) if position else None))
+
+                conn.commit()
+
+    def recall_location(self, label: str) -> Optional[Dict]:
+        """Recall where an object was typically found."""
+        label_key = label.lower().strip()
+
+        with self._get_connection() as conn:
+            row = conn.execute('''
+                SELECT * FROM location_memory
+                WHERE label = ?
+                ORDER BY frequency DESC, last_seen DESC
+                LIMIT 1
+            ''', (label_key,)).fetchone()
+
+            if row:
+                result = dict(row)
+                if result.get('position'):
+                    result['position'] = json.loads(result['position'])
+                return result
+            return None
+
+    def get_all_location_memories(self) -> List[Dict]:
+        """Get all location memories."""
+        with self._get_connection() as conn:
+            rows = conn.execute('''
+                SELECT label, context, frequency, last_seen
+                FROM location_memory
+                ORDER BY frequency DESC, last_seen DESC
+            ''').fetchall()
+            return [dict(row) for row in rows]
+
+    def clear_location_memory(self, label: str = None):
+        """Clear location memory for a label or all."""
+        with self.lock:
+            with self._get_connection() as conn:
+                if label:
+                    conn.execute('DELETE FROM location_memory WHERE label = ?', (label.lower().strip(),))
+                else:
+                    conn.execute('DELETE FROM location_memory')
+                conn.commit()
+
+    # ===== NAVIGATION METHODS =====
+
+    def start_navigation_session(self, session_id: str, target_label: str, target_id: int = None) -> int:
+        """Start a new navigation session and return its ID."""
+        with self.lock:
+            with self._get_connection() as conn:
+                cursor = conn.execute('''
+                    INSERT INTO navigation_sessions (session_id, target_label, target_id)
+                    VALUES (?, ?, ?)
+                ''', (session_id, target_label, target_id))
+                conn.commit()
+                return cursor.lastrowid
+
+    def end_navigation_session(self, nav_id: int, reached: bool, path_history: List = None, scene_context: Dict = None):
+        """End a navigation session."""
+        with self.lock:
+            with self._get_connection() as conn:
+                conn.execute('''
+                    UPDATE navigation_sessions
+                    SET ended_at = CURRENT_TIMESTAMP,
+                        reached = ?,
+                        path_history = ?,
+                        scene_context = ?
+                    WHERE id = ?
+                ''', (reached, json.dumps(path_history), json.dumps(scene_context), nav_id))
+                conn.commit()
+
+    def save_obstacle(self, nav_id: int, label: str, obstacle_type: str, box: List, distance: str, alert_sent: bool = False):
+        """Save an obstacle detected during navigation."""
+        with self.lock:
+            with self._get_connection() as conn:
+                conn.execute('''
+                    INSERT INTO obstacles (navigation_id, label, obstacle_type, box, distance, alert_sent)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                ''', (nav_id, label, obstacle_type, json.dumps(box), distance, alert_sent))
+                conn.commit()
+
+    def get_navigation_history(self, session_id: str = None, limit: int = 20) -> List[Dict]:
+        """Get navigation history."""
+        query = 'SELECT * FROM navigation_sessions'
+        params = []
+
+        if session_id:
+            query += ' WHERE session_id = ?'
+            params.append(session_id)
+
+        query += ' ORDER BY started_at DESC LIMIT ?'
+        params.append(limit)
+
+        with self._get_connection() as conn:
+            rows = conn.execute(query, params).fetchall()
+            return [dict(row) for row in rows]
+
+    # ===== VOICE QUERY METHODS =====
+
+    def save_voice_query(self, session_id: str, query: str, parsed_prompts: List[str],
+                         was_search: bool = True, was_describe: bool = False):
+        """Save a voice query."""
+        with self.lock:
+            with self._get_connection() as conn:
+                conn.execute('''
+                    INSERT INTO voice_queries (session_id, query, parsed_prompts, was_search, was_describe)
+                    VALUES (?, ?, ?, ?, ?)
+                ''', (session_id, query, json.dumps(parsed_prompts), was_search, was_describe))
+                conn.commit()
+
+    # ===== EVENT LOG METHODS =====
+
+    def log_event(self, session_id: str, event_type: str, message: str, level: str = 'INFO', data: Dict = None):
+        """Log an event to the database."""
+        with self.lock:
+            with self._get_connection() as conn:
+                conn.execute('''
+                    INSERT INTO event_log (session_id, event_type, level, message, data)
+                    VALUES (?, ?, ?, ?, ?)
+                ''', (session_id, event_type, level, message, json.dumps(data) if data else None))
+                conn.commit()
+
+    def get_event_log(self, session_id: str = None, event_type: str = None, limit: int = 100) -> List[Dict]:
+        """Get event log with optional filters."""
+        query = 'SELECT * FROM event_log WHERE 1=1'
+        params = []
+
+        if session_id:
+            query += ' AND session_id = ?'
+            params.append(session_id)
+        if event_type:
+            query += ' AND event_type = ?'
+            params.append(event_type)
+
+        query += ' ORDER BY timestamp DESC LIMIT ?'
+        params.append(limit)
+
+        with self._get_connection() as conn:
+            rows = conn.execute(query, params).fetchall()
+            return [dict(row) for row in rows]
+
+    # ===== STATISTICS METHODS =====
+
+    def get_session_stats(self, session_id: str) -> Dict:
+        """Get statistics for a session."""
+        with self._get_connection() as conn:
+            stats = {}
+
+            # Detection count
+            row = conn.execute(
+                'SELECT COUNT(*) as count FROM detections WHERE session_id = ?',
+                (session_id,)
+            ).fetchone()
+            stats['total_detections'] = row['count'] if row else 0
+
+            # Unique labels
+            rows = conn.execute(
+                'SELECT DISTINCT label FROM detections WHERE session_id = ?',
+                (session_id,)
+            ).fetchall()
+            stats['unique_labels'] = [row['label'] for row in rows]
+            stats['unique_label_count'] = len(stats['unique_labels'])
+
+            # Analysis count
+            row = conn.execute(
+                'SELECT COUNT(*) as count FROM analysis_results WHERE session_id = ?',
+                (session_id,)
+            ).fetchone()
+            stats['total_analyses'] = row['count'] if row else 0
+
+            # Navigation count
+            row = conn.execute(
+                'SELECT COUNT(*) as count, SUM(CASE WHEN reached THEN 1 ELSE 0 END) as reached FROM navigation_sessions WHERE session_id = ?',
+                (session_id,)
+            ).fetchone()
+            stats['navigation_sessions'] = row['count'] if row else 0
+            stats['successful_navigations'] = row['reached'] if row and row['reached'] else 0
+
+            return stats
+
+    def migrate_from_json(self, location_memory_file: str):
+        """Migrate existing JSON location memory to SQLite."""
+        if not os.path.exists(location_memory_file):
+            return
+
+        try:
+            with open(location_memory_file, 'r') as f:
+                old_memory = json.load(f)
+
+            for label, entries in old_memory.items():
+                for entry in entries:
+                    self.remember_location(
+                        label=label,
+                        context=entry.get('context', ''),
+                        position=entry.get('position')
+                    )
+                    # Update frequency if specified
+                    if entry.get('frequency', 1) > 1:
+                        with self._get_connection() as conn:
+                            conn.execute('''
+                                UPDATE location_memory
+                                SET frequency = ?
+                                WHERE label = ? AND context = ?
+                            ''', (entry['frequency'], label.lower(), entry.get('context', '').lower()))
+                            conn.commit()
+
+            print(f"Migrated {len(old_memory)} items from JSON to SQLite")
+
+            # Optionally rename old file
+            backup_path = location_memory_file + '.bak'
+            os.rename(location_memory_file, backup_path)
+            print(f"Old JSON file backed up to {backup_path}")
+
+        except Exception as e:
+            print(f"Error migrating from JSON: {e}")
+
+
+# Global database instance
+db = Database()
+
+
+# ===== OBSTACLE DEFINITIONS =====
+# Common obstacles/hazards for navigation
+OBSTACLE_PROMPTS = [
+    "stairs", "staircase", "steps",
+    "edge", "ledge", "drop", "cliff",
+    "door", "doorway", "gate",
+    "wall", "pillar", "column", "pole",
+    "furniture", "chair", "table", "desk", "couch", "sofa",
+    "cable", "wire", "cord",
+    "wet floor", "puddle", "spill",
+    "hole", "pit", "gap",
+    "glass", "window", "mirror",
+    "car", "vehicle", "bicycle", "bike",
+    "person", "people", "crowd",
+    "pet", "dog", "cat", "animal"
+]
+
+# Obstacle severity levels
+OBSTACLE_SEVERITY = {
+    "stairs": "high",
+    "staircase": "high",
+    "steps": "high",
+    "edge": "high",
+    "ledge": "high",
+    "drop": "high",
+    "cliff": "high",
+    "hole": "high",
+    "pit": "high",
+    "gap": "high",
+    "wet floor": "medium",
+    "puddle": "medium",
+    "spill": "medium",
+    "cable": "medium",
+    "wire": "medium",
+    "cord": "medium",
+    "car": "high",
+    "vehicle": "high",
+    "bicycle": "medium",
+    "bike": "medium",
+    "glass": "medium",
+    "door": "low",
+    "doorway": "low",
+    "wall": "low",
+    "pillar": "low",
+    "furniture": "low",
+    "chair": "low",
+    "table": "low",
+    "person": "low",
+    "people": "medium",
+    "crowd": "medium",
+}
+
+
 # Global state
 class CommandCenter:
     """Global state manager for the command center."""
@@ -371,10 +937,14 @@ class CommandCenter:
         self.pending_point_prompt = None  # (x, y) for point prompt
         self.draw_mode = None  # 'box' or 'point'
 
+        # ===== SESSION TRACKING =====
+        self.session_id = None  # Current session ID for database
+
         # ===== NAVIGATION SYSTEM (Accessibility) =====
         self.navigation_active = False
         self.navigation_target = None  # Target object label
         self.navigation_target_id = None  # Target detection ID
+        self.navigation_db_id = None  # Navigation session ID in database
         self.navigation_start_time = None
         self.navigation_last_seen = None  # Last position of target
         self.navigation_guidance_queue = deque(maxlen=10)  # Pending guidance messages
@@ -391,64 +961,43 @@ class CommandCenter:
         self.navigation_close_threshold = 0.15  # Getting close
         self.navigation_direction_deadzone = 0.1  # Center deadzone
 
-        # ===== LOCATION MEMORY (Persistent) =====
-        self.location_memory = {}  # label -> list of {location, context, timestamp, frequency}
+        # ===== OBSTACLE DETECTION =====
+        self.obstacle_detection_active = False  # Run obstacle detection during navigation
+        self.current_obstacles = []  # Currently detected obstacles
+        self.obstacle_alert_cooldown = {}  # obstacle_label -> last_alert_time
+        self.obstacle_alert_interval = 3.0  # Seconds between repeated alerts for same obstacle
+        self.obstacle_masks = None  # Masks for obstacles to render
+        self.obstacle_boxes = None  # Boxes for obstacles
+
+        # ===== LOCATION MEMORY (Now uses SQLite) =====
         self.location_memory_file = os.path.join(os.path.dirname(__file__), '.location_memory.json')
-        self._load_location_memory()
+        self._migrate_location_memory()
 
-    def _load_location_memory(self):
-        """Load location memory from file."""
-        try:
-            if os.path.exists(self.location_memory_file):
-                with open(self.location_memory_file, 'r') as f:
-                    self.location_memory = json.load(f)
-                print(f"Loaded location memory: {len(self.location_memory)} items")
-        except Exception as e:
-            print(f"Could not load location memory: {e}")
-            self.location_memory = {}
-
-    def _save_location_memory(self):
-        """Save location memory to file."""
-        try:
-            with open(self.location_memory_file, 'w') as f:
-                json.dump(self.location_memory, f, indent=2)
-        except Exception as e:
-            print(f"Could not save location memory: {e}")
+    def _migrate_location_memory(self):
+        """Migrate old JSON location memory to SQLite if it exists."""
+        if os.path.exists(self.location_memory_file):
+            db.migrate_from_json(self.location_memory_file)
 
     def remember_location(self, label: str, context: str, position: Dict = None):
-        """Remember where an object was found."""
-        label_key = label.lower().strip()
-        timestamp = datetime.now().isoformat()
-
-        if label_key not in self.location_memory:
-            self.location_memory[label_key] = []
-
-        # Add new memory entry
-        entry = {
-            "context": context,
-            "timestamp": timestamp,
-            "position": position,
-            "frequency": 1
-        }
-
-        # Check if similar context exists, update frequency
-        for existing in self.location_memory[label_key]:
-            if existing.get("context", "").lower() == context.lower():
-                existing["frequency"] = existing.get("frequency", 1) + 1
-                existing["timestamp"] = timestamp
-                existing["position"] = position
-                break
-        else:
-            self.location_memory[label_key].append(entry)
-
-        # Keep only last 10 entries per item
-        self.location_memory[label_key] = self.location_memory[label_key][-10:]
-
-        self._save_location_memory()
+        """Remember where an object was found (uses SQLite)."""
+        db.remember_location(label, context, position)
         self.log(f"Remembered: {label} found in {context}")
 
     def recall_location(self, label: str) -> Optional[Dict]:
-        """Recall where an object was last found."""
+        """Recall where an object was last found (uses SQLite)."""
+        return db.recall_location(label)
+
+    def get_all_location_memories(self) -> List[Dict]:
+        """Get all location memories from database."""
+        return db.get_all_location_memories()
+
+    def clear_location_memory(self, label: str = None):
+        """Clear location memory (uses SQLite)."""
+        db.clear_location_memory(label)
+        self.log(f"Cleared location memory" + (f" for {label}" if label else ""))
+
+    def _old_recall_location(self, label: str) -> Optional[Dict]:
+        """Old recall method - kept for reference."""
         label_key = label.lower().strip()
 
         if label_key not in self.location_memory:
@@ -1609,6 +2158,182 @@ def update_memory_bank(object_id: int, mask_features: torch.Tensor):
         cc.memory_bank[object_id].pop(0)
 
 
+# ===== OBSTACLE DETECTION =====
+
+def detect_obstacles(frame: np.ndarray, pil_image: Image.Image) -> List[Dict]:
+    """Detect obstacles in the current frame during navigation."""
+    global cc
+
+    if not cc.obstacle_detection_active or cc.processor is None:
+        return []
+
+    obstacles = []
+    current_time = time.time()
+
+    # Create a temporary state for obstacle detection
+    try:
+        obstacle_state = cc.processor.set_image(pil_image, {})
+
+        # Try to detect common obstacles
+        for obstacle_prompt in OBSTACLE_PROMPTS[:10]:  # Limit to top 10 for performance
+            # Skip if this is our target
+            if cc.navigation_target and obstacle_prompt.lower() in cc.navigation_target.lower():
+                continue
+
+            obstacle_state = cc.processor.set_text_prompt(obstacle_prompt, obstacle_state)
+
+            masks = obstacle_state.get("masks")
+            boxes = obstacle_state.get("boxes")
+            scores = obstacle_state.get("scores")
+
+            if masks is not None and masks.numel() > 0:
+                for i in range(min(len(masks), 3)):  # Max 3 per type
+                    score = float(scores[i].cpu()) if scores is not None and i < len(scores) else 0.0
+
+                    if score < 0.4:  # Higher threshold for obstacles
+                        continue
+
+                    mask_np = masks[i].squeeze().cpu().numpy()
+                    box = boxes[i].cpu().numpy().tolist() if boxes is not None and i < len(boxes) else None
+
+                    if box is None:
+                        continue
+
+                    # Calculate distance based on box position/size in frame
+                    h, w = frame.shape[:2]
+                    box_area = (box[2] - box[0]) * (box[3] - box[1])
+                    frame_area = w * h
+                    area_ratio = box_area / frame_area
+
+                    # Determine distance
+                    if area_ratio > 0.25:
+                        distance = "very_close"
+                    elif area_ratio > 0.10:
+                        distance = "close"
+                    elif area_ratio > 0.05:
+                        distance = "medium"
+                    else:
+                        distance = "far"
+
+                    # Get severity
+                    severity = OBSTACLE_SEVERITY.get(obstacle_prompt, "low")
+
+                    obstacle = {
+                        "label": obstacle_prompt,
+                        "type": severity,
+                        "box": box,
+                        "mask": mask_np,
+                        "confidence": score,
+                        "distance": distance,
+                        "timestamp": current_time
+                    }
+
+                    # Check cooldown for alerts
+                    cooldown_key = f"{obstacle_prompt}_{distance}"
+                    last_alert = cc.obstacle_alert_cooldown.get(cooldown_key, 0)
+
+                    if current_time - last_alert > cc.obstacle_alert_interval:
+                        obstacle["should_alert"] = True
+                        cc.obstacle_alert_cooldown[cooldown_key] = current_time
+                    else:
+                        obstacle["should_alert"] = False
+
+                    obstacles.append(obstacle)
+
+                    # Save to database
+                    if cc.navigation_db_id and obstacle["should_alert"]:
+                        db.save_obstacle(
+                            cc.navigation_db_id,
+                            obstacle_prompt,
+                            severity,
+                            box,
+                            distance,
+                            alert_sent=True
+                        )
+
+    except Exception as e:
+        cc.log(f"Obstacle detection error: {e}", "ERROR")
+
+    return obstacles
+
+
+def overlay_obstacles(display: np.ndarray, obstacles: List[Dict]) -> np.ndarray:
+    """Overlay obstacle masks and alerts on the display frame."""
+    if not obstacles:
+        return display
+
+    # Obstacle color (orange/red based on severity)
+    colors = {
+        "high": (0, 0, 255),      # Red
+        "medium": (0, 165, 255),   # Orange
+        "low": (0, 255, 255)       # Yellow
+    }
+
+    for obstacle in obstacles:
+        mask = obstacle.get("mask")
+        box = obstacle.get("box")
+        severity = obstacle.get("type", "low")
+        label = obstacle.get("label", "Obstacle")
+        distance = obstacle.get("distance", "unknown")
+
+        color = colors.get(severity, (0, 255, 255))
+
+        # Draw mask overlay
+        if mask is not None:
+            mask_bool = mask.astype(bool)
+            # Create colored overlay
+            overlay = display.copy()
+            overlay[mask_bool] = color
+            # Blend with original (more transparent than regular detections)
+            alpha = 0.4 if severity == "high" else 0.3
+            display = cv2.addWeighted(overlay, alpha, display, 1 - alpha, 0)
+
+            # Draw mask outline
+            contours, _ = cv2.findContours(
+                mask.astype(np.uint8) * 255,
+                cv2.RETR_EXTERNAL,
+                cv2.CHAIN_APPROX_SIMPLE
+            )
+            cv2.drawContours(display, contours, -1, color, 2)
+
+        # Draw bounding box
+        if box:
+            x1, y1, x2, y2 = [int(v) for v in box]
+            cv2.rectangle(display, (x1, y1), (x2, y2), color, 2)
+
+            # Draw alert icon (warning triangle)
+            icon_size = 30
+            icon_x = x1 + 5
+            icon_y = y1 - icon_size - 5 if y1 > icon_size + 10 else y1 + 5
+
+            # Draw warning triangle
+            triangle = np.array([
+                [icon_x + icon_size // 2, icon_y],
+                [icon_x, icon_y + icon_size],
+                [icon_x + icon_size, icon_y + icon_size]
+            ], np.int32)
+            cv2.fillPoly(display, [triangle], color)
+            cv2.polylines(display, [triangle], True, (0, 0, 0), 2)
+
+            # Draw exclamation mark
+            cv2.line(display, (icon_x + icon_size // 2, icon_y + 8),
+                     (icon_x + icon_size // 2, icon_y + icon_size - 12), (0, 0, 0), 2)
+            cv2.circle(display, (icon_x + icon_size // 2, icon_y + icon_size - 6), 2, (0, 0, 0), -1)
+
+            # Draw label
+            label_text = f"OBSTACLE: {label}"
+            if distance in ["very_close", "close"]:
+                label_text = f"WARNING: {label} ({distance})"
+
+            text_y = y1 - icon_size - 10 if y1 > icon_size + 30 else y2 + 20
+            cv2.putText(display, label_text, (x1, text_y),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 3)
+            cv2.putText(display, label_text, (x1, text_y),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+
+    return display
+
+
 # ===== FRAME PROCESSING =====
 
 def process_frame(frame: np.ndarray) -> np.ndarray:
@@ -1938,6 +2663,24 @@ def process_frame(frame: np.ndarray) -> np.ndarray:
     if cc.enable_yolo_pose and cc.last_poses:
         for obj_id, pose_data in cc.last_poses.items():
             display = draw_pose_overlay(display, pose_data, obj_id)
+
+    # Obstacle detection during navigation (run on keyframes)
+    if cc.obstacle_detection_active and is_keyframe and not cc.paused:
+        try:
+            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            pil_image = Image.fromarray(frame_rgb)
+            obstacles = detect_obstacles(frame, pil_image)
+
+            if obstacles:
+                cc.current_obstacles = obstacles
+                display = overlay_obstacles(display, obstacles)
+
+                # Log high-severity obstacles that should alert
+                for obs in obstacles:
+                    if obs.get("should_alert") and obs.get("type") in ["high", "medium"]:
+                        cc.log(f"OBSTACLE: {obs['label']} ({obs['distance']})", "WARN")
+        except Exception as e:
+            cc.log(f"Obstacle overlay error: {e}", "ERROR")
 
     return display
 
@@ -3208,13 +3951,13 @@ def api_navigation_start():
     global cc
 
     data = request.json
-    target_label = data.get("label")
-    target_id = data.get("detection_id")
+    target_label = data.get("target_label") or data.get("label")
+    target_id = data.get("target_id") or data.get("detection_id")
 
     if not target_label and target_id is None:
         return jsonify({"success": False, "error": "No target specified"})
 
-    # Check for location memory first
+    # Check for location memory first (from SQLite)
     memory = cc.recall_location(target_label) if target_label else None
     memory_hint = None
     if memory:
@@ -3227,6 +3970,18 @@ def api_navigation_start():
     cc.navigation_last_seen = None
     cc.navigation_reached = False
     cc.navigation_target_history = []
+
+    # Start obstacle detection
+    cc.obstacle_detection_active = True
+    cc.current_obstacles = []
+    cc.obstacle_masks = None
+    cc.obstacle_boxes = None
+
+    # Create navigation session in database
+    if cc.session_id:
+        cc.navigation_db_id = db.start_navigation_session(cc.session_id, target_label, target_id)
+        db.log_event(cc.session_id, "navigation_start", f"Started navigation to {target_label}",
+                     data={"target_label": target_label, "target_id": target_id})
 
     # Analyze scene context
     if cc.current_raw_frame is not None:
@@ -3262,15 +4017,36 @@ def api_navigation_stop():
 
     was_active = cc.navigation_active
     target = cc.navigation_target
+    reached = cc.navigation_reached
 
-    # If we reached the target, remember its location
-    if cc.navigation_reached and cc.navigation_context and target:
+    # If we reached the target, remember its location (in SQLite)
+    if reached and cc.navigation_context and target:
         location = cc.navigation_context.get("location", "unknown location")
         cc.remember_location(target, location)
+
+    # End navigation session in database
+    if cc.navigation_db_id:
+        db.end_navigation_session(
+            cc.navigation_db_id,
+            reached=reached,
+            path_history=cc.navigation_target_history,
+            scene_context=cc.navigation_context
+        )
+        if cc.session_id:
+            db.log_event(cc.session_id, "navigation_stop",
+                        f"Navigation to {target} {'reached' if reached else 'cancelled'}",
+                        data={"target": target, "reached": reached})
+
+    # Stop obstacle detection
+    cc.obstacle_detection_active = False
+    cc.current_obstacles = []
+    cc.obstacle_masks = None
+    cc.obstacle_boxes = None
 
     cc.navigation_active = False
     cc.navigation_target = None
     cc.navigation_target_id = None
+    cc.navigation_db_id = None
     cc.navigation_start_time = None
     cc.navigation_last_seen = None
     cc.navigation_reached = False
@@ -3280,7 +4056,11 @@ def api_navigation_stop():
     if was_active:
         cc.log(f"Navigation ended for '{target}'")
 
-    return jsonify({"success": True})
+    return jsonify({
+        "success": True,
+        "reached": reached,
+        "show_post_nav_dialog": was_active  # Tell UI to show continue/pause dialog
+    })
 
 
 @app.route('/api/navigation/status')
@@ -3301,6 +4081,19 @@ def api_navigation_status():
             cc.navigation_last_guidance_time = current_time
         else:
             status["speak_guidance"] = False
+
+    # Add obstacle alerts
+    if cc.current_obstacles:
+        obstacles_for_alert = []
+        for obs in cc.current_obstacles:
+            if obs.get("should_alert"):
+                obstacles_for_alert.append({
+                    "label": obs["label"],
+                    "type": obs["type"],
+                    "distance": obs["distance"],
+                    "alert_text": f"Watch out! {obs['label']} {obs['distance'].replace('_', ' ')}"
+                })
+        status["obstacles"] = obstacles_for_alert
 
     return jsonify(status)
 
@@ -3330,16 +4123,17 @@ def api_navigation_analyze_scene():
 
 @app.route('/api/location_memory')
 def api_location_memory():
-    """Get stored location memory."""
+    """Get stored location memory (from SQLite)."""
+    memories = cc.get_all_location_memories()
     return jsonify({
         "success": True,
-        "memory": cc.location_memory
+        "memory": memories
     })
 
 
 @app.route('/api/location_memory/recall', methods=['POST'])
 def api_recall_location():
-    """Recall where an object was last found."""
+    """Recall where an object was last found (from SQLite)."""
     data = request.json
     label = data.get("label", "")
 
@@ -3352,7 +4146,7 @@ def api_recall_location():
             "label": label,
             "location": memory.get("context"),
             "frequency": memory.get("frequency", 1),
-            "last_seen": memory.get("timestamp")
+            "last_seen": memory.get("last_seen")
         })
     else:
         return jsonify({
@@ -3366,10 +4160,87 @@ def api_recall_location():
 @app.route('/api/location_memory/clear', methods=['POST'])
 def api_clear_location_memory():
     """Clear location memory."""
-    cc.location_memory = {}
-    cc._save_location_memory()
-    cc.log("Location memory cleared")
-    return jsonify({"success": True})
+    data = request.json or {}
+    label = data.get("label")
+
+    cc.clear_location_memory(label)
+
+    return jsonify({
+        "success": True,
+        "message": f"Cleared location memory" + (f" for {label}" if label else "")
+    })
+
+
+# ===== OBSTACLE DETECTION API =====
+
+@app.route('/api/navigation/obstacles')
+def api_navigation_obstacles():
+    """Get current obstacles detected during navigation."""
+    return jsonify({
+        "success": True,
+        "obstacles": cc.current_obstacles,
+        "active": cc.obstacle_detection_active
+    })
+
+
+# ===== DATABASE HISTORY API =====
+
+@app.route('/api/history/detections')
+def api_history_detections():
+    """Get detection history from database."""
+    label = request.args.get('label')
+    limit = int(request.args.get('limit', 100))
+
+    history = db.get_detection_history(session_id=cc.session_id, label=label, limit=limit)
+
+    return jsonify({
+        "success": True,
+        "detections": history,
+        "count": len(history)
+    })
+
+
+@app.route('/api/history/analysis')
+def api_history_analysis():
+    """Get analysis history from database."""
+    limit = int(request.args.get('limit', 50))
+
+    history = db.get_analysis_history(session_id=cc.session_id, limit=limit)
+
+    return jsonify({
+        "success": True,
+        "analyses": history,
+        "count": len(history)
+    })
+
+
+@app.route('/api/history/navigation')
+def api_history_navigation():
+    """Get navigation history from database."""
+    limit = int(request.args.get('limit', 20))
+
+    history = db.get_navigation_history(session_id=cc.session_id, limit=limit)
+
+    return jsonify({
+        "success": True,
+        "navigations": history,
+        "count": len(history)
+    })
+
+
+@app.route('/api/session/stats')
+def api_session_stats():
+    """Get statistics for the current session."""
+    if not cc.session_id:
+        return jsonify({"success": False, "error": "No active session"})
+
+    stats = db.get_session_stats(cc.session_id)
+
+    return jsonify({
+        "success": True,
+        "session_id": cc.session_id,
+        "stats": stats
+    })
 
 
 def generate_self_signed_cert(cert_dir: str = None) -> Tuple[str, str]:
@@ -3496,6 +4367,19 @@ def main():
 
     if args.device:
         cc.device_str = args.device
+
+    # Create database session
+    cc.session_id = db.create_session(
+        device=args.device or "auto",
+        prompts=cc.prompts,
+        settings={
+            "threshold": args.threshold,
+            "skip_frames": args.skip_frames,
+            "tracking": not args.no_tracking,
+            "yolo": not args.no_yolo
+        }
+    )
+    cc.log(f"Database session started: {cc.session_id[:8]}...")
 
     # Load model
     load_model(args.checkpoint)
