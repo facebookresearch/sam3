@@ -1161,10 +1161,13 @@
             <div class="panel" style="flex: 2;">
                 <div class="panel-header">
                     <span>Claude Analysis</span>
+                    <button class="btn btn-sm" onclick="describeScene()" style="margin-left: 10px;">
+                        Describe Scene
+                    </button>
                     <span id="analysis-status"></span>
                 </div>
                 <div class="panel-content" id="analysis-list">
-                    <div class="empty-state">Click "Analyze" on an object</div>
+                    <div class="empty-state">Click "Analyze" on an object or "Describe Scene"</div>
                 </div>
             </div>
 
@@ -1259,7 +1262,7 @@
             }
 
             let html = '';
-            detections.forEach(det => {
+            detections.forEach((det, index) => {
                 const conf = (det.confidence * 100).toFixed(0);
                 const confClass = conf >= 70 ? 'conf-high' : conf >= 40 ? 'conf-medium' : 'conf-low';
                 const persistentId = det.persistent_id ? `<span class="detection-id">#${det.persistent_id}</span>` : '';
@@ -1274,7 +1277,7 @@
                             ID: ${det.id} | Box: ${det.box ? det.box.map(v => v.toFixed(0)).join(', ') : 'N/A'}
                         </div>
                         <div class="detection-actions">
-                            <button class="btn btn-sm" onclick="analyzeObject(${det.id}, ${JSON.stringify(det.box)})">
+                            <button class="btn btn-sm" onclick="analyzeObject(${det.id}, ${JSON.stringify(det.box)}, ${index})">
                                 Analyze with Claude
                             </button>
                         </div>
@@ -1375,12 +1378,47 @@
             await fetch('/api/reset', { method: 'POST' });
         }
 
-        async function analyzeObject(detectionId, box) {
+        async function analyzeObject(detectionId, box, maskIndex) {
             await fetch('/api/analyze_object', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ detection_id: detectionId, box })
+                body: JSON.stringify({ detection_id: detectionId, box, mask_index: maskIndex })
             });
+        }
+
+        async function describeScene() {
+            const statusEl = document.getElementById('analysis-status');
+            statusEl.textContent = 'Analyzing scene...';
+            statusEl.style.color = '#f0f0f0';
+
+            try {
+                const response = await fetch('/api/describe_scene', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    statusEl.textContent = 'Scene analyzed!';
+                    statusEl.style.color = '#00ff00';
+                    // TTS feedback
+                    if (ttsEnabled && data.description) {
+                        speak(data.description);
+                    }
+                } else {
+                    statusEl.textContent = 'Error: ' + (data.error || 'Unknown');
+                    statusEl.style.color = '#ff4444';
+                }
+
+                // Clear status after 3 seconds
+                setTimeout(() => { statusEl.textContent = ''; }, 3000);
+
+                // Refresh analysis results
+                await updateAnalysis();
+            } catch (e) {
+                statusEl.textContent = 'Error: ' + e.message;
+                statusEl.style.color = '#ff4444';
+            }
         }
 
         function clearLogs() {
@@ -1519,19 +1557,42 @@
                 const data = await response.json();
 
                 if (data.success) {
-                    // Update prompts input
-                    document.getElementById('prompts-input').value = data.prompt_string;
+                    // Handle different action types
+                    if (data.action === 'describe_scene') {
+                        // Trigger scene description
+                        updateVoiceStatus(data.feedback, 'success');
+                        if (ttsEnabled) {
+                            speak(data.feedback);
+                        }
+                        // Call the describe scene function
+                        await describeScene();
+                    } else if (data.action === 'describe_object') {
+                        // Trigger object description
+                        updateVoiceStatus(data.feedback, 'success');
+                        if (ttsEnabled) {
+                            speak(data.feedback);
+                        }
+                        // Analyze the specified object
+                        const det = data.detection;
+                        if (det) {
+                            await analyzeObject(det.id, det.box, data.mask_index);
+                        }
+                    } else {
+                        // Regular search action
+                        // Update prompts input
+                        document.getElementById('prompts-input').value = data.prompt_string;
 
-                    // Show feedback
-                    showVoiceFeedback(text, data.prompts, data.feedback);
-                    updateVoiceStatus(data.feedback, 'success');
+                        // Show feedback
+                        showVoiceFeedback(text, data.prompts, data.feedback);
+                        updateVoiceStatus(data.feedback, 'success');
 
-                    // Add to history
-                    addToVoiceHistory(text, data.prompts);
+                        // Add to history
+                        addToVoiceHistory(text, data.prompts);
 
-                    // TTS feedback
-                    if (ttsEnabled) {
-                        speak(data.tts_message || data.feedback);
+                        // TTS feedback
+                        if (ttsEnabled) {
+                            speak(data.tts_message || data.feedback);
+                        }
                     }
                 } else {
                     updateVoiceStatus(data.error || 'Failed to process voice command', 'error');

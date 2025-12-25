@@ -26,8 +26,10 @@ Then open http://localhost:5000 in your browser.
 import argparse
 import base64
 import io
+import ipaddress
 import json
 import os
+import ssl
 import sys
 import threading
 import time
@@ -1807,10 +1809,11 @@ def api_set_feature_param():
 
 @app.route('/api/analyze_object', methods=['POST'])
 def api_analyze_object():
-    """Queue an object for Claude analysis."""
+    """Queue an object for Claude analysis with mask-based cropping."""
     data = request.json
     detection_id = data.get("detection_id")
     box = data.get("box")
+    mask_index = data.get("mask_index")  # Index into cc.last_masks
 
     # Use raw frame (without overlays) for analysis
     if cc.current_raw_frame is None:
@@ -1818,10 +1821,46 @@ def api_analyze_object():
 
     try:
         frame = cc.current_raw_frame.copy()
+        h, w = frame.shape[:2]
 
-        if box:
+        # Try to use mask for better cropping
+        mask = None
+        if mask_index is not None and cc.last_masks is not None:
+            try:
+                if mask_index < len(cc.last_masks):
+                    mask = cc.last_masks[mask_index].squeeze().cpu().numpy()
+                    if mask.shape != (h, w):
+                        mask = cv2.resize(mask.astype(np.float32), (w, h)) > 0.5
+            except Exception as e:
+                cc.log(f"Could not get mask: {e}", "WARN")
+                mask = None
+
+        if mask is not None and mask.sum() > 0:
+            # Use mask to create a clean crop with transparent/white background
+            # Get bounding box from mask
+            rows = np.any(mask, axis=1)
+            cols = np.any(mask, axis=0)
+            y_min, y_max = np.where(rows)[0][[0, -1]]
+            x_min, x_max = np.where(cols)[0][[0, -1]]
+
+            # Add padding
+            pad = 15
+            x1 = max(0, x_min - pad)
+            y1 = max(0, y_min - pad)
+            x2 = min(w, x_max + pad)
+            y2 = min(h, y_max + pad)
+
+            # Crop the region
+            crop = frame[y1:y2, x1:x2].copy()
+            mask_crop = mask[y1:y2, x1:x2]
+
+            # Apply mask - set background to white for cleaner analysis
+            mask_3ch = np.stack([mask_crop] * 3, axis=-1)
+            crop = np.where(mask_3ch, crop, 255).astype(np.uint8)
+
+        elif box:
+            # Fallback to box-based cropping
             x1, y1, x2, y2 = [int(v) for v in box]
-            h, w = frame.shape[:2]
             pad = 20
             x1 = max(0, x1 - pad)
             y1 = max(0, y1 - pad)
@@ -1835,12 +1874,74 @@ def api_analyze_object():
         image_data = base64.b64encode(buffer).decode('utf-8')
 
         cc.queue_analysis(detection_id, image_data)
-        cc.log(f"Queued object #{detection_id} for analysis")
+        cc.log(f"Queued object #{detection_id} for analysis (mask-cropped: {mask is not None})")
 
         return jsonify({"success": True})
 
     except Exception as e:
         cc.log(f"Failed to queue analysis: {e}", "ERROR")
+        return jsonify({"success": False, "error": str(e)})
+
+
+@app.route('/api/describe_scene', methods=['POST'])
+def api_describe_scene():
+    """Send full scene to Claude for description."""
+    global ANTHROPIC_API_KEY
+
+    if not ANTHROPIC_API_KEY:
+        return jsonify({"success": False, "error": "ANTHROPIC_API_KEY not set"})
+
+    if cc.current_raw_frame is None:
+        return jsonify({"success": False, "error": "No frame available"})
+
+    try:
+        import anthropic
+
+        frame = cc.current_raw_frame.copy()
+        _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
+        image_data = base64.b64encode(buffer).decode('utf-8')
+
+        cc.log("Analyzing full scene with Claude...")
+
+        client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+
+        message = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=800,
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": "image/jpeg",
+                                "data": image_data,
+                            },
+                        },
+                        {
+                            "type": "text",
+                            "text": "Please describe this scene in detail. Include: the setting/environment, all visible objects and people, their positions and relationships, any activities or actions taking place, lighting conditions, and any notable details. Be comprehensive but concise (3-5 sentences)."
+                        }
+                    ],
+                }
+            ],
+        )
+
+        result = message.content[0].text
+        cc.log("Scene analysis complete", "SUCCESS")
+
+        # Add to analysis results
+        cc.add_analysis_result(-1, f"[SCENE] {result}")
+
+        return jsonify({
+            "success": True,
+            "description": result
+        })
+
+    except Exception as e:
+        cc.log(f"Scene analysis failed: {e}", "ERROR")
         return jsonify({"success": False, "error": str(e)})
 
 
@@ -1988,6 +2089,78 @@ Examples:
         }
 
 
+def check_describe_command(voice_text: str) -> Optional[Dict]:
+    """
+    Check if voice command is a describe command.
+    Returns dict with action info if it's a describe command, None otherwise.
+
+    Handles:
+    - "describe scene" / "describe the scene" / "what do you see"
+    - "describe object 1" / "describe the first object" / "tell me about object 2"
+    - "analyze object 3" / "what is object 1"
+    """
+    text_lower = voice_text.lower().strip()
+
+    # Scene describe patterns
+    scene_patterns = [
+        "describe scene", "describe the scene", "describe this scene",
+        "what do you see", "what's in the scene", "describe everything",
+        "describe the view", "describe what you see", "analyze scene",
+        "tell me about the scene", "what's happening"
+    ]
+
+    for pattern in scene_patterns:
+        if pattern in text_lower:
+            return {
+                "action": "describe_scene",
+                "feedback": "Describing the scene..."
+            }
+
+    # Object describe patterns - extract object number
+    import re
+
+    # Patterns like "describe object 1", "analyze object 2", "tell me about object 3"
+    object_patterns = [
+        r"describe (?:the )?(?:object|item|thing) (\d+)",
+        r"analyze (?:the )?(?:object|item|thing) (\d+)",
+        r"what is (?:object|item|thing) (\d+)",
+        r"tell me about (?:object|item|thing) (\d+)",
+        r"describe (?:the )?(\d+)(?:st|nd|rd|th)? (?:object|item|thing)",
+        r"describe number (\d+)",
+        r"object (\d+) describe",
+    ]
+
+    for pattern in object_patterns:
+        match = re.search(pattern, text_lower)
+        if match:
+            obj_num = int(match.group(1))
+            return {
+                "action": "describe_object",
+                "object_id": obj_num,
+                "feedback": f"Describing object {obj_num}..."
+            }
+
+    # Ordinal patterns like "describe the first object", "analyze the second item"
+    ordinals = {
+        "first": 0, "1st": 0,
+        "second": 1, "2nd": 1,
+        "third": 2, "3rd": 2,
+        "fourth": 3, "4th": 3,
+        "fifth": 4, "5th": 4,
+    }
+
+    for ordinal, idx in ordinals.items():
+        if ordinal in text_lower and ("object" in text_lower or "item" in text_lower or "thing" in text_lower):
+            if "describe" in text_lower or "analyze" in text_lower or "tell me" in text_lower or "what is" in text_lower:
+                return {
+                    "action": "describe_object",
+                    "object_index": idx,
+                    "feedback": f"Describing the {ordinal} object..."
+                }
+
+    return None
+
+
 @app.route('/api/voice_search', methods=['POST'])
 def api_voice_search():
     """Process a voice search query through Claude and set prompts."""
@@ -2000,7 +2173,67 @@ def api_voice_search():
     cc.log(f"Voice query received: '{voice_text}'", "INFO")
     cc.last_voice_query = voice_text
 
-    # Parse the voice query with Claude
+    # First check for describe commands
+    describe_cmd = check_describe_command(voice_text)
+    if describe_cmd:
+        cc.add_voice_feedback(describe_cmd["feedback"], "info")
+
+        if describe_cmd["action"] == "describe_scene":
+            return jsonify({
+                "success": True,
+                "action": "describe_scene",
+                "feedback": describe_cmd["feedback"],
+                "tts_message": describe_cmd["feedback"]
+            })
+
+        elif describe_cmd["action"] == "describe_object":
+            # Find the object to describe
+            obj_id = describe_cmd.get("object_id")
+            obj_index = describe_cmd.get("object_index")
+
+            detections = cc.current_detections
+
+            if not detections:
+                return jsonify({
+                    "success": False,
+                    "error": "No objects detected",
+                    "feedback": "No objects are currently detected"
+                })
+
+            # Find the detection
+            target_det = None
+            target_index = None
+
+            if obj_id is not None:
+                # Look for object with this ID
+                for i, det in enumerate(detections):
+                    if det.get("id") == obj_id:
+                        target_det = det
+                        target_index = i
+                        break
+            elif obj_index is not None:
+                # Use index directly
+                if obj_index < len(detections):
+                    target_det = detections[obj_index]
+                    target_index = obj_index
+
+            if target_det is None:
+                return jsonify({
+                    "success": False,
+                    "error": f"Object not found",
+                    "feedback": f"Could not find the specified object"
+                })
+
+            return jsonify({
+                "success": True,
+                "action": "describe_object",
+                "detection": target_det,
+                "mask_index": target_index,
+                "feedback": describe_cmd["feedback"],
+                "tts_message": describe_cmd["feedback"]
+            })
+
+    # Parse the voice query with Claude for search
     result = parse_voice_query_with_claude(voice_text)
 
     if result["success"] and result["prompts"]:
@@ -2024,6 +2257,7 @@ def api_voice_search():
 
         return jsonify({
             "success": True,
+            "action": "search",
             "prompts": result["prompts"],
             "prompt_string": prompt_str,
             "is_multi": result["is_multi"],
@@ -2173,6 +2407,91 @@ def api_set_flip():
     })
 
 
+def generate_self_signed_cert(cert_dir: str = None) -> Tuple[str, str]:
+    """Generate a self-signed SSL certificate for HTTPS."""
+    try:
+        from cryptography import x509
+        from cryptography.x509.oid import NameOID
+        from cryptography.hazmat.primitives import hashes
+        from cryptography.hazmat.backends import default_backend
+        from cryptography.hazmat.primitives.asymmetric import rsa
+        from cryptography.hazmat.primitives import serialization
+        import datetime
+
+        if cert_dir is None:
+            cert_dir = os.path.join(os.path.dirname(__file__), '.ssl')
+
+        os.makedirs(cert_dir, exist_ok=True)
+
+        key_path = os.path.join(cert_dir, 'key.pem')
+        cert_path = os.path.join(cert_dir, 'cert.pem')
+
+        # Check if certs already exist
+        if os.path.exists(key_path) and os.path.exists(cert_path):
+            print(f"Using existing SSL certificates from {cert_dir}")
+            return cert_path, key_path
+
+        print("Generating self-signed SSL certificate...")
+
+        # Generate private key
+        key = rsa.generate_private_key(
+            public_exponent=65537,
+            key_size=2048,
+            backend=default_backend()
+        )
+
+        # Generate certificate
+        subject = issuer = x509.Name([
+            x509.NameAttribute(NameOID.COUNTRY_NAME, "US"),
+            x509.NameAttribute(NameOID.STATE_OR_PROVINCE_NAME, "California"),
+            x509.NameAttribute(NameOID.LOCALITY_NAME, "San Francisco"),
+            x509.NameAttribute(NameOID.ORGANIZATION_NAME, "SAM3 Command Center"),
+            x509.NameAttribute(NameOID.COMMON_NAME, "localhost"),
+        ])
+
+        cert = x509.CertificateBuilder().subject_name(
+            subject
+        ).issuer_name(
+            issuer
+        ).public_key(
+            key.public_key()
+        ).serial_number(
+            x509.random_serial_number()
+        ).not_valid_before(
+            datetime.datetime.utcnow()
+        ).not_valid_after(
+            datetime.datetime.utcnow() + datetime.timedelta(days=365)
+        ).add_extension(
+            x509.SubjectAlternativeName([
+                x509.DNSName("localhost"),
+                x509.DNSName("127.0.0.1"),
+                x509.IPAddress(ipaddress.IPv4Address("127.0.0.1")),
+            ]),
+            critical=False,
+        ).sign(key, hashes.SHA256(), default_backend())
+
+        # Write key
+        with open(key_path, "wb") as f:
+            f.write(key.private_bytes(
+                encoding=serialization.Encoding.PEM,
+                format=serialization.PrivateFormat.TraditionalOpenSSL,
+                encryption_algorithm=serialization.NoEncryption()
+            ))
+
+        # Write certificate
+        with open(cert_path, "wb") as f:
+            f.write(cert.public_bytes(serialization.Encoding.PEM))
+
+        print(f"SSL certificate generated: {cert_path}")
+        return cert_path, key_path
+
+    except ImportError:
+        print("WARNING: cryptography package not installed. Cannot generate SSL certificate.")
+        print("  Install with: pip install cryptography")
+        print("  Or provide --ssl-cert and --ssl-key arguments")
+        return None, None
+
+
 def main():
     global cc
 
@@ -2187,6 +2506,9 @@ def main():
     parser.add_argument("--no-tracking", action="store_true", help="Disable optical flow tracking")
     parser.add_argument("--no-yolo", action="store_true", help="Disable YOLO models")
     parser.add_argument("--api-key", type=str, default=None, help="Anthropic API key (or set ANTHROPIC_API_KEY env var)")
+    parser.add_argument("--https", action="store_true", help="Enable HTTPS (required for microphone access)")
+    parser.add_argument("--ssl-cert", type=str, default=None, help="Path to SSL certificate file")
+    parser.add_argument("--ssl-key", type=str, default=None, help="Path to SSL private key file")
 
     args = parser.parse_args()
 
@@ -2247,12 +2569,48 @@ def main():
     print(f"\n{'='*50}")
     print(f"SAM3 Web Command Center")
     print(f"{'='*50}")
-    print(f"Open http://localhost:{args.port} in your browser")
+
+    # Setup SSL if requested
+    ssl_context = None
+    protocol = "http"
+
+    if args.https:
+        if args.ssl_cert and args.ssl_key:
+            # Use provided certificates
+            if os.path.exists(args.ssl_cert) and os.path.exists(args.ssl_key):
+                ssl_context = (args.ssl_cert, args.ssl_key)
+                protocol = "https"
+                print(f"Using provided SSL certificates")
+            else:
+                print(f"ERROR: SSL certificate files not found")
+                print(f"  Cert: {args.ssl_cert}")
+                print(f"  Key: {args.ssl_key}")
+                return
+        else:
+            # Generate self-signed certificate
+            cert_path, key_path = generate_self_signed_cert()
+            if cert_path and key_path:
+                ssl_context = (cert_path, key_path)
+                protocol = "https"
+                print(f"Using auto-generated self-signed certificate")
+                print(f"  NOTE: You may need to accept the security warning in your browser")
+            else:
+                print("WARNING: Could not setup HTTPS. Falling back to HTTP.")
+                print("  Microphone may not work without HTTPS!")
+
+    print(f"Open {protocol}://localhost:{args.port} in your browser")
     print(f"YOLO: {'Available' if cc.yolo_available else 'Not available'}")
+    if protocol == "https":
+        print(f"HTTPS: Enabled (microphone access available)")
+    else:
+        print(f"HTTPS: Disabled (use --https to enable for microphone)")
     print(f"{'='*50}\n")
 
     try:
-        app.run(host='0.0.0.0', port=args.port, threaded=True, debug=False)
+        if ssl_context:
+            app.run(host='0.0.0.0', port=args.port, threaded=True, debug=False, ssl_context=ssl_context)
+        else:
+            app.run(host='0.0.0.0', port=args.port, threaded=True, debug=False)
     finally:
         cc.running = False
         if cc.camera:
