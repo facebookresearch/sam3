@@ -2243,103 +2243,316 @@ def update_memory_bank(object_id: int, mask_features: torch.Tensor):
 _last_obstacle_analysis_time = 0
 _obstacle_analysis_interval = 3.0  # Seconds between Claude calls
 _cached_obstacles = []
+_cached_opencv_obstacles = []
+
+
+# ===== OPENCV REAL-TIME OBSTACLE DETECTION =====
+# Fast, runs every frame - detects "something is there"
+# Complements Claude AI which understands "what is it and is it dangerous"
+
+def detect_obstacles_opencv(frame: np.ndarray) -> List[Dict]:
+    """
+    Real-time obstacle detection using OpenCV techniques.
+
+    This runs every frame and detects:
+    1. Large objects/edges in the path (via Canny edge detection)
+    2. Proximity based on edge density in regions
+    3. Floor-level obstacles (via bottom-region analysis)
+
+    This is FAST but DUMB - it detects "something is there" but doesn't know what.
+    Claude AI provides the smart context about whether it's actually dangerous.
+    """
+    global cc
+
+    h, w = frame.shape[:2]
+    obstacles = []
+
+    try:
+        # Convert to grayscale
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+        # Apply bilateral filter to reduce noise while preserving edges
+        # This is key for obstacle detection - keeps edges sharp
+        filtered = cv2.bilateralFilter(gray, 9, 75, 75)
+
+        # Canny edge detection
+        edges = cv2.Canny(filtered, 50, 150)
+
+        # Dilate edges to connect nearby edges
+        kernel = np.ones((3, 3), np.uint8)
+        edges_dilated = cv2.dilate(edges, kernel, iterations=2)
+
+        # Define regions of interest (ROI) for obstacle detection
+        # Focus on center and bottom of frame (where obstacles matter for walking)
+        regions = {
+            "center_close": (w // 4, h // 2, 3 * w // 4, h - 50),     # Center, bottom half
+            "left_path": (0, h // 2, w // 4, h - 50),                   # Left side path
+            "right_path": (3 * w // 4, h // 2, w, h - 50),             # Right side path
+            "floor_immediate": (w // 6, 2 * h // 3, 5 * w // 6, h),    # Immediate floor area
+        }
+
+        for region_name, (x1, y1, x2, y2) in regions.items():
+            # Extract region
+            roi = edges_dilated[y1:y2, x1:x2]
+
+            if roi.size == 0:
+                continue
+
+            # Calculate edge density in this region
+            edge_density = np.sum(roi > 0) / roi.size
+
+            # Find contours in this region
+            contours, _ = cv2.findContours(roi, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+            # Filter significant contours (large enough to be obstacles)
+            min_contour_area = (x2 - x1) * (y2 - y1) * 0.05  # At least 5% of region
+            significant_contours = [c for c in contours if cv2.contourArea(c) > min_contour_area]
+
+            # Determine if this region has an obstacle
+            # High edge density + significant contours = likely obstacle
+            if edge_density > 0.15 and len(significant_contours) > 0:
+                # Estimate proximity based on position in frame
+                # Objects lower in frame = closer
+                vertical_position = (y1 + y2) / 2 / h
+
+                if vertical_position > 0.8:  # Very low in frame
+                    distance = "very_close"
+                    severity = "high"
+                elif vertical_position > 0.65:
+                    distance = "close"
+                    severity = "medium"
+                else:
+                    distance = "medium"
+                    severity = "low"
+
+                # Map region to position
+                if "left" in region_name:
+                    position = "left"
+                elif "right" in region_name:
+                    position = "right"
+                elif "floor" in region_name:
+                    position = "floor"
+                else:
+                    position = "center"
+
+                # Get the largest contour for this obstacle
+                largest_contour = max(significant_contours, key=cv2.contourArea)
+                contour_box = cv2.boundingRect(largest_contour)
+
+                # Adjust box coordinates to full frame
+                box = [
+                    x1 + contour_box[0],
+                    y1 + contour_box[1],
+                    x1 + contour_box[0] + contour_box[2],
+                    y1 + contour_box[1] + contour_box[3]
+                ]
+
+                obstacles.append({
+                    "label": f"obstacle ({position})",
+                    "type": severity,
+                    "position": position,
+                    "distance": distance,
+                    "box": box,
+                    "edge_density": edge_density,
+                    "contour_count": len(significant_contours),
+                    "source": "opencv",
+                    "reason": f"Edge detection: {edge_density:.0%} density"
+                })
+
+        # Also check for sudden large objects in center (collision imminent)
+        center_roi = edges_dilated[h // 3:, w // 4:3 * w // 4]
+        center_density = np.sum(center_roi > 0) / center_roi.size
+
+        if center_density > 0.25:  # Very high edge density in center
+            # This suggests a large object directly ahead
+            obstacles.append({
+                "label": "large obstacle ahead",
+                "type": "high",
+                "position": "center",
+                "distance": "close",
+                "box": [w // 4, h // 3, 3 * w // 4, h],
+                "edge_density": center_density,
+                "source": "opencv",
+                "reason": "High edge density directly ahead - possible collision"
+            })
+
+    except Exception as e:
+        cc.log(f"OpenCV obstacle detection error: {e}", "ERROR")
+
+    return obstacles
+
+
+def analyze_floor_clearance(frame: np.ndarray) -> Dict:
+    """
+    Analyze if the immediate floor area is clear for walking.
+
+    Uses color consistency and edge analysis of the floor region
+    to detect trip hazards, steps, or objects on the ground.
+    """
+    h, w = frame.shape[:2]
+
+    # Focus on bottom third of frame (floor area)
+    floor_region = frame[2 * h // 3:, :]
+
+    # Convert to grayscale
+    gray = cv2.cvtColor(floor_region, cv2.COLOR_BGR2GRAY)
+
+    # Calculate standard deviation - uniform floor has low std dev
+    std_dev = np.std(gray)
+
+    # Edge detection on floor
+    edges = cv2.Canny(gray, 30, 100)
+    edge_ratio = np.sum(edges > 0) / edges.size
+
+    # Analyze left, center, right paths
+    third = w // 3
+    left_edges = np.sum(edges[:, :third] > 0) / (edges[:, :third].size + 1)
+    center_edges = np.sum(edges[:, third:2*third] > 0) / (edges[:, third:2*third].size + 1)
+    right_edges = np.sum(edges[:, 2*third:] > 0) / (edges[:, 2*third:].size + 1)
+
+    # Determine clearest path
+    paths = {"left": left_edges, "center": center_edges, "right": right_edges}
+    clearest = min(paths, key=paths.get)
+
+    return {
+        "floor_uniformity": 1.0 - min(std_dev / 80, 1.0),  # Higher = more uniform
+        "edge_ratio": edge_ratio,
+        "path_analysis": paths,
+        "suggested_path": clearest,
+        "floor_clear": edge_ratio < 0.1 and std_dev < 40
+    }
 
 
 def detect_obstacles(frame: np.ndarray, pil_image: Image.Image) -> List[Dict]:
     """
-    Detect obstacles using Claude AI for intelligent, context-aware detection.
+    HYBRID obstacle detection combining:
+    1. OpenCV (FAST): Real-time edge/contour detection - runs every frame
+    2. Claude AI (SMART): Context-aware analysis - runs every few seconds
 
-    This approach:
-    1. Sends the image to Claude with context about the navigation target
-    2. Claude identifies what's actually in the user's path (not just any object)
-    3. Claude understands the target is NOT an obstacle
-    4. Claude provides spatial reasoning about what could block movement
+    OpenCV catches "something is there" immediately.
+    Claude understands "what is it and should I care about it".
     """
-    global cc, _last_obstacle_analysis_time, _cached_obstacles
+    global cc, _last_obstacle_analysis_time, _cached_obstacles, _cached_opencv_obstacles
 
     if not cc.obstacle_detection_active:
         return []
 
     current_time = time.time()
+    all_obstacles = []
 
-    # Rate limit Claude calls - use cached results if recent
-    if current_time - _last_obstacle_analysis_time < _obstacle_analysis_interval:
-        return _cached_obstacles
+    # ===== LAYER 1: OpenCV Real-Time Detection (every frame) =====
+    # Fast but doesn't understand context
+    opencv_obstacles = detect_obstacles_opencv(frame)
 
-    obstacles = []
+    # Filter OpenCV results - only alert on high-confidence immediate threats
+    for obs in opencv_obstacles:
+        # Only use OpenCV alerts for very close obstacles
+        if obs["distance"] in ["very_close", "close"] and obs.get("edge_density", 0) > 0.2:
+            obs["timestamp"] = current_time
 
-    try:
-        # Encode frame for Claude
-        _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
-        image_data = base64.b64encode(buffer).decode('utf-8')
-
-        # Get target box if available (for spatial context)
-        target_box = None
-        if cc.navigation_target:
-            for det in cc.current_detections:
-                if det.get("label", "").lower() == cc.navigation_target.lower():
-                    target_box = det.get("box")
-                    break
-
-        # Call Claude for intelligent obstacle analysis
-        claude_obstacles = analyze_obstacles_with_claude(
-            image_data,
-            cc.navigation_target or "the object",
-            target_box
-        )
-
-        _last_obstacle_analysis_time = current_time
-
-        # Process Claude's obstacles
-        for obs in claude_obstacles:
-            obstacle = {
-                "label": obs["label"],
-                "type": obs["type"],
-                "position": obs.get("position", "ahead"),
-                "distance": obs["distance"],
-                "reason": obs.get("reason", ""),
-                "timestamp": current_time,
-                "box": None,  # Claude doesn't provide precise boxes
-                "mask": None
-            }
-
-            # Check cooldown for alerts
-            cooldown_key = f"{obs['label']}_{obs['distance']}"
+            # Check cooldown
+            cooldown_key = f"opencv_{obs['position']}_{obs['distance']}"
             last_alert = cc.obstacle_alert_cooldown.get(cooldown_key, 0)
 
-            if current_time - last_alert > cc.obstacle_alert_interval:
-                obstacle["should_alert"] = True
+            if current_time - last_alert > 2.0:  # 2 second cooldown for OpenCV alerts
+                obs["should_alert"] = True
                 cc.obstacle_alert_cooldown[cooldown_key] = current_time
-
-                # Log the obstacle with reason
-                cc.log(f"OBSTACLE: {obs['label']} ({obs['distance']}) - {obs.get('reason', '')}", "WARN")
-
-                # Save to database
-                if cc.navigation_db_id:
-                    db.save_obstacle(
-                        cc.navigation_db_id,
-                        obs["label"],
-                        obs["type"],
-                        [],  # No precise box from Claude
-                        obs["distance"],
-                        alert_sent=True
-                    )
             else:
-                obstacle["should_alert"] = False
+                obs["should_alert"] = False
 
-            obstacles.append(obstacle)
+            all_obstacles.append(obs)
 
-        # If Claude found obstacles and suggested a safe direction, log it
-        if cc.navigation_context and cc.navigation_context.get("safe_direction"):
-            cc.log(f"Safe path: {cc.navigation_context['safe_direction']}", "INFO")
+    _cached_opencv_obstacles = opencv_obstacles
 
-        _cached_obstacles = obstacles
+    # ===== LAYER 2: Floor Clearance Analysis =====
+    # Quick check if floor is clear
+    floor_analysis = analyze_floor_clearance(frame)
+    if not floor_analysis["floor_clear"]:
+        cc.navigation_context = cc.navigation_context or {}
+        cc.navigation_context["floor_analysis"] = floor_analysis
+        cc.navigation_context["suggested_path"] = floor_analysis["suggested_path"]
 
-    except Exception as e:
-        cc.log(f"Obstacle detection error: {e}", "ERROR")
-        return _cached_obstacles
+    # ===== LAYER 3: Claude AI Analysis (every few seconds) =====
+    # Smart but slower - provides context and understanding
+    if current_time - _last_obstacle_analysis_time >= _obstacle_analysis_interval:
+        try:
+            # Encode frame for Claude
+            _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
+            image_data = base64.b64encode(buffer).decode('utf-8')
 
-    return obstacles
+            # Get target box if available (for spatial context)
+            target_box = None
+            if cc.navigation_target:
+                for det in cc.current_detections:
+                    if det.get("label", "").lower() == cc.navigation_target.lower():
+                        target_box = det.get("box")
+                        break
+
+            # Call Claude for intelligent obstacle analysis
+            claude_obstacles = analyze_obstacles_with_claude(
+                image_data,
+                cc.navigation_target or "the object",
+                target_box
+            )
+
+            _last_obstacle_analysis_time = current_time
+
+            # Process Claude's obstacles
+            for obs in claude_obstacles:
+                obstacle = {
+                    "label": obs["label"],
+                    "type": obs["type"],
+                    "position": obs.get("position", "ahead"),
+                    "distance": obs["distance"],
+                    "reason": obs.get("reason", ""),
+                    "timestamp": current_time,
+                    "box": None,
+                    "mask": None,
+                    "source": "claude"
+                }
+
+                # Check cooldown for alerts
+                cooldown_key = f"claude_{obs['label']}_{obs['distance']}"
+                last_alert = cc.obstacle_alert_cooldown.get(cooldown_key, 0)
+
+                if current_time - last_alert > cc.obstacle_alert_interval:
+                    obstacle["should_alert"] = True
+                    cc.obstacle_alert_cooldown[cooldown_key] = current_time
+
+                    # Log the obstacle with reason
+                    cc.log(f"OBSTACLE: {obs['label']} ({obs['distance']}) - {obs.get('reason', '')}", "WARN")
+
+                    # Save to database
+                    if cc.navigation_db_id:
+                        db.save_obstacle(
+                            cc.navigation_db_id,
+                            obs["label"],
+                            obs["type"],
+                            [],
+                            obs["distance"],
+                            alert_sent=True
+                        )
+                else:
+                    obstacle["should_alert"] = False
+
+                all_obstacles.append(obstacle)
+
+            # Log safe direction if available
+            if cc.navigation_context and cc.navigation_context.get("safe_direction"):
+                cc.log(f"Safe path: {cc.navigation_context['safe_direction']}", "INFO")
+
+            _cached_obstacles = [o for o in all_obstacles if o.get("source") == "claude"]
+
+        except Exception as e:
+            cc.log(f"Claude obstacle analysis error: {e}", "ERROR")
+            # Fall back to cached Claude results
+            all_obstacles.extend(_cached_obstacles)
+
+    else:
+        # Use cached Claude results between API calls
+        all_obstacles.extend(_cached_obstacles)
+
+    return all_obstacles
 
 
 def get_obstacle_segmentation(frame: np.ndarray, obstacle_label: str) -> Optional[np.ndarray]:
@@ -2373,8 +2586,9 @@ def overlay_obstacles(display: np.ndarray, obstacles: List[Dict]) -> np.ndarray:
     """
     Overlay obstacle alerts on the display frame.
 
-    Since Claude provides position-based info (left/center/right) rather than
-    precise bounding boxes, we draw alerts in the corresponding screen region.
+    Handles both:
+    - OpenCV obstacles (have precise bounding boxes from edge detection)
+    - Claude obstacles (have position-based info like left/center/right)
     """
     if not obstacles:
         return display
@@ -2388,7 +2602,7 @@ def overlay_obstacles(display: np.ndarray, obstacles: List[Dict]) -> np.ndarray:
         "low": (0, 255, 255)       # Yellow
     }
 
-    # Position to screen region mapping
+    # Position to screen region mapping (for Claude obstacles without boxes)
     position_regions = {
         "left": (10, h // 3, w // 3, 2 * h // 3),
         "center": (w // 3, h // 3, 2 * w // 3, 2 * h // 3),
@@ -2403,29 +2617,48 @@ def overlay_obstacles(display: np.ndarray, obstacles: List[Dict]) -> np.ndarray:
         distance = obstacle.get("distance", "medium")
         position = obstacle.get("position", "ahead")
         reason = obstacle.get("reason", "")
+        source = obstacle.get("source", "unknown")
+        box = obstacle.get("box")
 
         color = colors.get(severity, (0, 165, 255))
 
-        # Get screen region for this position
-        region = position_regions.get(position, position_regions["ahead"])
-        rx1, ry1, rx2, ry2 = region
+        # Determine region - use box if available (OpenCV), otherwise use position (Claude)
+        if box and len(box) == 4 and all(v is not None for v in box):
+            # OpenCV obstacle with precise box
+            rx1, ry1, rx2, ry2 = [int(v) for v in box]
 
-        # Draw semi-transparent warning zone for high/medium severity
-        if severity in ["high", "medium"] and distance in ["very_close", "close"]:
+            # Draw bounding box with dashed lines for OpenCV detections
+            if source == "opencv":
+                # Dashed rectangle effect
+                for j in range(rx1, rx2, 10):
+                    cv2.line(display, (j, ry1), (min(j + 5, rx2), ry1), color, 2)
+                    cv2.line(display, (j, ry2), (min(j + 5, rx2), ry2), color, 2)
+                for j in range(ry1, ry2, 10):
+                    cv2.line(display, (rx1, j), (rx1, min(j + 5, ry2)), color, 2)
+                    cv2.line(display, (rx2, j), (rx2, min(j + 5, ry2)), color, 2)
+            else:
+                cv2.rectangle(display, (rx1, ry1), (rx2, ry2), color, 2)
+        else:
+            # Claude obstacle - use position-based region
+            region = position_regions.get(position, position_regions["ahead"])
+            rx1, ry1, rx2, ry2 = region
+
+        # Draw semi-transparent warning zone for close obstacles
+        if distance in ["very_close", "close"]:
             overlay = display.copy()
+            alpha = 0.25 if severity == "high" else 0.15
             cv2.rectangle(overlay, (rx1, ry1), (rx2, ry2), color, -1)
-            alpha = 0.2 if severity == "high" else 0.15
             display = cv2.addWeighted(overlay, alpha, display, 1 - alpha, 0)
 
-            # Draw border
+            # Draw thick border
             cv2.rectangle(display, (rx1, ry1), (rx2, ry2), color, 3)
 
-        # Draw warning icon at top of region
-        icon_size = 40 if severity == "high" else 30
+        # Draw warning icon
+        icon_size = 35 if severity == "high" else 25
         icon_x = (rx1 + rx2) // 2 - icon_size // 2
-        icon_y = ry1 + 10
+        icon_y = max(ry1 - icon_size - 5, 5)
 
-        # Draw warning triangle
+        # Warning triangle
         triangle = np.array([
             [icon_x + icon_size // 2, icon_y],
             [icon_x, icon_y + icon_size],
@@ -2434,47 +2667,59 @@ def overlay_obstacles(display: np.ndarray, obstacles: List[Dict]) -> np.ndarray:
         cv2.fillPoly(display, [triangle], color)
         cv2.polylines(display, [triangle], True, (0, 0, 0), 2)
 
-        # Draw exclamation mark
-        cv2.line(display, (icon_x + icon_size // 2, icon_y + 10),
-                 (icon_x + icon_size // 2, icon_y + icon_size - 15), (0, 0, 0), 3)
-        cv2.circle(display, (icon_x + icon_size // 2, icon_y + icon_size - 8), 3, (0, 0, 0), -1)
+        # Exclamation mark
+        cv2.line(display, (icon_x + icon_size // 2, icon_y + 8),
+                 (icon_x + icon_size // 2, icon_y + icon_size - 12), (0, 0, 0), 2)
+        cv2.circle(display, (icon_x + icon_size // 2, icon_y + icon_size - 6), 2, (0, 0, 0), -1)
 
-        # Draw label text
-        if distance in ["very_close", "close"]:
+        # Label text
+        if distance in ["very_close"]:
+            label_text = f"STOP! {label}"
+        elif distance == "close":
             label_text = f"WARNING: {label}"
         else:
             label_text = f"CAUTION: {label}"
 
+        # Add source indicator for debugging
+        if source == "opencv":
+            label_text += " [CV]"
+
         text_x = rx1 + 5
-        text_y = icon_y + icon_size + 25
+        text_y = ry2 + 20 if ry2 + 25 < h else ry1 - 40
 
-        # Draw text with background
-        (text_w, text_h), _ = cv2.getTextSize(label_text, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)
-        cv2.rectangle(display, (text_x - 2, text_y - text_h - 5),
-                      (text_x + text_w + 2, text_y + 5), (0, 0, 0), -1)
+        # Text with background
+        (text_w, text_h), _ = cv2.getTextSize(label_text, cv2.FONT_HERSHEY_SIMPLEX, 0.55, 2)
+        cv2.rectangle(display, (text_x - 2, text_y - text_h - 3),
+                      (text_x + text_w + 2, text_y + 3), (0, 0, 0), -1)
         cv2.putText(display, label_text, (text_x, text_y),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.55, color, 2)
 
-        # Draw distance indicator
-        distance_text = distance.replace("_", " ")
-        text_y += 20
+        # Distance text
+        text_y += 18
+        distance_text = distance.replace("_", " ").upper()
         cv2.putText(display, distance_text, (text_x, text_y),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 255, 255), 1)
 
-        # Draw reason if available (smaller text)
-        if reason and len(reason) < 50:
-            text_y += 18
+        # Reason (if from Claude)
+        if reason and source == "claude" and len(reason) < 40:
+            text_y += 16
             cv2.putText(display, reason, (text_x, text_y),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.4, (200, 200, 200), 1)
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.35, (200, 200, 200), 1)
 
-    # Draw path clear indicator if applicable
-    if cc.navigation_context and cc.navigation_context.get("path_clear"):
-        cv2.putText(display, "PATH CLEAR", (w // 2 - 60, 30),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
-    elif cc.navigation_context and cc.navigation_context.get("safe_direction"):
-        safe_text = f"Try: {cc.navigation_context['safe_direction']}"
-        cv2.putText(display, safe_text, (10, h - 20),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+    # Draw path status indicator
+    if cc.navigation_context:
+        if cc.navigation_context.get("path_clear"):
+            cv2.putText(display, "PATH CLEAR", (w // 2 - 60, 30),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+        elif cc.navigation_context.get("safe_direction"):
+            safe_text = f"Go: {cc.navigation_context['safe_direction']}"
+            cv2.putText(display, safe_text, (10, h - 20),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+        elif cc.navigation_context.get("suggested_path"):
+            # From floor analysis
+            path_text = f"Clearest path: {cc.navigation_context['suggested_path']}"
+            cv2.putText(display, path_text, (10, h - 20),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 200, 255), 1)
 
     return display
 
