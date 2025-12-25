@@ -486,34 +486,38 @@ def load_yolo_models():
 
         cc.log("Loading YOLO models...")
 
-        # Load classification model (YOLO11 - latest version)
-        # Model will auto-download on first use
-        try:
-            cc.yolo_classify_model = YOLO('yolo11n-cls.pt')
-            cc.log("YOLO classification model loaded (yolo11n-cls)", "SUCCESS")
-        except Exception as e:
-            cc.log(f"Could not load YOLO classify model: {e}", "WARN")
-            # Try fallback to YOLOv8
-            try:
-                cc.yolo_classify_model = YOLO('yolov8n-cls.pt')
-                cc.log("YOLO classification model loaded (yolov8n-cls fallback)", "SUCCESS")
-            except Exception as e2:
-                cc.log(f"Fallback also failed: {e2}", "WARN")
-                cc.yolo_classify_model = None
+        # Model priority: YOLO12 -> YOLO11 -> YOLOv8
+        # YOLO12 is newest (Feb 2025) but pretrained weights may not be available for all tasks
+        cls_models = ['yolo12n-cls.pt', 'yolo11n-cls.pt', 'yolov8n-cls.pt']
+        pose_models = ['yolo12n-pose.pt', 'yolo11n-pose.pt', 'yolov8n-pose.pt']
 
-        # Load pose estimation model (YOLO11 - latest version)
-        try:
-            cc.yolo_pose_model = YOLO('yolo11n-pose.pt')
-            cc.log("YOLO pose model loaded (yolo11n-pose)", "SUCCESS")
-        except Exception as e:
-            cc.log(f"Could not load YOLO pose model: {e}", "WARN")
-            # Try fallback to YOLOv8
+        # Load classification model
+        cc.yolo_classify_model = None
+        for model_name in cls_models:
             try:
-                cc.yolo_pose_model = YOLO('yolov8n-pose.pt')
-                cc.log("YOLO pose model loaded (yolov8n-pose fallback)", "SUCCESS")
-            except Exception as e2:
-                cc.log(f"Fallback also failed: {e2}", "WARN")
-                cc.yolo_pose_model = None
+                cc.yolo_classify_model = YOLO(model_name)
+                cc.log(f"YOLO classification model loaded ({model_name})", "SUCCESS")
+                break
+            except Exception as e:
+                cc.log(f"Could not load {model_name}: {e}", "WARN")
+                continue
+
+        if cc.yolo_classify_model is None:
+            cc.log("No classification model available", "WARN")
+
+        # Load pose estimation model
+        cc.yolo_pose_model = None
+        for model_name in pose_models:
+            try:
+                cc.yolo_pose_model = YOLO(model_name)
+                cc.log(f"YOLO pose model loaded ({model_name})", "SUCCESS")
+                break
+            except Exception as e:
+                cc.log(f"Could not load {model_name}: {e}", "WARN")
+                continue
+
+        if cc.yolo_pose_model is None:
+            cc.log("No pose model available", "WARN")
 
         cc.yolo_available = cc.yolo_classify_model is not None or cc.yolo_pose_model is not None
 
