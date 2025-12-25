@@ -3098,19 +3098,21 @@
             }
 
             updateARDisplay() {
-                // Direction arrow and text
+                // Direction arrow and text (maps backend directions to display)
                 const arrows = {
-                    'forward': '↑', 'ahead': '↑',
+                    'forward': '↑', 'ahead': '↑', 'up': '↑',
                     'left': '←', 'slight_left': '↖',
                     'right': '→', 'slight_right': '↗',
-                    'center': '●', 'reached': '✓'
+                    'center': '●', 'reached': '✓',
+                    'down': '↓', 'unknown': '?'
                 };
 
                 const texts = {
-                    'forward': 'Ahead', 'ahead': 'Ahead',
+                    'forward': 'Ahead', 'ahead': 'Ahead', 'up': 'Move Up',
                     'left': 'Turn Left', 'slight_left': 'Slight Left',
                     'right': 'Turn Right', 'slight_right': 'Slight Right',
-                    'center': 'Center', 'reached': 'Reached!'
+                    'center': 'Centered', 'reached': 'Reached!',
+                    'down': 'Move Down', 'unknown': 'Searching'
                 };
 
                 document.getElementById('ar-direction-arrow').textContent = arrows[this.direction] || '↑';
@@ -3134,12 +3136,14 @@
                     const offsetX = (this.targetPosition.x - 0.5) * 50;
                     chevronContainer.style.transform = `translate(calc(-50% + ${offsetX}%), -50%)`;
 
-                    // Rotate based on direction
+                    // Rotate based on direction (0 = forward/up, pointing toward target)
                     let rotation = 0;
                     if (this.direction === 'left') rotation = -90;
                     else if (this.direction === 'slight_left') rotation = -45;
                     else if (this.direction === 'right') rotation = 90;
                     else if (this.direction === 'slight_right') rotation = 45;
+                    else if (this.direction === 'down') rotation = 180;
+                    // 'up', 'forward', 'ahead', 'center' all keep rotation = 0
 
                     chevronContainer.style.transform += ` rotate(${rotation}deg)`;
                 } else {
@@ -3963,6 +3967,9 @@
                 clearInterval(proximityBeepTimer);
                 proximityBeepTimer = null;
             }
+
+            // Stop AR navigation path
+            arNavPath.stop();
 
             // Hide navigation overlay
             document.getElementById('navigation-overlay').style.display = 'none';
