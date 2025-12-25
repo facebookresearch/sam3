@@ -264,7 +264,8 @@ class CommandCenter:
         self.analyzing = False
 
         # Frame for streaming
-        self.current_frame = None
+        self.current_frame = None  # Frame with overlays (for display)
+        self.current_raw_frame = None  # Raw frame without overlays (for analysis)
         self.current_frame_jpeg = None
 
         # Camera and model
@@ -1491,7 +1492,10 @@ def generate_frames():
 
         start = time.time()
 
-        # Process frame
+        # Store raw frame (without overlays) for Claude analysis
+        cc.current_raw_frame = frame.copy()
+
+        # Process frame (adds overlays)
         display = process_frame(frame)
 
         # Calculate FPS
@@ -1808,11 +1812,12 @@ def api_analyze_object():
     detection_id = data.get("detection_id")
     box = data.get("box")
 
-    if cc.current_frame is None:
+    # Use raw frame (without overlays) for analysis
+    if cc.current_raw_frame is None:
         return jsonify({"success": False, "error": "No frame available"})
 
     try:
-        frame = cc.current_frame.copy()
+        frame = cc.current_raw_frame.copy()
 
         if box:
             x1, y1, x2, y2 = [int(v) for v in box]
