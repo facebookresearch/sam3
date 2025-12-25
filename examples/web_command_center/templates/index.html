@@ -781,8 +781,10 @@
                 </div>
             </div>
             <div class="left-panel-content">
-                <div class="video-container">
+                <div class="video-container" style="position: relative;">
                     <img id="video-feed" src="/video_feed" alt="Live camera feed">
+                    <canvas id="draw-canvas" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; display: none;"></canvas>
+                    <div id="draw-overlay-hint" style="position: absolute; top: 10px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.7); color: #fff; padding: 8px 16px; border-radius: 6px; font-size: 0.85rem; display: none;"></div>
                 </div>
 
                 <!-- Tabs for Controls, Camera, Voice, and Features -->
@@ -790,6 +792,7 @@
                     <div class="tab active" onclick="switchTab('controls')">Controls</div>
                     <div class="tab" onclick="switchTab('camera')">Camera</div>
                     <div class="tab" onclick="switchTab('voice')">Voice Search</div>
+                    <div class="tab" onclick="switchTab('reference')">Reference Search</div>
                     <div class="tab" onclick="switchTab('features')">Features</div>
                 </div>
 
@@ -941,6 +944,88 @@
                         <div class="feature-section-title">Voice History</div>
                         <div class="voice-history" id="voice-history-list">
                             <div class="empty-state" style="padding: 15px;">No voice searches yet</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Reference Search Tab -->
+                <div id="tab-reference" class="tab-content">
+                    <div class="features-panel">
+                        <!-- Reference Image Upload -->
+                        <div class="feature-section">
+                            <div class="feature-section-title">Reference Image Search</div>
+                            <p style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 12px;">
+                                Upload an image of an object to find similar objects in the live feed
+                            </p>
+
+                            <div class="reference-upload-container">
+                                <input type="file" id="reference-file" accept="image/*" style="display: none;"
+                                       onchange="handleReferenceUpload(event)">
+
+                                <div class="reference-mode-selector" style="margin-bottom: 12px;">
+                                    <label style="display: flex; align-items: center; margin-bottom: 8px; cursor: pointer;">
+                                        <input type="radio" name="ref-mode" value="description" checked style="margin-right: 8px;">
+                                        <span><strong>Search by Description</strong> - Claude describes the image, SAM3 finds it</span>
+                                    </label>
+                                    <label style="display: flex; align-items: center; cursor: pointer;">
+                                        <input type="radio" name="ref-mode" value="visual" style="margin-right: 8px;">
+                                        <span><strong>Search by Visual Match</strong> - CLIP finds visually similar objects</span>
+                                    </label>
+                                </div>
+
+                                <div style="display: flex; gap: 10px;">
+                                    <button class="btn" onclick="document.getElementById('reference-file').click()">
+                                        Upload Reference Image
+                                    </button>
+                                    <button class="btn btn-secondary" onclick="clearReference()">
+                                        Clear
+                                    </button>
+                                </div>
+
+                                <div id="reference-status" style="margin-top: 12px; padding: 10px; background: var(--bg-primary); border-radius: 6px; display: none;">
+                                    <div id="reference-description" style="font-size: 0.85rem;"></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Draw to Search -->
+                        <div class="feature-section">
+                            <div class="feature-section-title">Draw to Search</div>
+                            <p style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 12px;">
+                                Draw a box around an object in the video to select it
+                            </p>
+
+                            <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                                <button class="btn" id="draw-box-btn" onclick="toggleDrawMode('box')">
+                                    Draw Box
+                                </button>
+                                <button class="btn btn-secondary" id="draw-point-btn" onclick="toggleDrawMode('point')">
+                                    Click Point
+                                </button>
+                                <button class="btn btn-secondary" onclick="clearDrawMode()">
+                                    Cancel
+                                </button>
+                            </div>
+
+                            <div id="draw-status" style="margin-top: 10px; font-size: 0.85rem; color: var(--text-secondary);">
+                                Click a button above, then draw on the video
+                            </div>
+                        </div>
+
+                        <!-- Visual Match Settings -->
+                        <div class="feature-section">
+                            <div class="feature-section-title">Visual Match Settings</div>
+
+                            <div class="control-group" style="margin-bottom: 0;">
+                                <label>Similarity Threshold</label>
+                                <input type="range" id="clip-threshold" min="0.5" max="0.95" step="0.05" value="0.75"
+                                       style="width: 100%;" oninput="updateClipThreshold(this.value)">
+                                <div style="display: flex; justify-content: space-between; font-size: 0.75rem; color: var(--text-secondary);">
+                                    <span>Loose (0.5)</span>
+                                    <span id="clip-threshold-value">0.75</span>
+                                    <span>Strict (0.95)</span>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -1891,6 +1976,307 @@
         updateStatus();
         updateLogs();
         updateAnalysis();
+
+        // Initialize draw canvas
+        initDrawCanvas();
+
+        // ===== REFERENCE IMAGE SEARCH =====
+
+        async function handleReferenceUpload(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const mode = document.querySelector('input[name="ref-mode"]:checked').value;
+            const formData = new FormData();
+            formData.append('image', file);
+            formData.append('mode', mode);
+
+            const statusEl = document.getElementById('reference-status');
+            const descEl = document.getElementById('reference-description');
+
+            statusEl.style.display = 'block';
+            descEl.innerHTML = '<span style="color: var(--text-secondary);">Processing reference image...</span>';
+
+            try {
+                const response = await fetch('/api/upload_reference', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    if (data.mode === 'description') {
+                        descEl.innerHTML = `<strong>Searching for:</strong> "${data.description}"`;
+                        // Update prompts input
+                        document.getElementById('prompts-input').value = data.prompt;
+                    } else {
+                        descEl.innerHTML = `<strong>Visual matching:</strong> ${data.description}<br><span style="color: var(--success-color);">CLIP matching enabled</span>`;
+                    }
+                    if (ttsEnabled) {
+                        speak(data.mode === 'description' ? `Searching for ${data.description}` : 'Visual matching enabled');
+                    }
+                } else {
+                    descEl.innerHTML = `<span style="color: var(--error-color);">Error: ${data.error}</span>`;
+                }
+            } catch (e) {
+                descEl.innerHTML = `<span style="color: var(--error-color);">Upload failed: ${e.message}</span>`;
+            }
+
+            // Clear file input
+            event.target.value = '';
+        }
+
+        async function clearReference() {
+            await fetch('/api/clear_reference', { method: 'POST' });
+            document.getElementById('reference-status').style.display = 'none';
+            document.getElementById('reference-description').innerHTML = '';
+        }
+
+        function updateClipThreshold(value) {
+            document.getElementById('clip-threshold-value').textContent = value;
+            // Could add API call to update server-side threshold
+        }
+
+        // ===== DRAW TO SEARCH =====
+
+        let drawMode = null;  // 'box' or 'point'
+        let isDrawing = false;
+        let startX, startY;
+
+        function initDrawCanvas() {
+            const video = document.getElementById('video-feed');
+            const canvas = document.getElementById('draw-canvas');
+            const ctx = canvas.getContext('2d');
+
+            // Match canvas size to video
+            function resizeCanvas() {
+                canvas.width = video.offsetWidth;
+                canvas.height = video.offsetHeight;
+            }
+
+            // Resize on window resize
+            window.addEventListener('resize', resizeCanvas);
+            video.addEventListener('load', resizeCanvas);
+            setTimeout(resizeCanvas, 500);
+
+            // Mouse events
+            canvas.addEventListener('mousedown', handleMouseDown);
+            canvas.addEventListener('mousemove', handleMouseMove);
+            canvas.addEventListener('mouseup', handleMouseUp);
+            canvas.addEventListener('mouseleave', handleMouseUp);
+
+            // Touch events
+            canvas.addEventListener('touchstart', handleTouchStart);
+            canvas.addEventListener('touchmove', handleTouchMove);
+            canvas.addEventListener('touchend', handleTouchEnd);
+        }
+
+        function toggleDrawMode(mode) {
+            const canvas = document.getElementById('draw-canvas');
+            const hint = document.getElementById('draw-overlay-hint');
+            const boxBtn = document.getElementById('draw-box-btn');
+            const pointBtn = document.getElementById('draw-point-btn');
+            const statusEl = document.getElementById('draw-status');
+
+            if (drawMode === mode) {
+                // Toggle off
+                clearDrawMode();
+                return;
+            }
+
+            drawMode = mode;
+            canvas.style.display = 'block';
+            canvas.style.pointerEvents = 'auto';
+
+            boxBtn.classList.toggle('active', mode === 'box');
+            pointBtn.classList.toggle('active', mode === 'point');
+
+            if (mode === 'box') {
+                hint.textContent = 'Click and drag to draw a box around the object';
+                hint.style.display = 'block';
+                statusEl.textContent = 'Draw mode: Box - Click and drag on the video';
+                canvas.style.cursor = 'crosshair';
+            } else if (mode === 'point') {
+                hint.textContent = 'Click on the object you want to select';
+                hint.style.display = 'block';
+                statusEl.textContent = 'Draw mode: Point - Click on the object';
+                canvas.style.cursor = 'pointer';
+            }
+        }
+
+        function clearDrawMode() {
+            drawMode = null;
+            isDrawing = false;
+
+            const canvas = document.getElementById('draw-canvas');
+            const ctx = canvas.getContext('2d');
+            const hint = document.getElementById('draw-overlay-hint');
+            const statusEl = document.getElementById('draw-status');
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            canvas.style.display = 'none';
+            canvas.style.pointerEvents = 'none';
+            hint.style.display = 'none';
+            statusEl.textContent = 'Click a button above, then draw on the video';
+
+            document.getElementById('draw-box-btn').classList.remove('active');
+            document.getElementById('draw-point-btn').classList.remove('active');
+        }
+
+        function getCanvasCoords(event, canvas) {
+            const rect = canvas.getBoundingClientRect();
+            const video = document.getElementById('video-feed');
+
+            // Get position relative to canvas
+            let clientX, clientY;
+            if (event.touches) {
+                clientX = event.touches[0].clientX;
+                clientY = event.touches[0].clientY;
+            } else {
+                clientX = event.clientX;
+                clientY = event.clientY;
+            }
+
+            const x = (clientX - rect.left) / rect.width;
+            const y = (clientY - rect.top) / rect.height;
+
+            // Scale to actual video dimensions (assuming 640x480 or similar)
+            // The server will handle the actual frame size
+            return {
+                x: x * canvas.width,
+                y: y * canvas.height,
+                normX: x,
+                normY: y
+            };
+        }
+
+        function handleMouseDown(event) {
+            if (!drawMode) return;
+            event.preventDefault();
+
+            const canvas = document.getElementById('draw-canvas');
+            const coords = getCanvasCoords(event, canvas);
+
+            if (drawMode === 'point') {
+                // Send point immediately
+                sendPointPrompt(coords.normX, coords.normY);
+            } else if (drawMode === 'box') {
+                isDrawing = true;
+                startX = coords.x;
+                startY = coords.y;
+            }
+        }
+
+        function handleMouseMove(event) {
+            if (!drawMode || !isDrawing) return;
+            event.preventDefault();
+
+            const canvas = document.getElementById('draw-canvas');
+            const ctx = canvas.getContext('2d');
+            const coords = getCanvasCoords(event, canvas);
+
+            // Clear and redraw
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.strokeStyle = '#00ff00';
+            ctx.lineWidth = 2;
+            ctx.setLineDash([5, 5]);
+            ctx.strokeRect(startX, startY, coords.x - startX, coords.y - startY);
+        }
+
+        function handleMouseUp(event) {
+            if (!drawMode || !isDrawing) return;
+            event.preventDefault();
+
+            isDrawing = false;
+
+            const canvas = document.getElementById('draw-canvas');
+            const coords = getCanvasCoords(event, canvas);
+
+            // Calculate normalized box coordinates
+            const x1 = Math.min(startX, coords.x) / canvas.width;
+            const y1 = Math.min(startY, coords.y) / canvas.height;
+            const x2 = Math.max(startX, coords.x) / canvas.width;
+            const y2 = Math.max(startY, coords.y) / canvas.height;
+
+            // Send box prompt
+            sendBoxPrompt(x1, y1, x2, y2);
+        }
+
+        function handleTouchStart(event) {
+            handleMouseDown(event);
+        }
+
+        function handleTouchMove(event) {
+            handleMouseMove(event);
+        }
+
+        function handleTouchEnd(event) {
+            handleMouseUp(event);
+        }
+
+        async function sendBoxPrompt(x1, y1, x2, y2) {
+            // Get actual video dimensions from server or estimate
+            const video = document.getElementById('video-feed');
+
+            // Assume standard video dimensions - these will be scaled by the server
+            const frameWidth = 640;
+            const frameHeight = 480;
+
+            try {
+                const response = await fetch('/api/draw_prompt', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        type: 'box',
+                        x1: x1 * frameWidth,
+                        y1: y1 * frameHeight,
+                        x2: x2 * frameWidth,
+                        y2: y2 * frameHeight
+                    })
+                });
+
+                const data = await response.json();
+                if (data.success) {
+                    document.getElementById('draw-status').textContent = 'Box sent! Processing...';
+                    setTimeout(clearDrawMode, 1000);
+                }
+            } catch (e) {
+                console.error('Failed to send box prompt:', e);
+            }
+        }
+
+        async function sendPointPrompt(x, y) {
+            const frameWidth = 640;
+            const frameHeight = 480;
+
+            try {
+                const response = await fetch('/api/draw_prompt', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        type: 'point',
+                        x: x * frameWidth,
+                        y: y * frameHeight
+                    })
+                });
+
+                const data = await response.json();
+                if (data.success) {
+                    document.getElementById('draw-status').textContent = 'Point sent! Processing...';
+                    setTimeout(clearDrawMode, 1000);
+                }
+            } catch (e) {
+                console.error('Failed to send point prompt:', e);
+            }
+        }
+
+        // Make functions globally accessible
+        window.handleReferenceUpload = handleReferenceUpload;
+        window.clearReference = clearReference;
+        window.updateClipThreshold = updateClipThreshold;
+        window.toggleDrawMode = toggleDrawMode;
+        window.clearDrawMode = clearDrawMode;
     </script>
 </body>
 </html>

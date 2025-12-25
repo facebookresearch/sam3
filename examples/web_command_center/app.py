@@ -356,6 +356,21 @@ class CommandCenter:
         self.flip_horizontal = False
         self.flip_vertical = False
 
+        # ===== REFERENCE IMAGE SEARCH =====
+        self.clip_model = None
+        self.clip_processor = None
+        self.clip_available = False
+        self.reference_image = None  # PIL Image
+        self.reference_embedding = None  # CLIP embedding
+        self.reference_description = None  # Text description from Claude
+        self.visual_match_threshold = 0.75  # Similarity threshold for CLIP matching
+        self.visual_match_enabled = False  # Whether to use CLIP matching
+
+        # ===== GEOMETRIC PROMPTS (Draw to Search) =====
+        self.pending_box_prompt = None  # (x1, y1, x2, y2) for box prompt
+        self.pending_point_prompt = None  # (x, y) for point prompt
+        self.draw_mode = None  # 'box' or 'point'
+
     def add_voice_feedback(self, message: str, msg_type: str = "info"):
         """Add a voice feedback message."""
         with self.lock:
@@ -532,6 +547,114 @@ def load_yolo_models():
     except ImportError:
         cc.log("ultralytics not installed. YOLO features disabled. Install with: pip install ultralytics", "WARN")
         cc.yolo_available = False
+
+
+def load_clip_model():
+    """Load CLIP model for visual similarity matching."""
+    global cc
+
+    try:
+        from transformers import CLIPProcessor, CLIPModel
+
+        cc.log("Loading CLIP model for visual matching...")
+
+        # Use a smaller/faster CLIP model
+        model_name = "openai/clip-vit-base-patch32"
+
+        cc.clip_processor = CLIPProcessor.from_pretrained(model_name)
+        cc.clip_model = CLIPModel.from_pretrained(model_name)
+
+        # Move to appropriate device
+        device = get_device()
+        cc.clip_model = cc.clip_model.to(device)
+        cc.clip_model.eval()
+
+        cc.clip_available = True
+        cc.log("CLIP model loaded successfully", "SUCCESS")
+
+    except ImportError:
+        cc.log("transformers not installed. Visual matching disabled. Install with: pip install transformers", "WARN")
+        cc.clip_available = False
+    except Exception as e:
+        cc.log(f"Failed to load CLIP model: {e}", "ERROR")
+        cc.clip_available = False
+
+
+def get_clip_embedding(image: Image.Image) -> Optional[torch.Tensor]:
+    """Get CLIP embedding for an image."""
+    global cc
+
+    if not cc.clip_available or cc.clip_model is None:
+        return None
+
+    try:
+        device = get_device()
+        inputs = cc.clip_processor(images=image, return_tensors="pt")
+        inputs = {k: v.to(device) for k, v in inputs.items()}
+
+        with torch.no_grad():
+            embedding = cc.clip_model.get_image_features(**inputs)
+            # Normalize
+            embedding = embedding / embedding.norm(dim=-1, keepdim=True)
+
+        return embedding
+
+    except Exception as e:
+        cc.log(f"Failed to get CLIP embedding: {e}", "ERROR")
+        return None
+
+
+def compute_clip_similarity(embedding1: torch.Tensor, embedding2: torch.Tensor) -> float:
+    """Compute cosine similarity between two CLIP embeddings."""
+    if embedding1 is None or embedding2 is None:
+        return 0.0
+
+    with torch.no_grad():
+        similarity = torch.nn.functional.cosine_similarity(embedding1, embedding2)
+        return float(similarity.item())
+
+
+def describe_image_with_claude(image_data: str) -> Optional[str]:
+    """Use Claude to generate a detailed description of an image for search."""
+    global ANTHROPIC_API_KEY
+
+    if not ANTHROPIC_API_KEY:
+        return None
+
+    try:
+        import anthropic
+
+        client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+
+        message = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=200,
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": "image/jpeg",
+                                "data": image_data,
+                            },
+                        },
+                        {
+                            "type": "text",
+                            "text": "Describe this object concisely for visual detection. Focus on: type of object, color, distinctive features, shape. Return ONLY the description phrase (e.g., 'red baseball cap with white Nike logo', 'black leather handbag with gold clasp'). No other text."
+                        }
+                    ],
+                }
+            ],
+        )
+
+        return message.content[0].text.strip()
+
+    except Exception as e:
+        cc.log(f"Failed to describe image with Claude: {e}", "ERROR")
+        return None
 
 
 def get_coco_class_for_label(sam3_label: str) -> Optional[int]:
@@ -795,6 +918,9 @@ def load_model(checkpoint_path: Optional[str] = None):
 
     # Load YOLO models
     load_yolo_models()
+
+    # Load CLIP model for visual matching (optional)
+    load_clip_model()
 
 
 # ===== CAMERA FUNCTIONS =====
@@ -1120,7 +1246,67 @@ def process_frame(frame: np.ndarray) -> np.ndarray:
     cc.frame_count += 1
     is_keyframe = cc.frame_count % cc.skip_frames == 0
 
-    if is_keyframe and not cc.paused:
+    # Handle geometric prompts (draw to search)
+    if cc.pending_box_prompt is not None or cc.pending_point_prompt is not None:
+        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        pil_image = Image.fromarray(frame_rgb)
+
+        cc.state = cc.processor.set_image(pil_image, cc.state)
+
+        if cc.pending_box_prompt is not None:
+            # Box prompt
+            x1, y1, x2, y2 = cc.pending_box_prompt
+            cc.state["geometric_prompt"] = {
+                "type": "box",
+                "box": [x1, y1, x2, y2]
+            }
+            cc.log(f"Processing box prompt: ({x1:.0f},{y1:.0f}) to ({x2:.0f},{y2:.0f})")
+
+        elif cc.pending_point_prompt is not None:
+            # Point prompt
+            x, y = cc.pending_point_prompt
+            cc.state["geometric_prompt"] = {
+                "type": "point",
+                "point": [x, y],
+                "label": 1  # 1 = foreground, 0 = background
+            }
+            cc.log(f"Processing point prompt: ({x:.0f},{y:.0f})")
+
+        # Get mask from geometric prompt
+        try:
+            # Use the processor's segment method with geometric prompt
+            masks = cc.state.get("masks")
+            if masks is not None and len(masks) > 0:
+                mask_np = masks[0].squeeze().cpu().numpy()
+                box = get_bounding_box_from_mask(mask_np)
+
+                cc.last_masks = masks[:1]
+                cc.last_boxes = torch.tensor([box]) if box else None
+                cc.last_scores = torch.tensor([1.0])
+                cc.last_labels = ["selected object"]
+
+                # Add to detections
+                with cc.lock:
+                    cc.current_detections = [{
+                        "id": 0,
+                        "label": "selected object",
+                        "confidence": 1.0,
+                        "box": box,
+                        "tracked": False,
+                    }]
+
+                cc.log("Object selected via drawing", "SUCCESS")
+
+        except Exception as e:
+            cc.log(f"Geometric prompt failed: {e}", "ERROR")
+
+        # Clear the pending prompts
+        cc.pending_box_prompt = None
+        cc.pending_point_prompt = None
+        cc.draw_mode = None
+        cc.prev_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+    elif is_keyframe and not cc.paused:
         # Full inference
         frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         pil_image = Image.fromarray(frame_rgb)
@@ -1286,6 +1472,45 @@ def process_frame(frame: np.ndarray) -> np.ndarray:
             cc.last_boxes = None
             cc.last_scores = None
             cc.last_labels = None
+
+        # CLIP-based visual matching filter
+        if cc.visual_match_enabled and cc.reference_embedding is not None and new_detections:
+            matched_detections = []
+            matched_indices = []
+
+            for i, det in enumerate(new_detections):
+                box = det.get("box")
+                if box:
+                    # Crop the detected region
+                    x1, y1, x2, y2 = [int(v) for v in box]
+                    h, w = frame.shape[:2]
+                    x1, y1 = max(0, x1), max(0, y1)
+                    x2, y2 = min(w, x2), min(h, y2)
+
+                    if x2 > x1 and y2 > y1:
+                        crop = frame[y1:y2, x1:x2]
+                        crop_pil = Image.fromarray(cv2.cvtColor(crop, cv2.COLOR_BGR2RGB))
+
+                        # Get CLIP embedding
+                        crop_embedding = get_clip_embedding(crop_pil)
+                        if crop_embedding is not None:
+                            similarity = compute_clip_similarity(cc.reference_embedding, crop_embedding)
+                            det["clip_similarity"] = similarity
+
+                            if similarity >= cc.visual_match_threshold:
+                                matched_detections.append(det)
+                                matched_indices.append(i)
+                                cc.log(f"Visual match: {det['label']} (sim: {similarity:.2f})")
+
+            if matched_detections:
+                new_detections = matched_detections
+                # Also filter masks
+                if all_masks and matched_indices:
+                    all_masks = [all_masks[i] for i in matched_indices if i < len(all_masks)]
+                    cc.last_masks = torch.stack([torch.from_numpy(m).unsqueeze(0) for m in all_masks]) if all_masks else None
+            else:
+                cc.log("No visual matches found", "WARN")
+                new_detections = []
 
         # Atomically update detections (only update if we have new detections,
         # otherwise keep the existing tracked detections)
@@ -2405,6 +2630,202 @@ def api_set_flip():
         "flip_horizontal": cc.flip_horizontal,
         "flip_vertical": cc.flip_vertical
     })
+
+
+# ===== REFERENCE IMAGE SEARCH API =====
+
+@app.route('/api/upload_reference', methods=['POST'])
+def api_upload_reference():
+    """
+    Upload a reference image for search.
+    Modes:
+    - 'description': Use Claude to describe, then search by text
+    - 'visual': Use CLIP for visual similarity matching
+    """
+    global cc
+
+    if 'image' not in request.files:
+        return jsonify({"success": False, "error": "No image provided"})
+
+    mode = request.form.get('mode', 'description')  # 'description' or 'visual'
+
+    try:
+        file = request.files['image']
+        image_data = file.read()
+
+        # Convert to PIL Image
+        pil_image = Image.open(io.BytesIO(image_data)).convert('RGB')
+        cc.reference_image = pil_image
+
+        # Get base64 for Claude
+        buffered = io.BytesIO()
+        pil_image.save(buffered, format="JPEG", quality=90)
+        base64_image = base64.b64encode(buffered.getvalue()).decode('utf-8')
+
+        if mode == 'description':
+            # Use Claude to describe the image
+            cc.log("Analyzing reference image with Claude...")
+            description = describe_image_with_claude(base64_image)
+
+            if description:
+                cc.reference_description = description
+                cc.visual_match_enabled = False
+
+                # Set as prompt
+                cc.prompts = [description]
+                cc.state = None
+                cc.last_masks = None
+                reset_detection_state()
+
+                cc.log(f"Reference search: '{description}'", "SUCCESS")
+
+                return jsonify({
+                    "success": True,
+                    "mode": "description",
+                    "description": description,
+                    "prompt": description
+                })
+            else:
+                return jsonify({"success": False, "error": "Failed to describe image"})
+
+        elif mode == 'visual':
+            # Use CLIP for visual matching
+            if not cc.clip_available:
+                return jsonify({
+                    "success": False,
+                    "error": "CLIP not available. Install with: pip install transformers"
+                })
+
+            cc.log("Computing CLIP embedding for reference image...")
+            embedding = get_clip_embedding(pil_image)
+
+            if embedding is not None:
+                cc.reference_embedding = embedding
+                cc.visual_match_enabled = True
+
+                # Also get a description for display
+                description = describe_image_with_claude(base64_image)
+                cc.reference_description = description or "Visual reference"
+
+                # Set a generic prompt to detect objects
+                cc.prompts = ["object"]
+                cc.state = None
+                cc.last_masks = None
+                reset_detection_state()
+
+                cc.log(f"Visual matching enabled for: {cc.reference_description}", "SUCCESS")
+
+                return jsonify({
+                    "success": True,
+                    "mode": "visual",
+                    "description": cc.reference_description,
+                    "message": "Visual matching enabled"
+                })
+            else:
+                return jsonify({"success": False, "error": "Failed to compute CLIP embedding"})
+
+        else:
+            return jsonify({"success": False, "error": f"Unknown mode: {mode}"})
+
+    except Exception as e:
+        cc.log(f"Reference upload failed: {e}", "ERROR")
+        return jsonify({"success": False, "error": str(e)})
+
+
+@app.route('/api/clear_reference', methods=['POST'])
+def api_clear_reference():
+    """Clear the reference image."""
+    global cc
+
+    cc.reference_image = None
+    cc.reference_embedding = None
+    cc.reference_description = None
+    cc.visual_match_enabled = False
+
+    cc.log("Reference image cleared")
+
+    return jsonify({"success": True})
+
+
+@app.route('/api/reference_status')
+def api_reference_status():
+    """Get reference image status."""
+    return jsonify({
+        "has_reference": cc.reference_image is not None,
+        "description": cc.reference_description,
+        "visual_match_enabled": cc.visual_match_enabled,
+        "clip_available": cc.clip_available,
+        "threshold": cc.visual_match_threshold
+    })
+
+
+# ===== GEOMETRIC PROMPTS (DRAW TO SEARCH) API =====
+
+@app.route('/api/draw_prompt', methods=['POST'])
+def api_draw_prompt():
+    """
+    Set a geometric prompt (box or point) from user drawing.
+    This will be processed on the next frame.
+    """
+    global cc
+
+    data = request.json
+    prompt_type = data.get('type', 'box')  # 'box' or 'point'
+
+    if prompt_type == 'box':
+        x1 = data.get('x1')
+        y1 = data.get('y1')
+        x2 = data.get('x2')
+        y2 = data.get('y2')
+
+        if all(v is not None for v in [x1, y1, x2, y2]):
+            cc.pending_box_prompt = (float(x1), float(y1), float(x2), float(y2))
+            cc.pending_point_prompt = None
+            cc.draw_mode = 'box'
+            cc.log(f"Box prompt set: ({x1:.0f}, {y1:.0f}) to ({x2:.0f}, {y2:.0f})")
+
+            return jsonify({
+                "success": True,
+                "type": "box",
+                "box": [x1, y1, x2, y2]
+            })
+        else:
+            return jsonify({"success": False, "error": "Invalid box coordinates"})
+
+    elif prompt_type == 'point':
+        x = data.get('x')
+        y = data.get('y')
+
+        if x is not None and y is not None:
+            cc.pending_point_prompt = (float(x), float(y))
+            cc.pending_box_prompt = None
+            cc.draw_mode = 'point'
+            cc.log(f"Point prompt set: ({x:.0f}, {y:.0f})")
+
+            return jsonify({
+                "success": True,
+                "type": "point",
+                "point": [x, y]
+            })
+        else:
+            return jsonify({"success": False, "error": "Invalid point coordinates"})
+
+    else:
+        return jsonify({"success": False, "error": f"Unknown prompt type: {prompt_type}"})
+
+
+@app.route('/api/clear_draw_prompt', methods=['POST'])
+def api_clear_draw_prompt():
+    """Clear any pending geometric prompts."""
+    global cc
+
+    cc.pending_box_prompt = None
+    cc.pending_point_prompt = None
+    cc.draw_mode = None
+
+    cc.log("Draw prompt cleared")
+
+    return jsonify({"success": True})
 
 
 def generate_self_signed_cert(cert_dir: str = None) -> Tuple[str, str]:
