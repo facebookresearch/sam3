@@ -999,26 +999,72 @@
             transform: translateX(-50%);
             background: linear-gradient(135deg, #dc2626 0%, #f97316 100%);
             color: white;
-            padding: 15px 30px;
-            border-radius: 10px;
+            padding: 15px 25px;
+            border-radius: 12px;
             display: flex;
-            align-items: center;
+            align-items: flex-start;
             gap: 15px;
-            font-size: 1.2rem;
-            font-weight: bold;
+            max-width: 90%;
             box-shadow: 0 4px 20px rgba(220, 38, 38, 0.5);
             animation: obstacle-alert-pulse 0.5s ease-in-out;
             z-index: 1100;
         }
 
+        .obstacle-alert.obstacle-high {
+            background: linear-gradient(135deg, #dc2626 0%, #991b1b 100%);
+            border: 2px solid #fca5a5;
+        }
+
+        .obstacle-alert.obstacle-medium {
+            background: linear-gradient(135deg, #f97316 0%, #c2410c 100%);
+        }
+
+        .obstacle-alert.obstacle-low {
+            background: linear-gradient(135deg, #eab308 0%, #a16207 100%);
+        }
+
         .obstacle-alert-icon {
-            font-size: 2rem;
+            font-size: 2.5rem;
+            flex-shrink: 0;
+        }
+
+        .obstacle-alert-content {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .obstacle-alert-text {
+            font-size: 1.2rem;
+            font-weight: bold;
+        }
+
+        .obstacle-alert-position {
+            font-size: 0.9rem;
+            opacity: 0.9;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .obstacle-alert-reason {
+            font-size: 0.85rem;
+            opacity: 0.8;
+            font-weight: normal;
+            font-style: italic;
+        }
+
+        .obstacle-alert.fade-out {
+            animation: obstacle-fade-out 0.3s ease-out forwards;
         }
 
         @keyframes obstacle-alert-pulse {
             0% { transform: translateX(-50%) scale(0.9); opacity: 0; }
-            50% { transform: translateX(-50%) scale(1.1); }
+            50% { transform: translateX(-50%) scale(1.05); }
             100% { transform: translateX(-50%) scale(1); opacity: 1; }
+        }
+
+        @keyframes obstacle-fade-out {
+            to { transform: translateX(-50%) translateY(-20px); opacity: 0; }
         }
 
         /* ===== POST-NAVIGATION DIALOG ===== */
@@ -3150,21 +3196,36 @@
         }
 
         function showObstacleVisualAlert(obstacle) {
-            // Create temporary visual alert overlay
+            // Create temporary visual alert overlay with context
             const alertDiv = document.createElement('div');
-            alertDiv.className = 'obstacle-alert';
-            alertDiv.innerHTML = `
-                <span class="obstacle-alert-icon">⚠️</span>
-                <span class="obstacle-alert-text">${obstacle.alert_text}</span>
+            alertDiv.className = `obstacle-alert obstacle-${obstacle.type}`;
+
+            // Build alert content with reason if available
+            let alertContent = `
+                <span class="obstacle-alert-icon">${obstacle.type === 'high' ? '🚨' : '⚠️'}</span>
+                <div class="obstacle-alert-content">
+                    <span class="obstacle-alert-text">${obstacle.alert_text}</span>
             `;
+
+            // Add position and reason context
+            if (obstacle.position) {
+                alertContent += `<span class="obstacle-alert-position">${obstacle.position}</span>`;
+            }
+            if (obstacle.reason) {
+                alertContent += `<span class="obstacle-alert-reason">${obstacle.reason}</span>`;
+            }
+
+            alertContent += '</div>';
+            alertDiv.innerHTML = alertContent;
 
             const overlay = document.getElementById('navigation-overlay');
             overlay.appendChild(alertDiv);
 
-            // Remove after 2 seconds
+            // Remove after 3 seconds (longer for more context)
             setTimeout(() => {
-                alertDiv.remove();
-            }, 2000);
+                alertDiv.classList.add('fade-out');
+                setTimeout(() => alertDiv.remove(), 300);
+            }, 3000);
         }
 
         // ===== POST-NAVIGATION DIALOG =====

@@ -749,57 +749,136 @@ class Database:
 db = Database()
 
 
-# ===== OBSTACLE DEFINITIONS =====
-# Common obstacles/hazards for navigation
-OBSTACLE_PROMPTS = [
-    "stairs", "staircase", "steps",
-    "edge", "ledge", "drop", "cliff",
-    "door", "doorway", "gate",
-    "wall", "pillar", "column", "pole",
-    "furniture", "chair", "table", "desk", "couch", "sofa",
-    "cable", "wire", "cord",
-    "wet floor", "puddle", "spill",
-    "hole", "pit", "gap",
-    "glass", "window", "mirror",
-    "car", "vehicle", "bicycle", "bike",
-    "person", "people", "crowd",
-    "pet", "dog", "cat", "animal"
-]
+# ===== SMART OBSTACLE DETECTION =====
+# Uses Claude AI to understand context and identify actual obstacles in the path
 
-# Obstacle severity levels
-OBSTACLE_SEVERITY = {
-    "stairs": "high",
-    "staircase": "high",
-    "steps": "high",
-    "edge": "high",
-    "ledge": "high",
-    "drop": "high",
-    "cliff": "high",
-    "hole": "high",
-    "pit": "high",
-    "gap": "high",
-    "wet floor": "medium",
-    "puddle": "medium",
-    "spill": "medium",
-    "cable": "medium",
-    "wire": "medium",
-    "cord": "medium",
-    "car": "high",
-    "vehicle": "high",
-    "bicycle": "medium",
-    "bike": "medium",
-    "glass": "medium",
-    "door": "low",
-    "doorway": "low",
-    "wall": "low",
-    "pillar": "low",
-    "furniture": "low",
-    "chair": "low",
-    "table": "low",
-    "person": "low",
-    "people": "medium",
-    "crowd": "medium",
-}
+def analyze_obstacles_with_claude(image_data: str, target_label: str, target_box: List = None) -> List[Dict]:
+    """
+    Use Claude to intelligently identify obstacles in the user's path.
+
+    This is smarter than a static list because Claude:
+    1. Understands what the user is looking for (won't mark it as obstacle)
+    2. Understands spatial relationships (what's actually in the path)
+    3. Understands environmental context (room type, indoor/outdoor)
+    4. Can identify hazards specific to the situation
+    """
+    if not ANTHROPIC_API_KEY:
+        return []
+
+    try:
+        from anthropic import Anthropic
+        client = Anthropic(api_key=ANTHROPIC_API_KEY)
+
+        # Build context about the target
+        target_context = f"The user is navigating to find: {target_label}"
+        if target_box:
+            # Describe where the target is in the frame
+            frame_center_x = 320  # Assuming 640 width
+            target_center_x = (target_box[0] + target_box[2]) / 2
+            if target_center_x < frame_center_x - 100:
+                target_position = "on the left side of the view"
+            elif target_center_x > frame_center_x + 100:
+                target_position = "on the right side of the view"
+            else:
+                target_position = "ahead in the center of the view"
+            target_context += f". The {target_label} is currently visible {target_position}."
+
+        prompt = f"""You are helping a visually impaired person navigate to an object. Analyze this image for obstacles.
+
+{target_context}
+
+IMPORTANT RULES:
+1. The {target_label} is NOT an obstacle - it's the destination
+2. Only identify objects that could physically block the path to the {target_label}
+3. Focus on objects between the camera/user and the target
+4. Consider floor-level hazards (cables, steps, rugs, wet surfaces)
+5. Consider objects at body height that could be walked into
+6. Ignore objects that are clearly not in the walking path
+
+For each obstacle you identify, provide:
+- name: What the obstacle is (be specific, e.g., "wooden chair" not just "furniture")
+- severity: "high" (could cause injury/fall), "medium" (could cause collision), or "low" (minor obstruction)
+- position: Where in the frame (left, center, right, floor, ahead)
+- distance: How close it appears (very_close, close, medium, far)
+- reason: Brief explanation of why it's an obstacle
+
+Respond in JSON format:
+{{
+  "environment": "brief description of the space (e.g., living room, hallway, outdoor path)",
+  "path_clear": true/false,
+  "obstacles": [
+    {{
+      "name": "obstacle name",
+      "severity": "high/medium/low",
+      "position": "left/center/right/floor",
+      "distance": "very_close/close/medium/far",
+      "reason": "why this is in the way"
+    }}
+  ],
+  "safe_direction": "suggestion for safest path if obstacles present"
+}}
+
+If the path appears clear, return an empty obstacles array.
+Only include obstacles that are genuinely in the way - don't over-report."""
+
+        response = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=1000,
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": "image/jpeg",
+                                "data": image_data
+                            }
+                        },
+                        {
+                            "type": "text",
+                            "text": prompt
+                        }
+                    ]
+                }
+            ]
+        )
+
+        # Parse Claude's response
+        response_text = response.content[0].text
+
+        # Extract JSON from response
+        import re
+        json_match = re.search(r'\{[\s\S]*\}', response_text)
+        if json_match:
+            result = json.loads(json_match.group())
+
+            obstacles = []
+            for obs in result.get("obstacles", []):
+                obstacles.append({
+                    "label": obs.get("name", "unknown obstacle"),
+                    "type": obs.get("severity", "medium"),
+                    "position": obs.get("position", "ahead"),
+                    "distance": obs.get("distance", "medium"),
+                    "reason": obs.get("reason", ""),
+                    "from_claude": True
+                })
+
+            # Store environment info
+            if result.get("environment"):
+                cc.navigation_context = cc.navigation_context or {}
+                cc.navigation_context["environment"] = result.get("environment")
+                cc.navigation_context["path_clear"] = result.get("path_clear", True)
+                cc.navigation_context["safe_direction"] = result.get("safe_direction")
+
+            return obstacles
+
+        return []
+
+    except Exception as e:
+        cc.log(f"Claude obstacle analysis failed: {e}", "ERROR")
+        return []
 
 
 # Global state
@@ -2160,107 +2239,147 @@ def update_memory_bank(object_id: int, mask_features: torch.Tensor):
 
 # ===== OBSTACLE DETECTION =====
 
-def detect_obstacles(frame: np.ndarray, pil_image: Image.Image) -> List[Dict]:
-    """Detect obstacles in the current frame during navigation."""
-    global cc
+# Timing control for Claude obstacle analysis (don't call too frequently)
+_last_obstacle_analysis_time = 0
+_obstacle_analysis_interval = 3.0  # Seconds between Claude calls
+_cached_obstacles = []
 
-    if not cc.obstacle_detection_active or cc.processor is None:
+
+def detect_obstacles(frame: np.ndarray, pil_image: Image.Image) -> List[Dict]:
+    """
+    Detect obstacles using Claude AI for intelligent, context-aware detection.
+
+    This approach:
+    1. Sends the image to Claude with context about the navigation target
+    2. Claude identifies what's actually in the user's path (not just any object)
+    3. Claude understands the target is NOT an obstacle
+    4. Claude provides spatial reasoning about what could block movement
+    """
+    global cc, _last_obstacle_analysis_time, _cached_obstacles
+
+    if not cc.obstacle_detection_active:
         return []
 
-    obstacles = []
     current_time = time.time()
 
-    # Create a temporary state for obstacle detection
+    # Rate limit Claude calls - use cached results if recent
+    if current_time - _last_obstacle_analysis_time < _obstacle_analysis_interval:
+        return _cached_obstacles
+
+    obstacles = []
+
     try:
-        obstacle_state = cc.processor.set_image(pil_image, {})
+        # Encode frame for Claude
+        _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
+        image_data = base64.b64encode(buffer).decode('utf-8')
 
-        # Try to detect common obstacles
-        for obstacle_prompt in OBSTACLE_PROMPTS[:10]:  # Limit to top 10 for performance
-            # Skip if this is our target
-            if cc.navigation_target and obstacle_prompt.lower() in cc.navigation_target.lower():
-                continue
+        # Get target box if available (for spatial context)
+        target_box = None
+        if cc.navigation_target:
+            for det in cc.current_detections:
+                if det.get("label", "").lower() == cc.navigation_target.lower():
+                    target_box = det.get("box")
+                    break
 
-            obstacle_state = cc.processor.set_text_prompt(obstacle_prompt, obstacle_state)
+        # Call Claude for intelligent obstacle analysis
+        claude_obstacles = analyze_obstacles_with_claude(
+            image_data,
+            cc.navigation_target or "the object",
+            target_box
+        )
 
-            masks = obstacle_state.get("masks")
-            boxes = obstacle_state.get("boxes")
-            scores = obstacle_state.get("scores")
+        _last_obstacle_analysis_time = current_time
 
-            if masks is not None and masks.numel() > 0:
-                for i in range(min(len(masks), 3)):  # Max 3 per type
-                    score = float(scores[i].cpu()) if scores is not None and i < len(scores) else 0.0
+        # Process Claude's obstacles
+        for obs in claude_obstacles:
+            obstacle = {
+                "label": obs["label"],
+                "type": obs["type"],
+                "position": obs.get("position", "ahead"),
+                "distance": obs["distance"],
+                "reason": obs.get("reason", ""),
+                "timestamp": current_time,
+                "box": None,  # Claude doesn't provide precise boxes
+                "mask": None
+            }
 
-                    if score < 0.4:  # Higher threshold for obstacles
-                        continue
+            # Check cooldown for alerts
+            cooldown_key = f"{obs['label']}_{obs['distance']}"
+            last_alert = cc.obstacle_alert_cooldown.get(cooldown_key, 0)
 
-                    mask_np = masks[i].squeeze().cpu().numpy()
-                    box = boxes[i].cpu().numpy().tolist() if boxes is not None and i < len(boxes) else None
+            if current_time - last_alert > cc.obstacle_alert_interval:
+                obstacle["should_alert"] = True
+                cc.obstacle_alert_cooldown[cooldown_key] = current_time
 
-                    if box is None:
-                        continue
+                # Log the obstacle with reason
+                cc.log(f"OBSTACLE: {obs['label']} ({obs['distance']}) - {obs.get('reason', '')}", "WARN")
 
-                    # Calculate distance based on box position/size in frame
-                    h, w = frame.shape[:2]
-                    box_area = (box[2] - box[0]) * (box[3] - box[1])
-                    frame_area = w * h
-                    area_ratio = box_area / frame_area
+                # Save to database
+                if cc.navigation_db_id:
+                    db.save_obstacle(
+                        cc.navigation_db_id,
+                        obs["label"],
+                        obs["type"],
+                        [],  # No precise box from Claude
+                        obs["distance"],
+                        alert_sent=True
+                    )
+            else:
+                obstacle["should_alert"] = False
 
-                    # Determine distance
-                    if area_ratio > 0.25:
-                        distance = "very_close"
-                    elif area_ratio > 0.10:
-                        distance = "close"
-                    elif area_ratio > 0.05:
-                        distance = "medium"
-                    else:
-                        distance = "far"
+            obstacles.append(obstacle)
 
-                    # Get severity
-                    severity = OBSTACLE_SEVERITY.get(obstacle_prompt, "low")
+        # If Claude found obstacles and suggested a safe direction, log it
+        if cc.navigation_context and cc.navigation_context.get("safe_direction"):
+            cc.log(f"Safe path: {cc.navigation_context['safe_direction']}", "INFO")
 
-                    obstacle = {
-                        "label": obstacle_prompt,
-                        "type": severity,
-                        "box": box,
-                        "mask": mask_np,
-                        "confidence": score,
-                        "distance": distance,
-                        "timestamp": current_time
-                    }
-
-                    # Check cooldown for alerts
-                    cooldown_key = f"{obstacle_prompt}_{distance}"
-                    last_alert = cc.obstacle_alert_cooldown.get(cooldown_key, 0)
-
-                    if current_time - last_alert > cc.obstacle_alert_interval:
-                        obstacle["should_alert"] = True
-                        cc.obstacle_alert_cooldown[cooldown_key] = current_time
-                    else:
-                        obstacle["should_alert"] = False
-
-                    obstacles.append(obstacle)
-
-                    # Save to database
-                    if cc.navigation_db_id and obstacle["should_alert"]:
-                        db.save_obstacle(
-                            cc.navigation_db_id,
-                            obstacle_prompt,
-                            severity,
-                            box,
-                            distance,
-                            alert_sent=True
-                        )
+        _cached_obstacles = obstacles
 
     except Exception as e:
         cc.log(f"Obstacle detection error: {e}", "ERROR")
+        return _cached_obstacles
 
     return obstacles
 
 
+def get_obstacle_segmentation(frame: np.ndarray, obstacle_label: str) -> Optional[np.ndarray]:
+    """
+    Optional: Get SAM3 segmentation mask for an obstacle identified by Claude.
+    This can be used if we want to visually highlight the obstacle.
+    """
+    global cc
+
+    if cc.processor is None:
+        return None
+
+    try:
+        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        pil_image = Image.fromarray(frame_rgb)
+
+        state = cc.processor.set_image(pil_image, {})
+        state = cc.processor.set_text_prompt(obstacle_label, state)
+
+        masks = state.get("masks")
+        if masks is not None and masks.numel() > 0:
+            return masks[0].squeeze().cpu().numpy()
+
+    except Exception as e:
+        cc.log(f"Obstacle segmentation failed: {e}", "ERROR")
+
+    return None
+
+
 def overlay_obstacles(display: np.ndarray, obstacles: List[Dict]) -> np.ndarray:
-    """Overlay obstacle masks and alerts on the display frame."""
+    """
+    Overlay obstacle alerts on the display frame.
+
+    Since Claude provides position-based info (left/center/right) rather than
+    precise bounding boxes, we draw alerts in the corresponding screen region.
+    """
     if not obstacles:
         return display
+
+    h, w = display.shape[:2]
 
     # Obstacle color (orange/red based on severity)
     colors = {
@@ -2269,67 +2388,93 @@ def overlay_obstacles(display: np.ndarray, obstacles: List[Dict]) -> np.ndarray:
         "low": (0, 255, 255)       # Yellow
     }
 
-    for obstacle in obstacles:
-        mask = obstacle.get("mask")
-        box = obstacle.get("box")
-        severity = obstacle.get("type", "low")
+    # Position to screen region mapping
+    position_regions = {
+        "left": (10, h // 3, w // 3, 2 * h // 3),
+        "center": (w // 3, h // 3, 2 * w // 3, 2 * h // 3),
+        "right": (2 * w // 3, h // 3, w - 10, 2 * h // 3),
+        "floor": (w // 4, 2 * h // 3, 3 * w // 4, h - 10),
+        "ahead": (w // 4, h // 4, 3 * w // 4, 3 * h // 4),
+    }
+
+    for i, obstacle in enumerate(obstacles):
+        severity = obstacle.get("type", "medium")
         label = obstacle.get("label", "Obstacle")
-        distance = obstacle.get("distance", "unknown")
+        distance = obstacle.get("distance", "medium")
+        position = obstacle.get("position", "ahead")
+        reason = obstacle.get("reason", "")
 
-        color = colors.get(severity, (0, 255, 255))
+        color = colors.get(severity, (0, 165, 255))
 
-        # Draw mask overlay
-        if mask is not None:
-            mask_bool = mask.astype(bool)
-            # Create colored overlay
+        # Get screen region for this position
+        region = position_regions.get(position, position_regions["ahead"])
+        rx1, ry1, rx2, ry2 = region
+
+        # Draw semi-transparent warning zone for high/medium severity
+        if severity in ["high", "medium"] and distance in ["very_close", "close"]:
             overlay = display.copy()
-            overlay[mask_bool] = color
-            # Blend with original (more transparent than regular detections)
-            alpha = 0.4 if severity == "high" else 0.3
+            cv2.rectangle(overlay, (rx1, ry1), (rx2, ry2), color, -1)
+            alpha = 0.2 if severity == "high" else 0.15
             display = cv2.addWeighted(overlay, alpha, display, 1 - alpha, 0)
 
-            # Draw mask outline
-            contours, _ = cv2.findContours(
-                mask.astype(np.uint8) * 255,
-                cv2.RETR_EXTERNAL,
-                cv2.CHAIN_APPROX_SIMPLE
-            )
-            cv2.drawContours(display, contours, -1, color, 2)
+            # Draw border
+            cv2.rectangle(display, (rx1, ry1), (rx2, ry2), color, 3)
 
-        # Draw bounding box
-        if box:
-            x1, y1, x2, y2 = [int(v) for v in box]
-            cv2.rectangle(display, (x1, y1), (x2, y2), color, 2)
+        # Draw warning icon at top of region
+        icon_size = 40 if severity == "high" else 30
+        icon_x = (rx1 + rx2) // 2 - icon_size // 2
+        icon_y = ry1 + 10
 
-            # Draw alert icon (warning triangle)
-            icon_size = 30
-            icon_x = x1 + 5
-            icon_y = y1 - icon_size - 5 if y1 > icon_size + 10 else y1 + 5
+        # Draw warning triangle
+        triangle = np.array([
+            [icon_x + icon_size // 2, icon_y],
+            [icon_x, icon_y + icon_size],
+            [icon_x + icon_size, icon_y + icon_size]
+        ], np.int32)
+        cv2.fillPoly(display, [triangle], color)
+        cv2.polylines(display, [triangle], True, (0, 0, 0), 2)
 
-            # Draw warning triangle
-            triangle = np.array([
-                [icon_x + icon_size // 2, icon_y],
-                [icon_x, icon_y + icon_size],
-                [icon_x + icon_size, icon_y + icon_size]
-            ], np.int32)
-            cv2.fillPoly(display, [triangle], color)
-            cv2.polylines(display, [triangle], True, (0, 0, 0), 2)
+        # Draw exclamation mark
+        cv2.line(display, (icon_x + icon_size // 2, icon_y + 10),
+                 (icon_x + icon_size // 2, icon_y + icon_size - 15), (0, 0, 0), 3)
+        cv2.circle(display, (icon_x + icon_size // 2, icon_y + icon_size - 8), 3, (0, 0, 0), -1)
 
-            # Draw exclamation mark
-            cv2.line(display, (icon_x + icon_size // 2, icon_y + 8),
-                     (icon_x + icon_size // 2, icon_y + icon_size - 12), (0, 0, 0), 2)
-            cv2.circle(display, (icon_x + icon_size // 2, icon_y + icon_size - 6), 2, (0, 0, 0), -1)
+        # Draw label text
+        if distance in ["very_close", "close"]:
+            label_text = f"WARNING: {label}"
+        else:
+            label_text = f"CAUTION: {label}"
 
-            # Draw label
-            label_text = f"OBSTACLE: {label}"
-            if distance in ["very_close", "close"]:
-                label_text = f"WARNING: {label} ({distance})"
+        text_x = rx1 + 5
+        text_y = icon_y + icon_size + 25
 
-            text_y = y1 - icon_size - 10 if y1 > icon_size + 30 else y2 + 20
-            cv2.putText(display, label_text, (x1, text_y),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 3)
-            cv2.putText(display, label_text, (x1, text_y),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+        # Draw text with background
+        (text_w, text_h), _ = cv2.getTextSize(label_text, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)
+        cv2.rectangle(display, (text_x - 2, text_y - text_h - 5),
+                      (text_x + text_w + 2, text_y + 5), (0, 0, 0), -1)
+        cv2.putText(display, label_text, (text_x, text_y),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+
+        # Draw distance indicator
+        distance_text = distance.replace("_", " ")
+        text_y += 20
+        cv2.putText(display, distance_text, (text_x, text_y),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+
+        # Draw reason if available (smaller text)
+        if reason and len(reason) < 50:
+            text_y += 18
+            cv2.putText(display, reason, (text_x, text_y),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.4, (200, 200, 200), 1)
+
+    # Draw path clear indicator if applicable
+    if cc.navigation_context and cc.navigation_context.get("path_clear"):
+        cv2.putText(display, "PATH CLEAR", (w // 2 - 60, 30),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+    elif cc.navigation_context and cc.navigation_context.get("safe_direction"):
+        safe_text = f"Try: {cc.navigation_context['safe_direction']}"
+        cv2.putText(display, safe_text, (10, h - 20),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
 
     return display
 
