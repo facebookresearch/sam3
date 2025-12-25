@@ -1624,6 +1624,7 @@ def get_navigation_status() -> Dict:
             "active": True,
             "target": cc.navigation_target,
             "target_visible": True,
+            "target_bbox": box,  # For AR path rendering
             "guidance": guidance,
             "reached": cc.navigation_reached,
             "context": cc.navigation_context,
@@ -4972,7 +4973,7 @@ def api_navigation_status():
         else:
             status["speak_guidance"] = False
 
-    # Add obstacle alerts
+    # Add obstacle alerts with position for AR path routing
     if cc.current_obstacles:
         obstacles_for_alert = []
         for obs in cc.current_obstacles:
@@ -4981,6 +4982,8 @@ def api_navigation_status():
                     "label": obs["label"],
                     "type": obs["type"],
                     "distance": obs["distance"],
+                    "position": obs.get("position", "center"),  # For AR path routing
+                    "reason": obs.get("reason", ""),
                     "alert_text": f"Watch out! {obs['label']} {obs['distance'].replace('_', ' ')}"
                 })
         status["obstacles"] = obstacles_for_alert

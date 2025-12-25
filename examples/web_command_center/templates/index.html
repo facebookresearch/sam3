@@ -991,6 +991,203 @@
             50% { opacity: 1; }
         }
 
+        /* ===== AR NAVIGATION PATH STYLES ===== */
+        .ar-nav-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 100;
+        }
+
+        .ar-chevron-container {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+            z-index: 101;
+            display: flex;
+            gap: 8px;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .ar-chevron-container.visible {
+            opacity: 1;
+        }
+
+        .ar-chevron {
+            font-size: 80px;
+            font-weight: bold;
+            color: #84cc16;
+            text-shadow:
+                0 0 20px rgba(132, 204, 22, 0.8),
+                0 0 40px rgba(132, 204, 22, 0.5),
+                2px 2px 4px rgba(0, 0, 0, 0.5);
+            animation: chevron-pulse 1s ease-in-out infinite;
+        }
+
+        .ar-chevron:nth-child(2) {
+            animation-delay: 0.15s;
+        }
+
+        .ar-chevron:nth-child(3) {
+            animation-delay: 0.3s;
+        }
+
+        @keyframes chevron-pulse {
+            0%, 100% {
+                opacity: 0.6;
+                transform: translateX(0);
+            }
+            50% {
+                opacity: 1;
+                transform: translateX(8px);
+            }
+        }
+
+        .ar-nav-info {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.85);
+            border-radius: 16px;
+            padding: 16px 20px;
+            border: 2px solid #84cc16;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+            z-index: 102;
+            min-width: 200px;
+        }
+
+        .ar-nav-direction {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 12px;
+        }
+
+        .ar-nav-direction-arrow {
+            font-size: 2.5rem;
+            color: #84cc16;
+            text-shadow: 0 0 10px rgba(132, 204, 22, 0.5);
+        }
+
+        .ar-nav-direction-text {
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: white;
+        }
+
+        .ar-nav-distance {
+            font-size: 2rem;
+            font-weight: bold;
+            color: #84cc16;
+            margin-bottom: 8px;
+        }
+
+        .ar-nav-target {
+            font-size: 0.9rem;
+            color: #94a3b8;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .ar-nav-target-icon {
+            color: #84cc16;
+        }
+
+        .ar-nav-status {
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: linear-gradient(135deg, rgba(132, 204, 22, 0.9) 0%, rgba(34, 197, 94, 0.9) 100%);
+            color: white;
+            padding: 10px 24px;
+            border-radius: 25px;
+            font-weight: bold;
+            font-size: 1.1rem;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            z-index: 103;
+            box-shadow: 0 4px 15px rgba(132, 204, 22, 0.4);
+        }
+
+        .ar-nav-status-dot {
+            width: 12px;
+            height: 12px;
+            background: white;
+            border-radius: 50%;
+            animation: status-blink 1s ease-in-out infinite;
+        }
+
+        @keyframes status-blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .ar-nav-eta {
+            position: absolute;
+            bottom: 100px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.85);
+            border-radius: 12px;
+            padding: 12px 16px;
+            color: white;
+            z-index: 102;
+        }
+
+        .ar-nav-eta-label {
+            font-size: 0.8rem;
+            color: #94a3b8;
+            margin-bottom: 4px;
+        }
+
+        .ar-nav-eta-value {
+            font-size: 1.3rem;
+            font-weight: bold;
+            color: #84cc16;
+        }
+
+        .ar-path-glow {
+            filter: drop-shadow(0 0 10px rgba(132, 204, 22, 0.8))
+                    drop-shadow(0 0 20px rgba(132, 204, 22, 0.5));
+        }
+
+        /* Searching animation */
+        .ar-searching-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: radial-gradient(circle at center, transparent 0%, rgba(0,0,0,0.3) 100%);
+            pointer-events: none;
+            z-index: 99;
+        }
+
+        .ar-searching-ring {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 150px;
+            height: 150px;
+            border: 4px solid rgba(132, 204, 22, 0.5);
+            border-top-color: #84cc16;
+            border-radius: 50%;
+            animation: searching-spin 1.5s linear infinite;
+        }
+
+        @keyframes searching-spin {
+            to { transform: translate(-50%, -50%) rotate(360deg); }
+        }
+
         /* ===== OBSTACLE ALERT STYLES ===== */
         .obstacle-alert {
             position: absolute;
@@ -1153,12 +1350,48 @@
         </div>
 
         <div class="nav-main-content">
-            <div class="nav-video-container">
+            <div class="nav-video-container" id="nav-video-container">
                 <img id="nav-video-feed" src="/video_feed" alt="Navigation view">
-                <div class="nav-arrow-container" id="nav-arrow-container">
+
+                <!-- AR Navigation Canvas for path drawing -->
+                <canvas id="ar-nav-canvas" class="ar-nav-canvas"></canvas>
+
+                <!-- AR Chevron Arrows (like Apple Maps) -->
+                <div class="ar-chevron-container" id="ar-chevron-container">
+                    <span class="ar-chevron">›</span>
+                    <span class="ar-chevron">›</span>
+                    <span class="ar-chevron">›</span>
+                </div>
+
+                <!-- AR Navigation Status Badge -->
+                <div class="ar-nav-status" id="ar-nav-status" style="display: none;">
+                    <div class="ar-nav-status-dot"></div>
+                    <span id="ar-nav-status-text">Real View Navigation</span>
+                </div>
+
+                <!-- AR Navigation Info Panel -->
+                <div class="ar-nav-info" id="ar-nav-info" style="display: none;">
+                    <div class="ar-nav-direction">
+                        <span class="ar-nav-direction-arrow" id="ar-direction-arrow">↑</span>
+                        <span class="ar-nav-direction-text" id="ar-direction-text">Ahead</span>
+                    </div>
+                    <div class="ar-nav-distance" id="ar-distance-display">~2m</div>
+                    <div class="ar-nav-target">
+                        <span class="ar-nav-target-icon">🎯</span>
+                        <span id="ar-target-name">Looking for object...</span>
+                    </div>
+                </div>
+
+                <!-- Searching Animation (when target not visible) -->
+                <div class="ar-searching-overlay" id="ar-searching-overlay" style="display: none;">
+                    <div class="ar-searching-ring"></div>
+                </div>
+
+                <!-- Legacy elements (hidden, kept for compatibility) -->
+                <div class="nav-arrow-container" id="nav-arrow-container" style="display: none;">
                     <div class="nav-arrow" id="nav-arrow">→</div>
                 </div>
-                <div class="nav-distance-ring" id="nav-distance-ring"></div>
+                <div class="nav-distance-ring" id="nav-distance-ring" style="display: none;"></div>
             </div>
 
             <div class="nav-guidance-panel">
@@ -2762,6 +2995,419 @@
         const proximityBeepInterval = { far: 2000, medium: 1000, close: 500, reachable: 200 };
         let proximityBeepTimer = null;
 
+        // ===== AR NAVIGATION PATH SYSTEM =====
+        class ARNavigationPath {
+            constructor() {
+                this.canvas = null;
+                this.ctx = null;
+                this.animationFrame = null;
+                this.pathProgress = 0;
+                this.targetPosition = null;  // {x, y} normalized 0-1
+                this.obstacles = [];
+                this.isSearching = true;
+                this.direction = 'forward';
+                this.distanceEstimate = null;
+                this.initialized = false;
+            }
+
+            init() {
+                this.canvas = document.getElementById('ar-nav-canvas');
+                if (!this.canvas) return false;
+
+                this.ctx = this.canvas.getContext('2d');
+                this.resizeCanvas();
+
+                // Resize on window resize
+                window.addEventListener('resize', () => this.resizeCanvas());
+
+                // Watch for video load to resize
+                const video = document.getElementById('nav-video-feed');
+                video.addEventListener('load', () => this.resizeCanvas());
+
+                this.initialized = true;
+                return true;
+            }
+
+            resizeCanvas() {
+                const container = document.getElementById('nav-video-container');
+                const video = document.getElementById('nav-video-feed');
+
+                if (container && video) {
+                    this.canvas.width = video.offsetWidth || container.offsetWidth;
+                    this.canvas.height = video.offsetHeight || container.offsetHeight;
+                }
+            }
+
+            start() {
+                if (!this.initialized) this.init();
+                this.resizeCanvas();
+
+                // Show AR elements
+                document.getElementById('ar-nav-status').style.display = 'flex';
+                document.getElementById('ar-nav-info').style.display = 'block';
+
+                // Start animation loop
+                this.animate();
+            }
+
+            stop() {
+                if (this.animationFrame) {
+                    cancelAnimationFrame(this.animationFrame);
+                    this.animationFrame = null;
+                }
+
+                // Hide AR elements
+                document.getElementById('ar-nav-status').style.display = 'none';
+                document.getElementById('ar-nav-info').style.display = 'none';
+                document.getElementById('ar-chevron-container').classList.remove('visible');
+                document.getElementById('ar-searching-overlay').style.display = 'none';
+
+                // Clear canvas
+                if (this.ctx) {
+                    this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+                }
+            }
+
+            // Update target position from detection data
+            updateTarget(bbox, distance, direction) {
+                if (bbox) {
+                    // bbox is [x1, y1, x2, y2] normalized or pixel coords
+                    const centerX = (bbox[0] + bbox[2]) / 2;
+                    const centerY = (bbox[1] + bbox[3]) / 2;
+
+                    // Normalize if needed (assume pixel coords if > 1)
+                    this.targetPosition = {
+                        x: centerX > 1 ? centerX / this.canvas.width : centerX,
+                        y: centerY > 1 ? centerY / this.canvas.height : centerY
+                    };
+                    this.isSearching = false;
+                } else {
+                    this.isSearching = true;
+                }
+
+                this.direction = direction || 'forward';
+                this.distanceEstimate = distance;
+
+                // Update UI elements
+                this.updateARDisplay();
+            }
+
+            // Update obstacles for path avoidance
+            updateObstacles(obstacleList) {
+                this.obstacles = obstacleList || [];
+            }
+
+            updateARDisplay() {
+                // Direction arrow and text
+                const arrows = {
+                    'forward': '↑', 'ahead': '↑',
+                    'left': '←', 'slight_left': '↖',
+                    'right': '→', 'slight_right': '↗',
+                    'center': '●', 'reached': '✓'
+                };
+
+                const texts = {
+                    'forward': 'Ahead', 'ahead': 'Ahead',
+                    'left': 'Turn Left', 'slight_left': 'Slight Left',
+                    'right': 'Turn Right', 'slight_right': 'Slight Right',
+                    'center': 'Center', 'reached': 'Reached!'
+                };
+
+                document.getElementById('ar-direction-arrow').textContent = arrows[this.direction] || '↑';
+                document.getElementById('ar-direction-text').textContent = texts[this.direction] || 'Ahead';
+
+                // Distance display
+                const distanceLabels = {
+                    'very_far': '~5m+', 'far': '~3-5m',
+                    'medium': '~1-3m', 'close': '~0.5-1m',
+                    'very_close': '~0.5m', 'reachable': 'Reach!'
+                };
+                document.getElementById('ar-distance-display').textContent =
+                    distanceLabels[this.distanceEstimate] || '~2m';
+
+                // Update chevron direction
+                const chevronContainer = document.getElementById('ar-chevron-container');
+                if (!this.isSearching && this.targetPosition) {
+                    chevronContainer.classList.add('visible');
+
+                    // Position chevrons based on target direction
+                    const offsetX = (this.targetPosition.x - 0.5) * 50;
+                    chevronContainer.style.transform = `translate(calc(-50% + ${offsetX}%), -50%)`;
+
+                    // Rotate based on direction
+                    let rotation = 0;
+                    if (this.direction === 'left') rotation = -90;
+                    else if (this.direction === 'slight_left') rotation = -45;
+                    else if (this.direction === 'right') rotation = 90;
+                    else if (this.direction === 'slight_right') rotation = 45;
+
+                    chevronContainer.style.transform += ` rotate(${rotation}deg)`;
+                } else {
+                    chevronContainer.classList.remove('visible');
+                }
+
+                // Show/hide searching overlay
+                document.getElementById('ar-searching-overlay').style.display =
+                    this.isSearching ? 'flex' : 'none';
+            }
+
+            animate() {
+                if (!this.canvas || !this.ctx) return;
+
+                this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+
+                if (!this.isSearching && this.targetPosition) {
+                    this.drawPath();
+                }
+
+                // Update path animation progress
+                this.pathProgress = (this.pathProgress + 0.02) % 1;
+
+                this.animationFrame = requestAnimationFrame(() => this.animate());
+            }
+
+            drawPath() {
+                const ctx = this.ctx;
+                const w = this.canvas.width;
+                const h = this.canvas.height;
+
+                if (!this.targetPosition) return;
+
+                // Calculate path from bottom center to target
+                const startX = w / 2;
+                const startY = h;  // Bottom of screen (user's position)
+                const endX = this.targetPosition.x * w;
+                const endY = this.targetPosition.y * h;
+
+                // Calculate control points for smooth curve
+                // The path should curve around obstacles and follow floor perspective
+                const controlPoints = this.calculatePathWithObstacles(startX, startY, endX, endY);
+
+                // Draw glowing path
+                this.drawGlowingPath(controlPoints);
+
+                // Draw animated dashes along path
+                this.drawAnimatedPathDashes(controlPoints);
+
+                // Draw target marker
+                this.drawTargetMarker(endX, endY);
+            }
+
+            calculatePathWithObstacles(startX, startY, endX, endY) {
+                const points = [];
+                const w = this.canvas.width;
+                const h = this.canvas.height;
+
+                // Start point (bottom center)
+                points.push({ x: startX, y: startY });
+
+                // If we have obstacles, curve around them
+                if (this.obstacles.length > 0) {
+                    const obstacleInPath = this.obstacles.find(obs => {
+                        if (!obs.position) return false;
+                        // Check if obstacle is in our direct path
+                        const obsX = obs.position === 'left' ? w * 0.25 :
+                                     obs.position === 'right' ? w * 0.75 : w * 0.5;
+                        return Math.abs(obsX - (startX + endX) / 2) < w * 0.3;
+                    });
+
+                    if (obstacleInPath) {
+                        // Curve around the obstacle
+                        const avoidDirection = obstacleInPath.position === 'left' ? 1 : -1;
+                        const midY = (startY + endY) / 2;
+
+                        // Control point to curve around obstacle
+                        points.push({
+                            x: startX + (avoidDirection * w * 0.15),
+                            y: midY + h * 0.1
+                        });
+                    }
+                }
+
+                // Add midpoint with perspective curve (path rises up toward target)
+                const midX = (startX + endX) / 2;
+                const midY = (startY + endY) / 2 + h * 0.05;
+                points.push({ x: midX, y: midY });
+
+                // End point (target)
+                points.push({ x: endX, y: endY });
+
+                return points;
+            }
+
+            drawGlowingPath(points) {
+                const ctx = this.ctx;
+
+                if (points.length < 2) return;
+
+                // Draw multiple layers for glow effect
+                const glowLayers = [
+                    { width: 40, alpha: 0.1, color: '132, 204, 22' },
+                    { width: 25, alpha: 0.2, color: '132, 204, 22' },
+                    { width: 12, alpha: 0.5, color: '132, 204, 22' },
+                    { width: 6, alpha: 0.9, color: '163, 230, 53' }
+                ];
+
+                glowLayers.forEach(layer => {
+                    ctx.beginPath();
+                    ctx.strokeStyle = `rgba(${layer.color}, ${layer.alpha})`;
+                    ctx.lineWidth = layer.width;
+                    ctx.lineCap = 'round';
+                    ctx.lineJoin = 'round';
+
+                    ctx.moveTo(points[0].x, points[0].y);
+
+                    if (points.length === 2) {
+                        ctx.lineTo(points[1].x, points[1].y);
+                    } else {
+                        // Draw smooth curve through points
+                        for (let i = 1; i < points.length - 1; i++) {
+                            const xc = (points[i].x + points[i + 1].x) / 2;
+                            const yc = (points[i].y + points[i + 1].y) / 2;
+                            ctx.quadraticCurveTo(points[i].x, points[i].y, xc, yc);
+                        }
+                        // Last point
+                        ctx.lineTo(points[points.length - 1].x, points[points.length - 1].y);
+                    }
+
+                    ctx.stroke();
+                });
+            }
+
+            drawAnimatedPathDashes(points) {
+                const ctx = this.ctx;
+                const w = this.canvas.width;
+                const h = this.canvas.height;
+
+                if (points.length < 2) return;
+
+                // Calculate total path length
+                let totalLength = 0;
+                for (let i = 1; i < points.length; i++) {
+                    const dx = points[i].x - points[i-1].x;
+                    const dy = points[i].y - points[i-1].y;
+                    totalLength += Math.sqrt(dx * dx + dy * dy);
+                }
+
+                // Draw animated chevrons along path
+                const numChevrons = 8;
+                const spacing = totalLength / numChevrons;
+
+                for (let i = 0; i < numChevrons; i++) {
+                    const t = ((i / numChevrons) + this.pathProgress) % 1;
+                    const pos = this.getPointAlongPath(points, t);
+
+                    if (pos) {
+                        // Calculate direction for chevron rotation
+                        const nextT = Math.min(t + 0.05, 0.99);
+                        const nextPos = this.getPointAlongPath(points, nextT);
+                        const angle = nextPos ?
+                            Math.atan2(nextPos.y - pos.y, nextPos.x - pos.x) :
+                            -Math.PI / 2;
+
+                        // Draw chevron
+                        const size = 15 - (t * 8);  // Smaller as they go up
+                        const alpha = 0.3 + (1 - t) * 0.7;  // Fade as they move
+
+                        ctx.save();
+                        ctx.translate(pos.x, pos.y);
+                        ctx.rotate(angle - Math.PI / 2);
+
+                        ctx.beginPath();
+                        ctx.strokeStyle = `rgba(163, 230, 53, ${alpha})`;
+                        ctx.lineWidth = 3;
+                        ctx.lineCap = 'round';
+                        ctx.lineJoin = 'round';
+
+                        // Draw chevron shape
+                        ctx.moveTo(-size, size / 2);
+                        ctx.lineTo(0, -size / 2);
+                        ctx.lineTo(size, size / 2);
+                        ctx.stroke();
+
+                        ctx.restore();
+                    }
+                }
+            }
+
+            getPointAlongPath(points, t) {
+                if (points.length < 2) return null;
+                if (t <= 0) return points[0];
+                if (t >= 1) return points[points.length - 1];
+
+                // Calculate total length
+                let totalLength = 0;
+                const segments = [];
+                for (let i = 1; i < points.length; i++) {
+                    const dx = points[i].x - points[i-1].x;
+                    const dy = points[i].y - points[i-1].y;
+                    const len = Math.sqrt(dx * dx + dy * dy);
+                    segments.push({ start: points[i-1], end: points[i], length: len });
+                    totalLength += len;
+                }
+
+                // Find point at distance t * totalLength
+                let targetDist = t * totalLength;
+                let currentDist = 0;
+
+                for (const seg of segments) {
+                    if (currentDist + seg.length >= targetDist) {
+                        const segT = (targetDist - currentDist) / seg.length;
+                        return {
+                            x: seg.start.x + (seg.end.x - seg.start.x) * segT,
+                            y: seg.start.y + (seg.end.y - seg.start.y) * segT
+                        };
+                    }
+                    currentDist += seg.length;
+                }
+
+                return points[points.length - 1];
+            }
+
+            drawTargetMarker(x, y) {
+                const ctx = this.ctx;
+
+                // Pulsing target ring
+                const pulse = 0.8 + Math.sin(Date.now() / 200) * 0.2;
+                const baseSize = 30 * pulse;
+
+                // Outer glow
+                ctx.beginPath();
+                ctx.arc(x, y, baseSize + 15, 0, Math.PI * 2);
+                ctx.fillStyle = 'rgba(132, 204, 22, 0.1)';
+                ctx.fill();
+
+                // Ring
+                ctx.beginPath();
+                ctx.arc(x, y, baseSize, 0, Math.PI * 2);
+                ctx.strokeStyle = 'rgba(163, 230, 53, 0.8)';
+                ctx.lineWidth = 4;
+                ctx.stroke();
+
+                // Inner dot
+                ctx.beginPath();
+                ctx.arc(x, y, 8, 0, Math.PI * 2);
+                ctx.fillStyle = '#a3e635';
+                ctx.fill();
+
+                // Crosshair lines
+                ctx.strokeStyle = 'rgba(163, 230, 53, 0.6)';
+                ctx.lineWidth = 2;
+
+                ctx.beginPath();
+                ctx.moveTo(x - baseSize - 10, y);
+                ctx.lineTo(x - baseSize + 5, y);
+                ctx.moveTo(x + baseSize - 5, y);
+                ctx.lineTo(x + baseSize + 10, y);
+                ctx.moveTo(x, y - baseSize - 10);
+                ctx.lineTo(x, y - baseSize + 5);
+                ctx.stroke();
+            }
+        }
+
+        // Global AR navigation instance
+        const arNavPath = new ARNavigationPath();
+
         async function startNavigation(label, detectionId, box) {
             navigationActive = true;
             navigationTarget = label;
@@ -2775,6 +3421,10 @@
 
             // Start video feed in navigation view
             document.getElementById('nav-video-feed').src = '/video_feed?' + Date.now();
+
+            // Initialize AR navigation path
+            document.getElementById('ar-target-name').textContent = label;
+            arNavPath.start();
 
             // Try to start navigation on server
             try {
@@ -2831,6 +3481,9 @@
                 proximityBeepTimer = null;
             }
 
+            // Stop AR navigation path
+            arNavPath.stop();
+
             // Hide navigation overlay
             document.getElementById('navigation-overlay').style.display = 'none';
             document.getElementById('nav-memory-hint').style.display = 'none';
@@ -2871,6 +3524,13 @@
                 if (data.guidance) {
                     updateGuidanceDisplay(data.guidance);
 
+                    // Update AR navigation path with target position
+                    arNavPath.updateTarget(
+                        data.target_bbox,  // Bounding box from server
+                        data.guidance.distance,
+                        data.guidance.direction
+                    );
+
                     // TTS guidance (with cooldown)
                     if (navTTSEnabled && data.speak && data.guidance.guidance_text) {
                         const now = Date.now();
@@ -2885,13 +3545,18 @@
                     updateProximityBeeps(data.guidance.distance);
                 }
 
-                // Handle obstacle alerts
+                // Handle obstacle alerts and update AR path
                 if (data.obstacles && data.obstacles.length > 0) {
                     handleObstacleAlerts(data.obstacles);
+                    arNavPath.updateObstacles(data.obstacles);
+                } else {
+                    arNavPath.updateObstacles([]);
                 }
 
                 if (data.searching) {
-                    // Object not currently visible
+                    // Object not currently visible - show searching state
+                    arNavPath.updateTarget(null, null, 'forward');
+
                     document.getElementById('nav-direction-icon').textContent = '🔍';
                     document.getElementById('nav-direction-text').textContent = 'Searching...';
                     document.getElementById('nav-guidance-text').textContent =
