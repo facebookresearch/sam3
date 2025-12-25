@@ -4,10 +4,28 @@ from typing import Tuple
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torchvision
 from typing_extensions import override
 
 from .act_ckpt_utils import activation_ckpt_wrapper
+
+
+def _grid_sample_mps_safe(input, grid, **kwargs):
+    """
+    MPS-safe wrapper for grid_sample.
+    MPS has bugs with grid_sample on certain tensor configurations,
+    so we fall back to CPU for MPS devices.
+    """
+    if input.device.type == "mps":
+        # Move to CPU, perform operation, move back
+        input_cpu = input.cpu()
+        grid_cpu = grid.cpu()
+        result = F.grid_sample(input_cpu, grid_cpu, **kwargs)
+        return result.to(input.device)
+    return F.grid_sample(input, grid, **kwargs)
+
+
 from .box_ops import box_cxcywh_to_xyxy
 
 from .model_misc import get_clones
@@ -44,8 +62,13 @@ def concat_padded_sequences(seq1, mask1, seq2, mask2, return_index: bool = False
     assert seq1_length == mask1.size(1)
     assert seq2_length == mask2.size(1)
 
-    torch._assert_async(is_right_padded(mask1))
-    torch._assert_async(is_right_padded(mask2))
+    # _assert_async is not supported on MPS, use regular assert
+    if mask1.device.type == "mps" or mask2.device.type == "mps":
+        assert is_right_padded(mask1), "mask1 must be right padded"
+        assert is_right_padded(mask2), "mask2 must be right padded"
+    else:
+        torch._assert_async(is_right_padded(mask1))
+        torch._assert_async(is_right_padded(mask2))
 
     actual_seq1_lengths = (~mask1).sum(dim=-1)
     actual_seq2_lengths = (~mask2).sum(dim=-1)
@@ -613,7 +636,7 @@ class SequenceGeometryEncoder(nn.Module):
             grid = points.transpose(0, 1).unsqueeze(2)
             # re normalize to [-1, 1]
             grid = (grid * 2) - 1
-            sampled = torch.nn.functional.grid_sample(
+            sampled = _grid_sample_mps_safe(
                 img_feats, grid, align_corners=False
             )
             assert list(sampled.shape) == [bs, self.d_model, n_points, 1]
@@ -656,11 +679,16 @@ class SequenceGeometryEncoder(nn.Module):
             # We need to denormalize, and convert to [x, y, x, y]
             boxes_xyxy = box_cxcywh_to_xyxy(boxes)
             scale = torch.tensor([W, H, W, H], dtype=boxes_xyxy.dtype)
-            scale = scale.pin_memory().to(device=boxes_xyxy.device, non_blocking=True)
+            # pin_memory() only works with CUDA, not MPS
+            if boxes_xyxy.device.type == "cuda":
+                scale = scale.pin_memory().to(device=boxes_xyxy.device, non_blocking=True)
+            else:
+                scale = scale.to(device=boxes_xyxy.device)
             scale = scale.view(1, 1, 4)
             boxes_xyxy = boxes_xyxy * scale
+            # Match boxes dtype to img_feats dtype for roi_align (needed for half precision)
             sampled = torchvision.ops.roi_align(
-                img_feats, boxes_xyxy.float().transpose(0, 1).unbind(0), self.roi_size
+                img_feats, boxes_xyxy.to(img_feats.dtype).transpose(0, 1).unbind(0), self.roi_size
             )
             assert list(sampled.shape) == [
                 bs * n_boxes,

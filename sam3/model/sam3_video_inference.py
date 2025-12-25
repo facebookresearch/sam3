@@ -477,9 +477,13 @@ class Sam3VideoInference(Sam3VideoBase):
 
             # slice those valid entries from the original outputs
             keep_idx = torch.nonzero(keep, as_tuple=True)[0]
-            keep_idx_gpu = keep_idx.pin_memory().to(
-                device=out_binary_masks.device, non_blocking=True
-            )
+            # pin_memory() only works with CUDA, not MPS
+            if out_binary_masks.device.type == "cuda":
+                keep_idx_gpu = keep_idx.pin_memory().to(
+                    device=out_binary_masks.device, non_blocking=True
+                )
+            else:
+                keep_idx_gpu = keep_idx.to(device=out_binary_masks.device)
 
             out_obj_ids = torch.index_select(out_obj_ids, 0, keep_idx)
             out_probs = torch.index_select(out_probs, 0, keep_idx)

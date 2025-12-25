@@ -16,6 +16,7 @@ import psutil
 import torch
 
 from sam3.logger import get_logger
+from sam3.utils.device import get_device
 
 logger = get_logger(__name__)
 
@@ -48,7 +49,7 @@ class Sam3VideoPredictor:
                 strict_state_dict_loading=strict_state_dict_loading,
                 apply_temporal_disambiguation=apply_temporal_disambiguation,
             )
-            .cuda()
+            .to(get_device())
             .eval()
         )
 
@@ -275,11 +276,17 @@ class Sam3VideoPredictor:
         return session_stats_str
 
     def _get_torch_and_gpu_properties(self):
-        """Get a string for PyTorch and GPU properties (for logging and debugging)."""
-        torch_and_gpu_str = (
-            f"torch: {torch.__version__} with CUDA arch {torch.cuda.get_arch_list()}, "
-            f"GPU device: {torch.cuda.get_device_properties(torch.cuda.current_device())}"
-        )
+        """Get a string for PyTorch and device properties (for logging and debugging)."""
+        device = get_device()
+        if device.type == "cuda":
+            torch_and_gpu_str = (
+                f"torch: {torch.__version__} with CUDA arch {torch.cuda.get_arch_list()}, "
+                f"GPU device: {torch.cuda.get_device_properties(torch.cuda.current_device())}"
+            )
+        elif device.type == "mps":
+            torch_and_gpu_str = f"torch: {torch.__version__} with MPS (Apple Silicon)"
+        else:
+            torch_and_gpu_str = f"torch: {torch.__version__} on CPU"
         return torch_and_gpu_str
 
     def shutdown(self):
@@ -428,7 +435,8 @@ class Sam3VideoPredictorMultiGPU(Sam3VideoPredictor):
             device_id=self.device,
         )
         # warm-up the NCCL process group by running a dummy all-reduce
-        tensor = torch.ones(1024, 1024).cuda()
+        # Note: NCCL backend requires CUDA tensors
+        tensor = torch.ones(1024, 1024, device=self.device)
         torch.distributed.all_reduce(tensor)
         logger.debug(f"started NCCL process group on {rank=} with {world_size=}")
 

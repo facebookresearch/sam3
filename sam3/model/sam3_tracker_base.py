@@ -164,10 +164,12 @@ class Sam3TrackerBase(torch.nn.Module):
             return torch.zeros(len(rel_pos_list), self.mem_dim, device=device)
 
         t_diff_max = max_abs_pos - 1 if max_abs_pos is not None else 1
-        pos_enc = (
-            torch.tensor(rel_pos_list).pin_memory().to(device=device, non_blocking=True)
-            / t_diff_max
-        )
+        # pin_memory() only works with CUDA, not MPS
+        rel_pos_tensor = torch.tensor(rel_pos_list)
+        if device.type == "cuda" if isinstance(device, torch.device) else device == "cuda":
+            pos_enc = rel_pos_tensor.pin_memory().to(device=device, non_blocking=True) / t_diff_max
+        else:
+            pos_enc = rel_pos_tensor.to(device=device) / t_diff_max
         tpos_dim = self.hidden_dim
         pos_enc = get_1d_sine_pe(pos_enc, dim=tpos_dim)
         pos_enc = self.obj_ptr_tpos_proj(pos_enc)
@@ -653,15 +655,15 @@ class Sam3TrackerBase(torch.nn.Module):
                 if prev is None:
                     continue  # skip padding frames
                 # "maskmem_features" might have been offloaded to CPU in demo use cases,
-                # so we load it back to GPU (it's a no-op if it's already on GPU).
-                feats = prev["maskmem_features"].cuda(non_blocking=True)
+                # so we load it back to the model's device (it's a no-op if it's already there).
+                feats = prev["maskmem_features"].to(device, non_blocking=True)
                 seq_len = feats.shape[-2] * feats.shape[-1]
                 to_cat_prompt.append(feats.flatten(2).permute(2, 0, 1))
                 to_cat_prompt_mask.append(
                     torch.zeros(B, seq_len, device=device, dtype=bool)
                 )
                 # Spatial positional encoding (it might have been offloaded to CPU in eval)
-                maskmem_enc = prev["maskmem_pos_enc"][-1].cuda()
+                maskmem_enc = prev["maskmem_pos_enc"][-1].to(device)
                 maskmem_enc = maskmem_enc.flatten(2).permute(2, 0, 1)
 
                 if (

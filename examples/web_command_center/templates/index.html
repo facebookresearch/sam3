@@ -1,0 +1,4006 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SAM3 Command Center</title>
+    <style>
+        :root {
+            --bg-dark: #0a0e14;
+            --bg-panel: #1a1f2e;
+            --bg-card: #242b3d;
+            --border-color: #2d3548;
+            --text-primary: #e6e9f0;
+            --text-secondary: #8b92a8;
+            --accent-blue: #00b4ff;
+            --accent-green: #00ff88;
+            --accent-red: #ff4757;
+            --accent-yellow: #ffc107;
+            --accent-purple: #a855f7;
+            --accent-orange: #ff9500;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: var(--bg-dark);
+            color: var(--text-primary);
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, var(--bg-panel) 0%, var(--bg-dark) 100%);
+            border-bottom: 1px solid var(--border-color);
+            padding: 15px 30px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .header h1 {
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: var(--accent-blue);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .header h1::before {
+            content: '';
+            width: 12px;
+            height: 12px;
+            background: var(--accent-green);
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .status-bar {
+            display: flex;
+            gap: 20px;
+            font-size: 0.85rem;
+        }
+
+        .status-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            color: var(--text-secondary);
+        }
+
+        .status-value {
+            color: var(--accent-green);
+            font-weight: 600;
+        }
+
+        .main-container {
+            display: grid;
+            grid-template-columns: 1fr 380px;
+            gap: 15px;
+            padding: 15px;
+            height: calc(100vh - 70px);
+        }
+
+        .panel {
+            background: var(--bg-panel);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .panel-header {
+            background: var(--bg-card);
+            padding: 10px 15px;
+            font-weight: 600;
+            font-size: 0.9rem;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .panel-content {
+            padding: 15px;
+            overflow-y: auto;
+            max-height: calc(100% - 45px);
+        }
+
+        /* Video Panel */
+        .video-panel {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .video-container {
+            position: relative;
+            width: 100%;
+            padding-top: 56.25%;
+            background: #000;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .video-container img {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+
+        /* Controls */
+        .controls-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-top: 15px;
+        }
+
+        .control-group {
+            background: var(--bg-card);
+            border-radius: 6px;
+            padding: 12px;
+        }
+
+        .control-group.full-width {
+            grid-column: span 2;
+        }
+
+        .control-group label {
+            display: block;
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            margin-bottom: 6px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .control-group input[type="text"],
+        .control-group input[type="number"] {
+            width: 100%;
+            background: var(--bg-dark);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            padding: 8px 12px;
+            color: var(--text-primary);
+            font-size: 0.9rem;
+        }
+
+        .control-group input:focus {
+            outline: none;
+            border-color: var(--accent-blue);
+        }
+
+        .btn {
+            background: var(--accent-blue);
+            color: #000;
+            border: none;
+            border-radius: 4px;
+            padding: 8px 16px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn:hover {
+            filter: brightness(1.1);
+        }
+
+        .btn-secondary {
+            background: var(--bg-card);
+            color: var(--text-primary);
+            border: 1px solid var(--border-color);
+        }
+
+        .btn-danger {
+            background: var(--accent-red);
+        }
+
+        .btn-success {
+            background: var(--accent-green);
+            color: #000;
+        }
+
+        .btn-sm {
+            padding: 4px 10px;
+            font-size: 0.75rem;
+        }
+
+        .btn-group {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        /* Feature Toggles Section */
+        .features-panel {
+            margin-top: 15px;
+        }
+
+        .feature-section {
+            background: var(--bg-card);
+            border-radius: 6px;
+            padding: 12px;
+            margin-bottom: 10px;
+        }
+
+        .feature-section-title {
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: var(--accent-blue);
+            margin-bottom: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .feature-toggle {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 0;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .feature-toggle:last-child {
+            border-bottom: none;
+        }
+
+        .feature-info {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .feature-name {
+            font-size: 0.85rem;
+            color: var(--text-primary);
+        }
+
+        .feature-desc {
+            font-size: 0.7rem;
+            color: var(--text-secondary);
+        }
+
+        .toggle-switch {
+            width: 44px;
+            height: 24px;
+            background: var(--bg-dark);
+            border-radius: 12px;
+            position: relative;
+            cursor: pointer;
+            transition: background 0.2s;
+            flex-shrink: 0;
+        }
+
+        .toggle-switch.active {
+            background: var(--accent-green);
+        }
+
+        .toggle-switch::after {
+            content: '';
+            position: absolute;
+            top: 2px;
+            left: 2px;
+            width: 20px;
+            height: 20px;
+            background: white;
+            border-radius: 50%;
+            transition: left 0.2s;
+        }
+
+        .toggle-switch.active::after {
+            left: 22px;
+        }
+
+        .feature-param {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-top: 6px;
+            padding-left: 10px;
+        }
+
+        .feature-param input {
+            width: 70px;
+            background: var(--bg-dark);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            padding: 4px 8px;
+            color: var(--text-primary);
+            font-size: 0.8rem;
+        }
+
+        .feature-param label {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+        }
+
+        /* Detections Panel */
+        .detection-item {
+            background: var(--bg-card);
+            border-radius: 6px;
+            padding: 12px;
+            margin-bottom: 10px;
+            border-left: 3px solid var(--accent-blue);
+        }
+
+        .detection-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+
+        .detection-label {
+            font-weight: 600;
+            color: var(--accent-blue);
+        }
+
+        .detection-id {
+            font-size: 0.75rem;
+            color: var(--accent-purple);
+            margin-left: 6px;
+        }
+
+        .detection-confidence {
+            font-size: 0.85rem;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-weight: 600;
+        }
+
+        .conf-high { background: var(--accent-green); color: #000; }
+        .conf-medium { background: var(--accent-yellow); color: #000; }
+        .conf-low { background: var(--accent-red); color: #fff; }
+
+        .detection-info {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            margin-bottom: 8px;
+        }
+
+        .detection-actions {
+            display: flex;
+            gap: 6px;
+        }
+
+        /* Log Panel */
+        .log-entry {
+            font-family: 'Consolas', monospace;
+            font-size: 0.75rem;
+            padding: 4px 0;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            gap: 8px;
+        }
+
+        .log-timestamp {
+            color: var(--text-secondary);
+            min-width: 80px;
+        }
+
+        .log-level {
+            min-width: 60px;
+            font-weight: 600;
+        }
+
+        .log-level.INFO { color: var(--accent-blue); }
+        .log-level.SUCCESS { color: var(--accent-green); }
+        .log-level.ERROR { color: var(--accent-red); }
+        .log-level.DEBUG { color: var(--accent-purple); }
+
+        /* Analysis Panel */
+        .analysis-item {
+            background: var(--bg-card);
+            border-radius: 6px;
+            padding: 12px;
+            margin-bottom: 10px;
+            border-left: 3px solid var(--accent-purple);
+        }
+
+        .analysis-header {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            margin-bottom: 8px;
+        }
+
+        .analysis-text {
+            font-size: 0.9rem;
+            line-height: 1.5;
+        }
+
+        .loading-spinner {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid var(--text-secondary);
+            border-top-color: var(--accent-blue);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Sidebar */
+        .sidebar {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            height: 100%;
+            overflow: hidden;
+        }
+
+        .sidebar .panel {
+            flex: 1;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .sidebar .panel-content {
+            flex: 1;
+            overflow-y: auto;
+        }
+
+        /* Tracked Objects Panel */
+        .tracked-objects-list {
+            max-height: 150px;
+            overflow-y: auto;
+        }
+
+        .tracked-object {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 0;
+            border-bottom: 1px solid var(--border-color);
+            font-size: 0.8rem;
+        }
+
+        .tracked-object-color {
+            width: 12px;
+            height: 12px;
+            border-radius: 3px;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 30px;
+            color: var(--text-secondary);
+        }
+
+        /* Scrollable content area */
+        .left-panel-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 15px;
+        }
+
+        /* Tabs */
+        .tabs {
+            display: flex;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .tab {
+            padding: 10px 20px;
+            cursor: pointer;
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+            border-bottom: 2px solid transparent;
+            transition: all 0.2s;
+        }
+
+        .tab:hover {
+            color: var(--text-primary);
+        }
+
+        .tab.active {
+            color: var(--accent-blue);
+            border-bottom-color: var(--accent-blue);
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        /* Voice Search Styles */
+        .voice-input-container {
+            display: flex;
+            gap: 8px;
+            align-items: stretch;
+        }
+
+        .voice-input-container input {
+            flex: 1;
+        }
+
+        .mic-btn {
+            width: 44px;
+            height: 44px;
+            border-radius: 50%;
+            border: 2px solid var(--border-color);
+            background: var(--bg-card);
+            color: var(--text-primary);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+            flex-shrink: 0;
+        }
+
+        .mic-btn:hover {
+            border-color: var(--accent-blue);
+            background: var(--bg-dark);
+        }
+
+        .mic-btn.listening {
+            background: var(--accent-red);
+            border-color: var(--accent-red);
+            animation: pulse-mic 1s infinite;
+        }
+
+        .mic-btn.processing {
+            background: var(--accent-yellow);
+            border-color: var(--accent-yellow);
+        }
+
+        .mic-btn svg {
+            width: 20px;
+            height: 20px;
+        }
+
+        @keyframes pulse-mic {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+        }
+
+        .voice-status {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            margin-top: 6px;
+            min-height: 18px;
+        }
+
+        .voice-status.success { color: var(--accent-green); }
+        .voice-status.error { color: var(--accent-red); }
+        .voice-status.listening { color: var(--accent-yellow); }
+
+        .voice-feedback {
+            background: var(--bg-card);
+            border-radius: 6px;
+            padding: 10px 12px;
+            margin-top: 10px;
+            font-size: 0.85rem;
+            border-left: 3px solid var(--accent-purple);
+        }
+
+        .voice-feedback .query {
+            color: var(--text-secondary);
+            font-style: italic;
+            margin-bottom: 4px;
+        }
+
+        .voice-feedback .parsed {
+            color: var(--accent-green);
+            font-weight: 600;
+        }
+
+        .tts-controls {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-top: 10px;
+            padding: 10px;
+            background: var(--bg-card);
+            border-radius: 6px;
+        }
+
+        .tts-controls label {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+        }
+
+        .voice-history {
+            max-height: 120px;
+            overflow-y: auto;
+            margin-top: 10px;
+        }
+
+        .voice-history-item {
+            padding: 6px 10px;
+            background: var(--bg-dark);
+            border-radius: 4px;
+            margin-bottom: 6px;
+            font-size: 0.8rem;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .voice-history-item:hover {
+            background: var(--bg-card);
+        }
+
+        .voice-history-item .timestamp {
+            color: var(--text-secondary);
+            font-size: 0.7rem;
+        }
+
+        /* Camera Controls Styles */
+        .camera-controls {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .camera-select-container {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .camera-select {
+            flex: 1;
+            background: var(--bg-dark);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            padding: 8px 12px;
+            color: var(--text-primary);
+            font-size: 0.85rem;
+            cursor: pointer;
+        }
+
+        .camera-select:focus {
+            outline: none;
+            border-color: var(--accent-blue);
+        }
+
+        .flip-controls {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .flip-btn {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 12px;
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            color: var(--text-primary);
+            font-size: 0.8rem;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .flip-btn:hover {
+            border-color: var(--accent-blue);
+        }
+
+        .flip-btn.active {
+            background: var(--accent-blue);
+            border-color: var(--accent-blue);
+            color: #000;
+        }
+
+        .flip-btn svg {
+            width: 16px;
+            height: 16px;
+        }
+
+        .camera-info {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            margin-top: 4px;
+        }
+
+        .refresh-btn {
+            padding: 8px;
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            color: var(--text-primary);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .refresh-btn:hover {
+            border-color: var(--accent-blue);
+        }
+
+        .refresh-btn svg {
+            width: 16px;
+            height: 16px;
+        }
+
+        .refresh-btn.spinning svg {
+            animation: spin 1s linear infinite;
+        }
+
+        /* ===== NAVIGATION SYSTEM STYLES ===== */
+        .navigation-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.85);
+            z-index: 1000;
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .navigation-overlay.active {
+            display: flex;
+        }
+
+        .nav-header {
+            position: absolute;
+            top: 20px;
+            left: 0;
+            right: 0;
+            text-align: center;
+            color: white;
+        }
+
+        .nav-target {
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: #4ade80;
+            margin-bottom: 8px;
+        }
+
+        .nav-context {
+            font-size: 0.9rem;
+            color: #94a3b8;
+        }
+
+        .nav-video-container {
+            position: relative;
+            max-width: 80vw;
+            max-height: 60vh;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+        }
+
+        .nav-video-container img {
+            width: 100%;
+            height: auto;
+            display: block;
+        }
+
+        .nav-arrow-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            pointer-events: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .nav-arrow {
+            font-size: 120px;
+            color: #4ade80;
+            text-shadow: 0 0 20px rgba(74, 222, 128, 0.8);
+            transition: transform 0.3s ease;
+            animation: pulse-arrow 1.5s ease-in-out infinite;
+        }
+
+        @keyframes pulse-arrow {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.7; transform: scale(1.1); }
+        }
+
+        .nav-distance-ring {
+            position: absolute;
+            border: 4px solid;
+            border-radius: 50%;
+            animation: pulse-ring 2s ease-in-out infinite;
+        }
+
+        .nav-distance-ring.far {
+            width: 200px;
+            height: 200px;
+            border-color: #f87171;
+        }
+
+        .nav-distance-ring.medium {
+            width: 150px;
+            height: 150px;
+            border-color: #fbbf24;
+        }
+
+        .nav-distance-ring.close {
+            width: 100px;
+            height: 100px;
+            border-color: #4ade80;
+        }
+
+        .nav-distance-ring.reachable {
+            width: 80px;
+            height: 80px;
+            border-color: #22c55e;
+            border-width: 6px;
+            animation: pulse-reached 0.5s ease-in-out infinite;
+        }
+
+        @keyframes pulse-ring {
+            0%, 100% { opacity: 0.6; }
+            50% { opacity: 1; }
+        }
+
+        @keyframes pulse-reached {
+            0%, 100% { transform: scale(1); box-shadow: 0 0 20px #22c55e; }
+            50% { transform: scale(1.1); box-shadow: 0 0 40px #22c55e; }
+        }
+
+        .nav-guidance-panel {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.9);
+            border-radius: 12px;
+            padding: 20px;
+            border: 2px solid #4ade80;
+        }
+
+        .nav-guidance-text {
+            font-size: 1.5rem;
+            color: white;
+            text-align: center;
+            margin-bottom: 15px;
+            font-weight: 500;
+        }
+
+        .nav-guidance-details {
+            display: flex;
+            justify-content: space-around;
+            flex-wrap: wrap;
+            gap: 15px;
+        }
+
+        .nav-detail {
+            text-align: center;
+            padding: 10px 20px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+        }
+
+        .nav-detail-label {
+            font-size: 0.8rem;
+            color: #94a3b8;
+            margin-bottom: 4px;
+        }
+
+        .nav-detail-value {
+            font-size: 1.1rem;
+            font-weight: bold;
+            color: white;
+        }
+
+        .nav-detail-value.far { color: #f87171; }
+        .nav-detail-value.medium { color: #fbbf24; }
+        .nav-detail-value.close { color: #4ade80; }
+        .nav-detail-value.reachable { color: #22c55e; }
+
+        .nav-controls {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            display: flex;
+            gap: 10px;
+        }
+
+        .nav-stop-btn {
+            padding: 12px 24px;
+            background: #ef4444;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .nav-stop-btn:hover {
+            background: #dc2626;
+            transform: scale(1.05);
+        }
+
+        .nav-reached-celebration {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            animation: celebrate 0.5s ease-out;
+        }
+
+        @keyframes celebrate {
+            0% { transform: translate(-50%, -50%) scale(0); }
+            50% { transform: translate(-50%, -50%) scale(1.2); }
+            100% { transform: translate(-50%, -50%) scale(1); }
+        }
+
+        .nav-reached-icon {
+            font-size: 100px;
+            margin-bottom: 20px;
+        }
+
+        .nav-reached-text {
+            font-size: 2rem;
+            color: #22c55e;
+            font-weight: bold;
+        }
+
+        .detection-nav-btn {
+            background: #8b5cf6;
+            color: white;
+            border: none;
+            padding: 4px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.75rem;
+            margin-left: 6px;
+        }
+
+        .detection-nav-btn:hover {
+            background: #7c3aed;
+        }
+
+        .nav-searching {
+            animation: searching-pulse 1s ease-in-out infinite;
+        }
+
+        @keyframes searching-pulse {
+            0%, 100% { opacity: 0.5; }
+            50% { opacity: 1; }
+        }
+
+        /* ===== AR NAVIGATION PATH STYLES ===== */
+        .ar-nav-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 100;
+        }
+
+        .ar-chevron-container {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+            z-index: 101;
+            display: flex;
+            gap: 8px;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .ar-chevron-container.visible {
+            opacity: 1;
+        }
+
+        .ar-chevron {
+            font-size: 80px;
+            font-weight: bold;
+            color: #84cc16;
+            text-shadow:
+                0 0 20px rgba(132, 204, 22, 0.8),
+                0 0 40px rgba(132, 204, 22, 0.5),
+                2px 2px 4px rgba(0, 0, 0, 0.5);
+            animation: chevron-pulse 1s ease-in-out infinite;
+        }
+
+        .ar-chevron:nth-child(2) {
+            animation-delay: 0.15s;
+        }
+
+        .ar-chevron:nth-child(3) {
+            animation-delay: 0.3s;
+        }
+
+        @keyframes chevron-pulse {
+            0%, 100% {
+                opacity: 0.6;
+                transform: translateX(0);
+            }
+            50% {
+                opacity: 1;
+                transform: translateX(8px);
+            }
+        }
+
+        .ar-nav-info {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.85);
+            border-radius: 16px;
+            padding: 16px 20px;
+            border: 2px solid #84cc16;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+            z-index: 102;
+            min-width: 200px;
+        }
+
+        .ar-nav-direction {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 12px;
+        }
+
+        .ar-nav-direction-arrow {
+            font-size: 2.5rem;
+            color: #84cc16;
+            text-shadow: 0 0 10px rgba(132, 204, 22, 0.5);
+        }
+
+        .ar-nav-direction-text {
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: white;
+        }
+
+        .ar-nav-distance {
+            font-size: 2rem;
+            font-weight: bold;
+            color: #84cc16;
+            margin-bottom: 8px;
+        }
+
+        .ar-nav-target {
+            font-size: 0.9rem;
+            color: #94a3b8;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .ar-nav-target-icon {
+            color: #84cc16;
+        }
+
+        .ar-nav-status {
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: linear-gradient(135deg, rgba(132, 204, 22, 0.9) 0%, rgba(34, 197, 94, 0.9) 100%);
+            color: white;
+            padding: 10px 24px;
+            border-radius: 25px;
+            font-weight: bold;
+            font-size: 1.1rem;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            z-index: 103;
+            box-shadow: 0 4px 15px rgba(132, 204, 22, 0.4);
+        }
+
+        .ar-nav-status-dot {
+            width: 12px;
+            height: 12px;
+            background: white;
+            border-radius: 50%;
+            animation: status-blink 1s ease-in-out infinite;
+        }
+
+        @keyframes status-blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .ar-nav-eta {
+            position: absolute;
+            bottom: 100px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.85);
+            border-radius: 12px;
+            padding: 12px 16px;
+            color: white;
+            z-index: 102;
+        }
+
+        .ar-nav-eta-label {
+            font-size: 0.8rem;
+            color: #94a3b8;
+            margin-bottom: 4px;
+        }
+
+        .ar-nav-eta-value {
+            font-size: 1.3rem;
+            font-weight: bold;
+            color: #84cc16;
+        }
+
+        .ar-path-glow {
+            filter: drop-shadow(0 0 10px rgba(132, 204, 22, 0.8))
+                    drop-shadow(0 0 20px rgba(132, 204, 22, 0.5));
+        }
+
+        /* Searching animation */
+        .ar-searching-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: radial-gradient(circle at center, transparent 0%, rgba(0,0,0,0.3) 100%);
+            pointer-events: none;
+            z-index: 99;
+        }
+
+        .ar-searching-ring {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 150px;
+            height: 150px;
+            border: 4px solid rgba(132, 204, 22, 0.5);
+            border-top-color: #84cc16;
+            border-radius: 50%;
+            animation: searching-spin 1.5s linear infinite;
+        }
+
+        @keyframes searching-spin {
+            to { transform: translate(-50%, -50%) rotate(360deg); }
+        }
+
+        /* ===== OBSTACLE ALERT STYLES ===== */
+        .obstacle-alert {
+            position: absolute;
+            top: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: linear-gradient(135deg, #dc2626 0%, #f97316 100%);
+            color: white;
+            padding: 15px 25px;
+            border-radius: 12px;
+            display: flex;
+            align-items: flex-start;
+            gap: 15px;
+            max-width: 90%;
+            box-shadow: 0 4px 20px rgba(220, 38, 38, 0.5);
+            animation: obstacle-alert-pulse 0.5s ease-in-out;
+            z-index: 1100;
+        }
+
+        .obstacle-alert.obstacle-high {
+            background: linear-gradient(135deg, #dc2626 0%, #991b1b 100%);
+            border: 2px solid #fca5a5;
+        }
+
+        .obstacle-alert.obstacle-medium {
+            background: linear-gradient(135deg, #f97316 0%, #c2410c 100%);
+        }
+
+        .obstacle-alert.obstacle-low {
+            background: linear-gradient(135deg, #eab308 0%, #a16207 100%);
+        }
+
+        .obstacle-alert-icon {
+            font-size: 2.5rem;
+            flex-shrink: 0;
+        }
+
+        .obstacle-alert-content {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .obstacle-alert-text {
+            font-size: 1.2rem;
+            font-weight: bold;
+        }
+
+        .obstacle-alert-position {
+            font-size: 0.9rem;
+            opacity: 0.9;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .obstacle-alert-reason {
+            font-size: 0.85rem;
+            opacity: 0.8;
+            font-weight: normal;
+            font-style: italic;
+        }
+
+        .obstacle-alert.fade-out {
+            animation: obstacle-fade-out 0.3s ease-out forwards;
+        }
+
+        @keyframes obstacle-alert-pulse {
+            0% { transform: translateX(-50%) scale(0.9); opacity: 0; }
+            50% { transform: translateX(-50%) scale(1.05); }
+            100% { transform: translateX(-50%) scale(1); opacity: 1; }
+        }
+
+        @keyframes obstacle-fade-out {
+            to { transform: translateX(-50%) translateY(-20px); opacity: 0; }
+        }
+
+        /* ===== POST-NAVIGATION DIALOG ===== */
+        .post-nav-dialog {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.8);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 2000;
+            animation: fadeIn 0.3s ease;
+        }
+
+        .post-nav-content {
+            background: var(--panel-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 40px;
+            text-align: center;
+            max-width: 400px;
+            animation: slideUp 0.3s ease;
+        }
+
+        .post-nav-content h3 {
+            font-size: 1.8rem;
+            color: var(--accent-color);
+            margin-bottom: 15px;
+        }
+
+        .post-nav-content p {
+            color: var(--text-secondary);
+            margin-bottom: 30px;
+        }
+
+        .post-nav-buttons {
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+        }
+
+        .post-nav-btn-continue {
+            background: var(--success-color);
+            padding: 15px 30px;
+            font-size: 1.1rem;
+        }
+
+        .post-nav-btn-continue:hover {
+            background: #059669;
+        }
+
+        .post-nav-btn-pause {
+            background: var(--text-secondary);
+            padding: 15px 30px;
+            font-size: 1.1rem;
+        }
+
+        .post-nav-btn-pause:hover {
+            background: #6b7280;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        @keyframes slideUp {
+            from { transform: translateY(20px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+    </style>
+</head>
+<body>
+    <!-- ===== NAVIGATION OVERLAY ===== -->
+    <div id="navigation-overlay" class="navigation-overlay">
+        <div class="nav-header">
+            <h2 id="nav-target-name">Navigating to: Object</h2>
+            <button class="nav-close-btn" onclick="stopNavigation()" aria-label="Close navigation">
+                <svg viewBox="0 0 24 24" fill="currentColor" width="24" height="24">
+                    <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
+                </svg>
+            </button>
+        </div>
+
+        <div class="nav-main-content">
+            <div class="nav-video-container" id="nav-video-container">
+                <img id="nav-video-feed" src="/video_feed" alt="Navigation view">
+
+                <!-- AR Navigation Canvas for path drawing -->
+                <canvas id="ar-nav-canvas" class="ar-nav-canvas"></canvas>
+
+                <!-- AR Chevron Arrows (like Apple Maps) -->
+                <div class="ar-chevron-container" id="ar-chevron-container">
+                    <span class="ar-chevron">›</span>
+                    <span class="ar-chevron">›</span>
+                    <span class="ar-chevron">›</span>
+                </div>
+
+                <!-- AR Navigation Status Badge -->
+                <div class="ar-nav-status" id="ar-nav-status" style="display: none;">
+                    <div class="ar-nav-status-dot"></div>
+                    <span id="ar-nav-status-text">Real View Navigation</span>
+                </div>
+
+                <!-- AR Navigation Info Panel -->
+                <div class="ar-nav-info" id="ar-nav-info" style="display: none;">
+                    <div class="ar-nav-direction">
+                        <span class="ar-nav-direction-arrow" id="ar-direction-arrow">↑</span>
+                        <span class="ar-nav-direction-text" id="ar-direction-text">Ahead</span>
+                    </div>
+                    <div class="ar-nav-distance" id="ar-distance-display">~2m</div>
+                    <div class="ar-nav-target">
+                        <span class="ar-nav-target-icon">🎯</span>
+                        <span id="ar-target-name">Looking for object...</span>
+                    </div>
+                </div>
+
+                <!-- Searching Animation (when target not visible) -->
+                <div class="ar-searching-overlay" id="ar-searching-overlay" style="display: none;">
+                    <div class="ar-searching-ring"></div>
+                </div>
+
+                <!-- Legacy elements (hidden, kept for compatibility) -->
+                <div class="nav-arrow-container" id="nav-arrow-container" style="display: none;">
+                    <div class="nav-arrow" id="nav-arrow">→</div>
+                </div>
+                <div class="nav-distance-ring" id="nav-distance-ring" style="display: none;"></div>
+            </div>
+
+            <div class="nav-guidance-panel">
+                <div class="nav-direction" id="nav-direction">
+                    <span class="nav-direction-icon" id="nav-direction-icon">↑</span>
+                    <span class="nav-direction-text" id="nav-direction-text">Searching...</span>
+                </div>
+
+                <div class="nav-distance" id="nav-distance">
+                    <span class="nav-distance-label">Distance:</span>
+                    <span class="nav-distance-value" id="nav-distance-value">Unknown</span>
+                </div>
+
+                <div class="nav-guidance-text" id="nav-guidance-text">
+                    Looking for object...
+                </div>
+
+                <div class="nav-context" id="nav-context">
+                    <span class="nav-context-label">Scene:</span>
+                    <span class="nav-context-value" id="nav-context-value">Analyzing...</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="nav-controls">
+            <button class="nav-control-btn" onclick="toggleNavTTS()" id="nav-tts-btn" title="Toggle voice guidance">
+                <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20">
+                    <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>
+                </svg>
+                <span>Voice On</span>
+            </button>
+            <button class="nav-control-btn" onclick="reanalyzeScene()" title="Analyze scene for obstacles">
+                <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20">
+                    <path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/>
+                </svg>
+                <span>Scan Area</span>
+            </button>
+            <button class="nav-control-btn nav-stop-btn" onclick="stopNavigation()">
+                <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20">
+                    <path d="M6 6h12v12H6z"/>
+                </svg>
+                <span>Stop</span>
+            </button>
+        </div>
+
+        <div class="nav-memory-hint" id="nav-memory-hint" style="display: none;">
+            <span class="nav-memory-icon">📍</span>
+            <span class="nav-memory-text" id="nav-memory-text"></span>
+        </div>
+    </div>
+
+    <header class="header">
+        <h1>SAM3 Command Center</h1>
+        <div class="status-bar">
+            <div class="status-item">
+                <span>FPS:</span>
+                <span class="status-value" id="fps">0</span>
+            </div>
+            <div class="status-item">
+                <span>Device:</span>
+                <span class="status-value" id="device">-</span>
+            </div>
+            <div class="status-item">
+                <span>Objects:</span>
+                <span class="status-value" id="object-count">0</span>
+            </div>
+            <div class="status-item">
+                <span>Tracked:</span>
+                <span class="status-value" id="tracked-count">0</span>
+            </div>
+            <div class="status-item">
+                <span>Status:</span>
+                <span class="status-value" id="status">Running</span>
+            </div>
+        </div>
+    </header>
+
+    <main class="main-container">
+        <!-- Left Panel - Video and Controls -->
+        <div class="panel video-panel">
+            <div class="panel-header">
+                <span>Live Feed</span>
+                <div class="btn-group">
+                    <button class="btn btn-sm btn-secondary" onclick="togglePause()" id="pause-btn">Pause</button>
+                    <button class="btn btn-sm btn-danger" onclick="resetDetection()">Reset</button>
+                </div>
+            </div>
+            <div class="left-panel-content">
+                <div class="video-container" style="position: relative;">
+                    <img id="video-feed" src="/video_feed" alt="Live camera feed">
+                    <canvas id="draw-canvas" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; display: none;"></canvas>
+                    <div id="draw-overlay-hint" style="position: absolute; top: 10px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.7); color: #fff; padding: 8px 16px; border-radius: 6px; font-size: 0.85rem; display: none;"></div>
+                </div>
+
+                <!-- Tabs for Controls, Camera, Voice, and Features -->
+                <div class="tabs" style="margin-top: 15px;">
+                    <div class="tab active" onclick="switchTab('controls')">Controls</div>
+                    <div class="tab" onclick="switchTab('camera')">Camera</div>
+                    <div class="tab" onclick="switchTab('voice')">Voice Search</div>
+                    <div class="tab" onclick="switchTab('reference')">Reference Search</div>
+                    <div class="tab" onclick="switchTab('features')">Features</div>
+                </div>
+
+                <!-- Controls Tab -->
+                <div id="tab-controls" class="tab-content active">
+                    <div class="controls-grid">
+                        <div class="control-group full-width">
+                            <label>Detection Prompts (comma-separated) - or use Voice Search tab</label>
+                            <div class="voice-input-container">
+                                <input type="text" id="prompts-input" value="{{ prompts | join(', ') }}"
+                                       placeholder="person, car, dog...">
+                                <button class="mic-btn" id="quick-mic-btn" onclick="startVoiceSearch()" title="Voice Search">
+                                    <svg viewBox="0 0 24 24" fill="currentColor">
+                                        <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
+                                        <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
+                                    </svg>
+                                </button>
+                            </div>
+                            <div class="voice-status" id="quick-voice-status"></div>
+                            <button class="btn" style="margin-top: 8px; width: 100%;" onclick="setPrompts()">Apply Prompts</button>
+                        </div>
+
+                        <div class="control-group">
+                            <label>Confidence Threshold</label>
+                            <input type="number" id="threshold-input" value="{{ threshold }}"
+                                   min="0" max="1" step="0.05">
+                            <button class="btn btn-sm btn-secondary" style="margin-top: 6px;" onclick="setThreshold()">Set</button>
+                        </div>
+
+                        <div class="control-group">
+                            <label>Skip Frames</label>
+                            <input type="number" id="skip-frames-input" value="{{ skip_frames }}"
+                                   min="1" max="30">
+                            <button class="btn btn-sm btn-secondary" style="margin-top: 6px;" onclick="setSkipFrames()">Set</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Camera Tab -->
+                <div id="tab-camera" class="tab-content">
+                    <div class="feature-section">
+                        <div class="feature-section-title">Camera Selection</div>
+                        <div class="camera-controls">
+                            <div class="camera-select-container">
+                                <select id="camera-select" class="camera-select" onchange="switchCamera(this.value)">
+                                    <option value="">Loading cameras...</option>
+                                </select>
+                                <button class="refresh-btn" onclick="refreshCameras()" title="Refresh camera list">
+                                    <svg viewBox="0 0 24 24" fill="currentColor">
+                                        <path d="M17.65 6.35A7.958 7.958 0 0012 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08A5.99 5.99 0 0112 18c-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/>
+                                    </svg>
+                                </button>
+                            </div>
+                            <div class="camera-info" id="camera-info">Select a camera</div>
+                        </div>
+                    </div>
+
+                    <div class="feature-section">
+                        <div class="feature-section-title">Flip / Mirror</div>
+                        <p style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 12px;">
+                            Flip the camera feed if the image appears reversed
+                        </p>
+                        <div class="flip-controls">
+                            <button class="flip-btn" id="flip-h-btn" onclick="toggleFlip('horizontal')">
+                                <svg viewBox="0 0 24 24" fill="currentColor">
+                                    <path d="M15 21h2v-2h-2v2zm4-12h2V7h-2v2zM3 5v14c0 1.1.9 2 2 2h4v-2H5V5h4V3H5c-1.1 0-2 .9-2 2zm16-2v2h2c0-1.1-.9-2-2-2zm-8 20h2V1h-2v22zm8-6h2v-2h-2v2zM15 5h2V3h-2v2zm4 8h2v-2h-2v2zm0 8c1.1 0 2-.9 2-2h-2v2z"/>
+                                </svg>
+                                Flip Horizontal
+                            </button>
+                            <button class="flip-btn" id="flip-v-btn" onclick="toggleFlip('vertical')">
+                                <svg viewBox="0 0 24 24" fill="currentColor" style="transform: rotate(90deg);">
+                                    <path d="M15 21h2v-2h-2v2zm4-12h2V7h-2v2zM3 5v14c0 1.1.9 2 2 2h4v-2H5V5h4V3H5c-1.1 0-2 .9-2 2zm16-2v2h2c0-1.1-.9-2-2-2zm-8 20h2V1h-2v22zm8-6h2v-2h-2v2zM15 5h2V3h-2v2zm4 8h2v-2h-2v2zm0 8c1.1 0 2-.9 2-2h-2v2z"/>
+                                </svg>
+                                Flip Vertical
+                            </button>
+                        </div>
+                        <div class="camera-info" id="flip-status" style="margin-top: 8px;">No flip applied</div>
+                    </div>
+
+                    <div class="feature-section">
+                        <div class="feature-section-title">Camera Tips</div>
+                        <ul style="font-size: 0.8rem; color: var(--text-secondary); padding-left: 20px; margin: 0;">
+                            <li>Use <strong>Flip Horizontal</strong> to mirror the image (for front-facing cameras)</li>
+                            <li>Changing cameras resets all tracked objects</li>
+                            <li>If a camera doesn't work, try refreshing the list</li>
+                            <li>External cameras may take a moment to initialize</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Voice Search Tab -->
+                <div id="tab-voice" class="tab-content">
+                    <div class="feature-section">
+                        <div class="feature-section-title">Voice-to-AI Search</div>
+                        <p style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 15px;">
+                            Click the microphone and say something like:<br>
+                            "Help me find a red car" or "Search for a person and a dog"
+                        </p>
+
+                        <div style="text-align: center; margin: 20px 0;">
+                            <button class="mic-btn" id="main-mic-btn" onclick="startVoiceSearch()" style="width: 80px; height: 80px;">
+                                <svg viewBox="0 0 24 24" fill="currentColor" style="width: 36px; height: 36px;">
+                                    <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
+                                    <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
+                                </svg>
+                            </button>
+                            <div class="voice-status" id="main-voice-status" style="text-align: center; margin-top: 10px;">
+                                Click microphone to start
+                            </div>
+                        </div>
+
+                        <div id="voice-feedback-container" style="display: none;">
+                            <div class="voice-feedback">
+                                <div class="query" id="voice-query-display"></div>
+                                <div class="parsed" id="voice-parsed-display"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="feature-section">
+                        <div class="feature-section-title">Text-to-Speech (TTS)</div>
+
+                        <div class="feature-toggle">
+                            <div class="feature-info">
+                                <span class="feature-name">Enable TTS Feedback</span>
+                                <span class="feature-desc">Speak search confirmations aloud</span>
+                            </div>
+                            <div class="toggle-switch active" id="toggle-tts" onclick="toggleTTS()"></div>
+                        </div>
+
+                        <div class="tts-controls">
+                            <label>Voice:</label>
+                            <select id="tts-voice-select" onchange="setTTSVoice(this.value)" style="
+                                flex: 1;
+                                background: var(--bg-dark);
+                                border: 1px solid var(--border-color);
+                                border-radius: 4px;
+                                padding: 6px 10px;
+                                color: var(--text-primary);
+                                font-size: 0.8rem;
+                            ">
+                                <option value="default">Default</option>
+                            </select>
+                            <button class="btn btn-sm btn-secondary" onclick="testTTS()">Test</button>
+                        </div>
+                    </div>
+
+                    <div class="feature-section">
+                        <div class="feature-section-title">Voice History</div>
+                        <div class="voice-history" id="voice-history-list">
+                            <div class="empty-state" style="padding: 15px;">No voice searches yet</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Reference Search Tab -->
+                <div id="tab-reference" class="tab-content">
+                    <div class="features-panel">
+                        <!-- Reference Image Upload -->
+                        <div class="feature-section">
+                            <div class="feature-section-title">Reference Image Search</div>
+                            <p style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 12px;">
+                                Upload an image of an object to find similar objects in the live feed
+                            </p>
+
+                            <div class="reference-upload-container">
+                                <input type="file" id="reference-file" accept="image/*" style="display: none;"
+                                       onchange="handleReferenceUpload(event)">
+
+                                <div class="reference-mode-selector" style="margin-bottom: 12px;">
+                                    <label style="display: flex; align-items: center; margin-bottom: 8px; cursor: pointer;">
+                                        <input type="radio" name="ref-mode" value="description" checked style="margin-right: 8px;">
+                                        <span><strong>Search by Description</strong> - Claude describes the image, SAM3 finds it</span>
+                                    </label>
+                                    <label style="display: flex; align-items: center; cursor: pointer;">
+                                        <input type="radio" name="ref-mode" value="visual" style="margin-right: 8px;">
+                                        <span><strong>Search by Visual Match</strong> - CLIP finds visually similar objects</span>
+                                    </label>
+                                </div>
+
+                                <div style="display: flex; gap: 10px;">
+                                    <button class="btn" onclick="document.getElementById('reference-file').click()">
+                                        Upload Reference Image
+                                    </button>
+                                    <button class="btn btn-secondary" onclick="clearReference()">
+                                        Clear
+                                    </button>
+                                </div>
+
+                                <div id="reference-status" style="margin-top: 12px; padding: 10px; background: var(--bg-primary); border-radius: 6px; display: none;">
+                                    <div id="reference-description" style="font-size: 0.85rem;"></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Draw to Search -->
+                        <div class="feature-section">
+                            <div class="feature-section-title">Draw to Search</div>
+                            <p style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 12px;">
+                                Draw a box around an object in the video to select it
+                            </p>
+
+                            <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                                <button class="btn" id="draw-box-btn" onclick="toggleDrawMode('box')">
+                                    Draw Box
+                                </button>
+                                <button class="btn btn-secondary" id="draw-point-btn" onclick="toggleDrawMode('point')">
+                                    Click Point
+                                </button>
+                                <button class="btn btn-secondary" onclick="clearDrawMode()">
+                                    Cancel
+                                </button>
+                            </div>
+
+                            <div id="draw-status" style="margin-top: 10px; font-size: 0.85rem; color: var(--text-secondary);">
+                                Click a button above, then draw on the video
+                            </div>
+                        </div>
+
+                        <!-- Visual Match Settings -->
+                        <div class="feature-section">
+                            <div class="feature-section-title">Visual Match Settings</div>
+
+                            <div class="control-group" style="margin-bottom: 0;">
+                                <label>Similarity Threshold</label>
+                                <input type="range" id="clip-threshold" min="0.5" max="0.95" step="0.05" value="0.75"
+                                       style="width: 100%;" oninput="updateClipThreshold(this.value)">
+                                <div style="display: flex; justify-content: space-between; font-size: 0.75rem; color: var(--text-secondary);">
+                                    <span>Loose (0.5)</span>
+                                    <span id="clip-threshold-value">0.75</span>
+                                    <span>Strict (0.95)</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Features Tab -->
+                <div id="tab-features" class="tab-content">
+                    <div class="features-panel">
+                        <!-- Tracking Features -->
+                        <div class="feature-section">
+                            <div class="feature-section-title">Tracking</div>
+
+                            <div class="feature-toggle">
+                                <div class="feature-info">
+                                    <span class="feature-name">Optical Flow Tracking</span>
+                                    <span class="feature-desc">Track masks between keyframes</span>
+                                </div>
+                                <div class="toggle-switch" id="toggle-tracking" onclick="toggleFeature('tracking')"></div>
+                            </div>
+
+                            <div class="feature-toggle">
+                                <div class="feature-info">
+                                    <span class="feature-name">Memory Tracking</span>
+                                    <span class="feature-desc">Store mask history for re-identification</span>
+                                </div>
+                                <div class="toggle-switch" id="toggle-memory_tracking" onclick="toggleFeature('memory_tracking')"></div>
+                            </div>
+                            <div class="feature-param">
+                                <label>Max frames:</label>
+                                <input type="number" id="param-memory_max_frames" value="10" min="1" max="50"
+                                       onchange="setFeatureParam('memory_max_frames', this.value)">
+                            </div>
+
+                            <div class="feature-toggle">
+                                <div class="feature-info">
+                                    <span class="feature-name">Persistent Object IDs</span>
+                                    <span class="feature-desc">Assign stable IDs to tracked objects</span>
+                                </div>
+                                <div class="toggle-switch" id="toggle-persistent_ids" onclick="toggleFeature('persistent_ids')"></div>
+                            </div>
+                            <div class="feature-param">
+                                <label>IoU threshold:</label>
+                                <input type="number" id="param-iou_threshold" value="0.3" min="0.1" max="0.9" step="0.1"
+                                       onchange="setFeatureParam('iou_threshold', this.value)">
+                            </div>
+                        </div>
+
+                        <!-- Mask Refinement -->
+                        <div class="feature-section">
+                            <div class="feature-section-title">Mask Refinement</div>
+
+                            <div class="feature-toggle">
+                                <div class="feature-info">
+                                    <span class="feature-name">Fill Holes</span>
+                                    <span class="feature-desc">Fill small gaps in masks</span>
+                                </div>
+                                <div class="toggle-switch" id="toggle-fill_holes" onclick="toggleFeature('fill_holes')"></div>
+                            </div>
+                            <div class="feature-param">
+                                <label>Max hole area (px):</label>
+                                <input type="number" id="param-fill_hole_area" value="100" min="10" max="1000"
+                                       onchange="setFeatureParam('fill_hole_area', this.value)">
+                            </div>
+
+                            <div class="feature-toggle">
+                                <div class="feature-info">
+                                    <span class="feature-name">Smooth Edges</span>
+                                    <span class="feature-desc">Morphological smoothing of mask edges</span>
+                                </div>
+                                <div class="toggle-switch" id="toggle-smooth_edges" onclick="toggleFeature('smooth_edges')"></div>
+                            </div>
+                            <div class="feature-param">
+                                <label>Kernel size:</label>
+                                <input type="number" id="param-smooth_kernel_size" value="5" min="3" max="15" step="2"
+                                       onchange="setFeatureParam('smooth_kernel_size', this.value)">
+                            </div>
+
+                            <div class="feature-toggle">
+                                <div class="feature-info">
+                                    <span class="feature-name">Non-Overlapping Masks</span>
+                                    <span class="feature-desc">Prevent mask overlaps (higher conf wins)</span>
+                                </div>
+                                <div class="toggle-switch" id="toggle-non_overlap" onclick="toggleFeature('non_overlap')"></div>
+                            </div>
+                        </div>
+
+                        <!-- Detection Controls -->
+                        <div class="feature-section">
+                            <div class="feature-section-title">Detection Controls</div>
+
+                            <div class="feature-toggle">
+                                <div class="feature-info">
+                                    <span class="feature-name">Boundary Suppression</span>
+                                    <span class="feature-desc">Ignore detections near frame edges</span>
+                                </div>
+                                <div class="toggle-switch" id="toggle-boundary_suppression" onclick="toggleFeature('boundary_suppression')"></div>
+                            </div>
+                            <div class="feature-param">
+                                <label>Margin (px):</label>
+                                <input type="number" id="param-boundary_margin" value="10" min="5" max="100"
+                                       onchange="setFeatureParam('boundary_margin', this.value)">
+                            </div>
+
+                            <div class="feature-toggle">
+                                <div class="feature-info">
+                                    <span class="feature-name">Occlusion Suppression</span>
+                                    <span class="feature-desc">Remove heavily overlapped detections</span>
+                                </div>
+                                <div class="toggle-switch" id="toggle-occlusion_suppression" onclick="toggleFeature('occlusion_suppression')"></div>
+                            </div>
+                            <div class="feature-param">
+                                <label>Overlap threshold:</label>
+                                <input type="number" id="param-occlusion_threshold" value="0.5" min="0.1" max="0.9" step="0.1"
+                                       onchange="setFeatureParam('occlusion_threshold', this.value)">
+                            </div>
+
+                            <div class="feature-toggle">
+                                <div class="feature-info">
+                                    <span class="feature-name">Hotstart Mode</span>
+                                    <span class="feature-desc">Require N frames before confirming detection</span>
+                                </div>
+                                <div class="toggle-switch" id="toggle-hotstart" onclick="toggleFeature('hotstart')"></div>
+                            </div>
+                            <div class="feature-param">
+                                <label>Frames required:</label>
+                                <input type="number" id="param-hotstart_frames" value="5" min="2" max="30"
+                                       onchange="setFeatureParam('hotstart_frames', this.value)">
+                            </div>
+                        </div>
+
+                        <!-- YOLO Integration -->
+                        <div class="feature-section">
+                            <div class="feature-section-title">YOLO Integration (v12)</div>
+
+                            <div class="feature-toggle">
+                                <div class="feature-info">
+                                    <span class="feature-name">YOLO Classification</span>
+                                    <span class="feature-desc">Run YOLOv12 classification on detected regions</span>
+                                </div>
+                                <div class="toggle-switch" id="toggle-yolo_classify" onclick="toggleFeature('yolo_classify')"></div>
+                            </div>
+                            <div class="feature-param">
+                                <label>Confidence threshold:</label>
+                                <input type="number" id="param-yolo_classify_threshold" value="0.3" min="0.1" max="0.9" step="0.1"
+                                       onchange="setFeatureParam('yolo_classify_threshold', this.value)">
+                            </div>
+                            <div class="feature-param">
+                                <label>Run every N frames:</label>
+                                <input type="number" id="param-yolo_classify_every_n" value="1" min="1" max="10"
+                                       onchange="setFeatureParam('yolo_classify_every_n', this.value)">
+                            </div>
+
+                            <div class="feature-toggle">
+                                <div class="feature-info">
+                                    <span class="feature-name">YOLO Pose Estimation</span>
+                                    <span class="feature-desc">Detect body keypoints for person-like objects</span>
+                                </div>
+                                <div class="toggle-switch" id="toggle-yolo_pose" onclick="toggleFeature('yolo_pose')"></div>
+                            </div>
+                            <div class="feature-param">
+                                <label>Pose threshold:</label>
+                                <input type="number" id="param-yolo_pose_threshold" value="0.5" min="0.1" max="0.9" step="0.1"
+                                       onchange="setFeatureParam('yolo_pose_threshold', this.value)">
+                            </div>
+
+                            <div class="feature-toggle">
+                                <div class="feature-info">
+                                    <span class="feature-name">Show Skeleton</span>
+                                    <span class="feature-desc">Draw skeleton lines connecting keypoints</span>
+                                </div>
+                                <div class="toggle-switch" id="toggle-show_skeleton" onclick="toggleFeature('show_skeleton')"></div>
+                            </div>
+                            <div class="feature-param">
+                                <label>Line thickness:</label>
+                                <input type="number" id="param-skeleton_thickness" value="2" min="1" max="5"
+                                       onchange="setFeatureParam('skeleton_thickness', this.value)">
+                            </div>
+
+                            <div class="feature-toggle">
+                                <div class="feature-info">
+                                    <span class="feature-name">Show Keypoint Labels</span>
+                                    <span class="feature-desc">Display names for each detected keypoint</span>
+                                </div>
+                                <div class="toggle-switch" id="toggle-show_keypoint_labels" onclick="toggleFeature('show_keypoint_labels')"></div>
+                            </div>
+                            <div class="feature-param">
+                                <label>Keypoint radius:</label>
+                                <input type="number" id="param-keypoint_radius" value="4" min="2" max="10"
+                                       onchange="setFeatureParam('keypoint_radius', this.value)">
+                            </div>
+
+                            <div class="feature-toggle">
+                                <div class="feature-info">
+                                    <span class="feature-name">Label Spoofing</span>
+                                    <span class="feature-desc">Map SAM3 labels to COCO classes for YOLO</span>
+                                </div>
+                                <div class="toggle-switch" id="toggle-label_spoofing" onclick="toggleFeature('label_spoofing')"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Right Sidebar -->
+        <div class="sidebar">
+            <!-- Detections Panel -->
+            <div class="panel" style="flex: 2;">
+                <div class="panel-header">
+                    <span>Detected Objects</span>
+                    <span id="detection-count">0</span>
+                </div>
+                <div class="panel-content" id="detections-list">
+                    <div class="empty-state">Waiting for detections...</div>
+                </div>
+            </div>
+
+            <!-- Analysis Panel -->
+            <div class="panel" style="flex: 2;">
+                <div class="panel-header">
+                    <span>Claude Analysis</span>
+                    <button class="btn btn-sm" onclick="describeScene()" style="margin-left: 10px;">
+                        Describe Scene
+                    </button>
+                    <span id="analysis-status"></span>
+                </div>
+                <div class="panel-content" id="analysis-list">
+                    <div class="empty-state">Click "Analyze" on an object or "Describe Scene"</div>
+                </div>
+            </div>
+
+            <!-- Logs Panel -->
+            <div class="panel" style="flex: 1; min-height: 150px;">
+                <div class="panel-header">
+                    <span>System Log</span>
+                    <button class="btn btn-sm btn-secondary" onclick="clearLogs()">Clear</button>
+                </div>
+                <div class="panel-content" id="log-list"></div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        let features = {{ features | tojson }};
+
+        // Tab switching
+        function switchTab(tabName) {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+            event.target.classList.add('active');
+            document.getElementById('tab-' + tabName).classList.add('active');
+        }
+
+        // Update toggle states from features object
+        function updateToggles() {
+            for (const [feature, enabled] of Object.entries(features)) {
+                const toggle = document.getElementById('toggle-' + feature);
+                if (toggle) {
+                    toggle.classList.toggle('active', enabled);
+                }
+            }
+        }
+
+        // Toggle a feature
+        async function toggleFeature(feature) {
+            const response = await fetch('/api/toggle_feature', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ feature })
+            });
+            const data = await response.json();
+            if (data.success) {
+                features[feature] = data.enabled;
+                updateToggles();
+            }
+        }
+
+        // Set a feature parameter
+        async function setFeatureParam(param, value) {
+            await fetch('/api/set_feature_param', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ param, value })
+            });
+        }
+
+        // Update status
+        async function updateStatus() {
+            try {
+                const response = await fetch('/api/status');
+                const data = await response.json();
+
+                document.getElementById('fps').textContent = data.fps;
+                document.getElementById('device').textContent = data.device;
+                document.getElementById('object-count').textContent = data.detections.length;
+                document.getElementById('tracked-count').textContent = data.tracked_objects_count || 0;
+                document.getElementById('status').textContent = data.paused ? 'Paused' : 'Running';
+                document.getElementById('pause-btn').textContent = data.paused ? 'Resume' : 'Pause';
+
+                document.getElementById('analysis-status').innerHTML = data.analyzing
+                    ? '<span class="loading-spinner"></span>' : '';
+
+                features = data.features;
+                updateToggles();
+
+                updateDetections(data.detections, data.hidden_counts);
+
+            } catch (e) {
+                console.error('Status update failed:', e);
+            }
+        }
+
+        function updateDetections(detections, hiddenCounts) {
+            const container = document.getElementById('detections-list');
+            document.getElementById('detection-count').textContent = detections.length;
+
+            if (detections.length === 0) {
+                container.innerHTML = '<div class="empty-state">No objects detected</div>';
+                return;
+            }
+
+            let html = '';
+            detections.forEach((det, index) => {
+                const conf = (det.confidence * 100).toFixed(0);
+                const confClass = conf >= 70 ? 'conf-high' : conf >= 40 ? 'conf-medium' : 'conf-low';
+                const persistentId = det.persistent_id ? `<span class="detection-id">#${det.persistent_id}</span>` : '';
+
+                html += `
+                    <div class="detection-item">
+                        <div class="detection-header">
+                            <span class="detection-label">${det.label}${persistentId}</span>
+                            <span class="detection-confidence ${confClass}">${conf}%</span>
+                        </div>
+                        <div class="detection-info">
+                            ID: ${det.id} | Box: ${det.box ? det.box.map(v => v.toFixed(0)).join(', ') : 'N/A'}
+                        </div>
+                        <div class="detection-actions">
+                            <button class="btn btn-sm" onclick="analyzeObject(${det.id}, ${JSON.stringify(det.box)}, ${index})">
+                                Analyze
+                            </button>
+                            <button class="btn btn-sm detection-nav-btn" onclick="startNavigation('${det.label}', ${det.id}, ${JSON.stringify(det.box)})">
+                                Navigate
+                            </button>
+                        </div>
+                    </div>
+                `;
+            });
+
+            container.innerHTML = html;
+        }
+
+        async function updateLogs() {
+            try {
+                const response = await fetch('/api/logs');
+                const data = await response.json();
+
+                const container = document.getElementById('log-list');
+                let html = '';
+
+                data.logs.slice(-20).reverse().forEach(log => {
+                    html += `
+                        <div class="log-entry">
+                            <span class="log-timestamp">${log.timestamp}</span>
+                            <span class="log-level ${log.level}">${log.level}</span>
+                            <span class="log-message">${log.message}</span>
+                        </div>
+                    `;
+                });
+
+                container.innerHTML = html || '<div class="empty-state">No logs yet</div>';
+            } catch (e) {
+                console.error('Logs update failed:', e);
+            }
+        }
+
+        async function updateAnalysis() {
+            try {
+                const response = await fetch('/api/analysis_results');
+                const data = await response.json();
+
+                const container = document.getElementById('analysis-list');
+
+                if (data.results.length === 0) {
+                    container.innerHTML = '<div class="empty-state">Click "Analyze" on an object</div>';
+                    return;
+                }
+
+                let html = '';
+                data.results.slice().reverse().forEach(result => {
+                    html += `
+                        <div class="analysis-item">
+                            <div class="analysis-header">
+                                <span>Object #${result.id}</span>
+                                <span>${result.timestamp}</span>
+                            </div>
+                            <div class="analysis-text">${result.result}</div>
+                        </div>
+                    `;
+                });
+
+                container.innerHTML = html;
+            } catch (e) {
+                console.error('Analysis update failed:', e);
+            }
+        }
+
+        async function setPrompts() {
+            const prompts = document.getElementById('prompts-input').value;
+            await fetch('/api/set_prompts', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ prompts })
+            });
+        }
+
+        async function setThreshold() {
+            const threshold = parseFloat(document.getElementById('threshold-input').value);
+            await fetch('/api/set_threshold', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ threshold })
+            });
+        }
+
+        async function setSkipFrames() {
+            const skipFrames = parseInt(document.getElementById('skip-frames-input').value);
+            await fetch('/api/set_skip_frames', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ skip_frames: skipFrames })
+            });
+        }
+
+        async function togglePause() {
+            await fetch('/api/toggle_pause', { method: 'POST' });
+        }
+
+        async function resetDetection() {
+            await fetch('/api/reset', { method: 'POST' });
+        }
+
+        async function analyzeObject(detectionId, box, maskIndex) {
+            await fetch('/api/analyze_object', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ detection_id: detectionId, box, mask_index: maskIndex })
+            });
+        }
+
+        async function describeScene() {
+            const statusEl = document.getElementById('analysis-status');
+            statusEl.textContent = 'Analyzing scene...';
+            statusEl.style.color = '#f0f0f0';
+
+            try {
+                const response = await fetch('/api/describe_scene', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    statusEl.textContent = 'Scene analyzed!';
+                    statusEl.style.color = '#00ff00';
+                    // TTS feedback
+                    if (ttsEnabled && data.description) {
+                        speak(data.description);
+                    }
+                } else {
+                    statusEl.textContent = 'Error: ' + (data.error || 'Unknown');
+                    statusEl.style.color = '#ff4444';
+                }
+
+                // Clear status after 3 seconds
+                setTimeout(() => { statusEl.textContent = ''; }, 3000);
+
+                // Refresh analysis results
+                await updateAnalysis();
+            } catch (e) {
+                statusEl.textContent = 'Error: ' + e.message;
+                statusEl.style.color = '#ff4444';
+            }
+        }
+
+        function clearLogs() {
+            document.getElementById('log-list').innerHTML = '';
+        }
+
+        // ===== VOICE SEARCH FUNCTIONALITY =====
+
+        let recognition = null;
+        let isListening = false;
+        let ttsEnabled = true;
+        let selectedVoice = null;
+        let voiceHistory = [];
+
+        // Initialize Speech Recognition
+        function initSpeechRecognition() {
+            if ('webkitSpeechRecognition' in window) {
+                recognition = new webkitSpeechRecognition();
+            } else if ('SpeechRecognition' in window) {
+                recognition = new SpeechRecognition();
+            } else {
+                console.warn('Speech recognition not supported');
+                document.querySelectorAll('.mic-btn').forEach(btn => {
+                    btn.style.display = 'none';
+                });
+                return;
+            }
+
+            recognition.continuous = false;
+            recognition.interimResults = true;
+            recognition.lang = 'en-US';
+
+            recognition.onstart = function() {
+                isListening = true;
+                updateMicButtons('listening');
+                updateVoiceStatus('Listening... speak now', 'listening');
+            };
+
+            recognition.onresult = function(event) {
+                let interimTranscript = '';
+                let finalTranscript = '';
+
+                for (let i = event.resultIndex; i < event.results.length; i++) {
+                    const transcript = event.results[i][0].transcript;
+                    if (event.results[i].isFinal) {
+                        finalTranscript += transcript;
+                    } else {
+                        interimTranscript += transcript;
+                    }
+                }
+
+                if (interimTranscript) {
+                    updateVoiceStatus(`Hearing: "${interimTranscript}"`, 'listening');
+                }
+
+                if (finalTranscript) {
+                    processVoiceQuery(finalTranscript);
+                }
+            };
+
+            recognition.onerror = function(event) {
+                isListening = false;
+                updateMicButtons('idle');
+
+                let errorMsg = 'Voice recognition error';
+                if (event.error === 'no-speech') {
+                    errorMsg = 'No speech detected. Try again.';
+                } else if (event.error === 'audio-capture') {
+                    errorMsg = 'No microphone found.';
+                } else if (event.error === 'not-allowed') {
+                    errorMsg = 'Microphone access denied.';
+                }
+                updateVoiceStatus(errorMsg, 'error');
+            };
+
+            recognition.onend = function() {
+                isListening = false;
+                updateMicButtons('idle');
+            };
+        }
+
+        function updateMicButtons(state) {
+            const buttons = document.querySelectorAll('.mic-btn');
+            buttons.forEach(btn => {
+                btn.classList.remove('listening', 'processing');
+                if (state === 'listening') {
+                    btn.classList.add('listening');
+                } else if (state === 'processing') {
+                    btn.classList.add('processing');
+                }
+            });
+        }
+
+        function updateVoiceStatus(message, type = '') {
+            const statusElements = ['quick-voice-status', 'main-voice-status'];
+            statusElements.forEach(id => {
+                const el = document.getElementById(id);
+                if (el) {
+                    el.textContent = message;
+                    el.className = 'voice-status';
+                    if (type) el.classList.add(type);
+                }
+            });
+        }
+
+        function startVoiceSearch() {
+            if (!recognition) {
+                updateVoiceStatus('Speech recognition not supported in this browser', 'error');
+                return;
+            }
+
+            if (isListening) {
+                recognition.stop();
+                return;
+            }
+
+            try {
+                recognition.start();
+            } catch (e) {
+                console.error('Recognition start error:', e);
+                updateVoiceStatus('Error starting voice recognition', 'error');
+            }
+        }
+
+        async function processVoiceQuery(text) {
+            updateMicButtons('processing');
+            updateVoiceStatus(`Processing: "${text}"`, '');
+
+            try {
+                const response = await fetch('/api/voice_search', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    // Handle different action types
+                    if (data.action === 'describe_scene') {
+                        // Trigger scene description
+                        updateVoiceStatus(data.feedback, 'success');
+                        if (ttsEnabled) {
+                            speak(data.feedback);
+                        }
+                        // Call the describe scene function
+                        await describeScene();
+                    } else if (data.action === 'describe_object') {
+                        // Trigger object description
+                        updateVoiceStatus(data.feedback, 'success');
+                        if (ttsEnabled) {
+                            speak(data.feedback);
+                        }
+                        // Analyze the specified object
+                        const det = data.detection;
+                        if (det) {
+                            await analyzeObject(det.id, det.box, data.mask_index);
+                        }
+                    } else {
+                        // Regular search action
+                        // Update prompts input
+                        document.getElementById('prompts-input').value = data.prompt_string;
+
+                        // Show feedback
+                        showVoiceFeedback(text, data.prompts, data.feedback);
+                        updateVoiceStatus(data.feedback, 'success');
+
+                        // Add to history
+                        addToVoiceHistory(text, data.prompts);
+
+                        // TTS feedback
+                        if (ttsEnabled) {
+                            speak(data.tts_message || data.feedback);
+                        }
+                    }
+                } else {
+                    updateVoiceStatus(data.error || 'Failed to process voice command', 'error');
+                    if (ttsEnabled) {
+                        speak('Sorry, I could not understand that command.');
+                    }
+                }
+            } catch (e) {
+                console.error('Voice search error:', e);
+                updateVoiceStatus('Error processing voice command', 'error');
+            }
+
+            updateMicButtons('idle');
+        }
+
+        function showVoiceFeedback(query, prompts, feedback) {
+            const container = document.getElementById('voice-feedback-container');
+            const queryEl = document.getElementById('voice-query-display');
+            const parsedEl = document.getElementById('voice-parsed-display');
+
+            if (container && queryEl && parsedEl) {
+                queryEl.textContent = `"${query}"`;
+                parsedEl.textContent = feedback;
+                container.style.display = 'block';
+            }
+        }
+
+        function addToVoiceHistory(query, prompts) {
+            voiceHistory.unshift({
+                query,
+                prompts,
+                timestamp: new Date().toLocaleTimeString()
+            });
+
+            // Keep only last 10
+            if (voiceHistory.length > 10) {
+                voiceHistory.pop();
+            }
+
+            updateVoiceHistoryDisplay();
+        }
+
+        function updateVoiceHistoryDisplay() {
+            const container = document.getElementById('voice-history-list');
+            if (!container) return;
+
+            if (voiceHistory.length === 0) {
+                container.innerHTML = '<div class="empty-state" style="padding: 15px;">No voice searches yet</div>';
+                return;
+            }
+
+            let html = '';
+            voiceHistory.forEach((item, index) => {
+                html += `
+                    <div class="voice-history-item" onclick="replayVoiceSearch(${index})">
+                        <div>${item.prompts.join(', ')}</div>
+                        <div class="timestamp">${item.timestamp} - "${item.query}"</div>
+                    </div>
+                `;
+            });
+
+            container.innerHTML = html;
+        }
+
+        function replayVoiceSearch(index) {
+            if (index < voiceHistory.length) {
+                const item = voiceHistory[index];
+                const promptString = item.prompts.join(', ');
+                document.getElementById('prompts-input').value = promptString;
+                setPrompts();
+                updateVoiceStatus(`Reapplied: ${promptString}`, 'success');
+            }
+        }
+
+        // ===== TTS FUNCTIONALITY =====
+
+        function initTTS() {
+            if (!('speechSynthesis' in window)) {
+                console.warn('TTS not supported');
+                return;
+            }
+
+            // Load available voices
+            function loadVoices() {
+                const voices = speechSynthesis.getVoices();
+                const select = document.getElementById('tts-voice-select');
+
+                if (select && voices.length > 0) {
+                    select.innerHTML = '<option value="default">Default</option>';
+
+                    voices.forEach((voice, index) => {
+                        const option = document.createElement('option');
+                        option.value = index;
+                        option.textContent = `${voice.name} (${voice.lang})`;
+                        select.appendChild(option);
+                    });
+                }
+            }
+
+            // Voices are loaded asynchronously
+            speechSynthesis.onvoiceschanged = loadVoices;
+            loadVoices();
+        }
+
+        function speak(text) {
+            if (!('speechSynthesis' in window) || !ttsEnabled) return;
+
+            // Cancel any ongoing speech
+            speechSynthesis.cancel();
+
+            const utterance = new SpeechSynthesisUtterance(text);
+
+            if (selectedVoice !== null && selectedVoice !== 'default') {
+                const voices = speechSynthesis.getVoices();
+                const voiceIndex = parseInt(selectedVoice);
+                if (voiceIndex < voices.length) {
+                    utterance.voice = voices[voiceIndex];
+                }
+            }
+
+            utterance.rate = 1.0;
+            utterance.pitch = 1.0;
+
+            speechSynthesis.speak(utterance);
+        }
+
+        function toggleTTS() {
+            ttsEnabled = !ttsEnabled;
+            const toggle = document.getElementById('toggle-tts');
+            if (toggle) {
+                toggle.classList.toggle('active', ttsEnabled);
+            }
+        }
+
+        function setTTSVoice(value) {
+            selectedVoice = value;
+        }
+
+        function testTTS() {
+            speak('Voice search is ready. Say something like: help me find a red car.');
+        }
+
+        // ===== CAMERA CONTROLS =====
+
+        let availableCameras = [];
+        let currentCameraId = 0;
+        let flipHorizontal = false;
+        let flipVertical = false;
+
+        async function loadCameras() {
+            try {
+                const response = await fetch('/api/cameras');
+                const data = await response.json();
+
+                availableCameras = data.cameras;
+                currentCameraId = data.current_camera;
+                flipHorizontal = data.flip_horizontal;
+                flipVertical = data.flip_vertical;
+
+                updateCameraSelect();
+                updateFlipButtons();
+                updateFlipStatus();
+
+            } catch (e) {
+                console.error('Failed to load cameras:', e);
+            }
+        }
+
+        function updateCameraSelect() {
+            const select = document.getElementById('camera-select');
+            if (!select) return;
+
+            if (availableCameras.length === 0) {
+                select.innerHTML = '<option value="">No cameras found</option>';
+                return;
+            }
+
+            select.innerHTML = availableCameras.map(cam =>
+                `<option value="${cam.id}" ${cam.id === currentCameraId ? 'selected' : ''}>
+                    ${cam.description}
+                </option>`
+            ).join('');
+
+            // Update camera info
+            const currentCam = availableCameras.find(c => c.id === currentCameraId);
+            if (currentCam) {
+                document.getElementById('camera-info').textContent =
+                    `Current: ${currentCam.name} (${currentCam.resolution})`;
+            }
+        }
+
+        async function switchCamera(cameraId) {
+            if (cameraId === '' || cameraId === null) return;
+
+            const select = document.getElementById('camera-select');
+            const info = document.getElementById('camera-info');
+
+            info.textContent = 'Switching camera...';
+            select.disabled = true;
+
+            try {
+                const response = await fetch('/api/switch_camera', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ camera_id: parseInt(cameraId) })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    currentCameraId = data.current_camera;
+                    const cam = availableCameras.find(c => c.id === currentCameraId);
+                    info.textContent = `Switched to: ${cam ? cam.name : 'Camera ' + currentCameraId}`;
+                } else {
+                    info.textContent = `Error: ${data.message}`;
+                    // Revert selection
+                    select.value = currentCameraId;
+                }
+            } catch (e) {
+                info.textContent = 'Error switching camera';
+                console.error('Switch camera error:', e);
+                select.value = currentCameraId;
+            }
+
+            select.disabled = false;
+        }
+
+        async function refreshCameras() {
+            const btn = document.querySelector('.refresh-btn');
+            btn.classList.add('spinning');
+
+            await loadCameras();
+
+            setTimeout(() => {
+                btn.classList.remove('spinning');
+            }, 500);
+        }
+
+        async function toggleFlip(direction) {
+            try {
+                const response = await fetch('/api/flip_camera', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ direction })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    flipHorizontal = data.flip_horizontal;
+                    flipVertical = data.flip_vertical;
+                    updateFlipButtons();
+                    updateFlipStatus();
+                }
+            } catch (e) {
+                console.error('Flip toggle error:', e);
+            }
+        }
+
+        function updateFlipButtons() {
+            const hBtn = document.getElementById('flip-h-btn');
+            const vBtn = document.getElementById('flip-v-btn');
+
+            if (hBtn) {
+                hBtn.classList.toggle('active', flipHorizontal);
+            }
+            if (vBtn) {
+                vBtn.classList.toggle('active', flipVertical);
+            }
+        }
+
+        function updateFlipStatus() {
+            const status = document.getElementById('flip-status');
+            if (!status) return;
+
+            if (!flipHorizontal && !flipVertical) {
+                status.textContent = 'No flip applied';
+            } else {
+                const parts = [];
+                if (flipHorizontal) parts.push('Horizontal');
+                if (flipVertical) parts.push('Vertical');
+                status.textContent = `Flip active: ${parts.join(' + ')}`;
+            }
+        }
+
+        // Initialize
+        updateToggles();
+        initSpeechRecognition();
+        initTTS();
+        loadCameras();
+
+        setInterval(updateStatus, 500);
+        setInterval(updateLogs, 1000);
+        setInterval(updateAnalysis, 1000);
+
+        updateStatus();
+        updateLogs();
+        updateAnalysis();
+
+        // Initialize draw canvas
+        initDrawCanvas();
+
+        // ===== REFERENCE IMAGE SEARCH =====
+
+        async function handleReferenceUpload(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const mode = document.querySelector('input[name="ref-mode"]:checked').value;
+            const formData = new FormData();
+            formData.append('image', file);
+            formData.append('mode', mode);
+
+            const statusEl = document.getElementById('reference-status');
+            const descEl = document.getElementById('reference-description');
+
+            statusEl.style.display = 'block';
+            descEl.innerHTML = '<span style="color: var(--text-secondary);">Processing reference image...</span>';
+
+            try {
+                const response = await fetch('/api/upload_reference', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    if (data.mode === 'description') {
+                        descEl.innerHTML = `<strong>Searching for:</strong> "${data.description}"`;
+                        // Update prompts input
+                        document.getElementById('prompts-input').value = data.prompt;
+                    } else {
+                        descEl.innerHTML = `<strong>Visual matching:</strong> ${data.description}<br><span style="color: var(--success-color);">CLIP matching enabled</span>`;
+                    }
+                    if (ttsEnabled) {
+                        speak(data.mode === 'description' ? `Searching for ${data.description}` : 'Visual matching enabled');
+                    }
+                } else {
+                    descEl.innerHTML = `<span style="color: var(--error-color);">Error: ${data.error}</span>`;
+                }
+            } catch (e) {
+                descEl.innerHTML = `<span style="color: var(--error-color);">Upload failed: ${e.message}</span>`;
+            }
+
+            // Clear file input
+            event.target.value = '';
+        }
+
+        async function clearReference() {
+            await fetch('/api/clear_reference', { method: 'POST' });
+            document.getElementById('reference-status').style.display = 'none';
+            document.getElementById('reference-description').innerHTML = '';
+        }
+
+        function updateClipThreshold(value) {
+            document.getElementById('clip-threshold-value').textContent = value;
+            // Could add API call to update server-side threshold
+        }
+
+        // ===== DRAW TO SEARCH =====
+
+        let drawMode = null;  // 'box' or 'point'
+        let isDrawing = false;
+        let startX, startY;
+
+        function initDrawCanvas() {
+            const video = document.getElementById('video-feed');
+            const canvas = document.getElementById('draw-canvas');
+            const ctx = canvas.getContext('2d');
+
+            // Match canvas size to video
+            function resizeCanvas() {
+                canvas.width = video.offsetWidth;
+                canvas.height = video.offsetHeight;
+            }
+
+            // Resize on window resize
+            window.addEventListener('resize', resizeCanvas);
+            video.addEventListener('load', resizeCanvas);
+            setTimeout(resizeCanvas, 500);
+
+            // Mouse events
+            canvas.addEventListener('mousedown', handleMouseDown);
+            canvas.addEventListener('mousemove', handleMouseMove);
+            canvas.addEventListener('mouseup', handleMouseUp);
+            canvas.addEventListener('mouseleave', handleMouseUp);
+
+            // Touch events
+            canvas.addEventListener('touchstart', handleTouchStart);
+            canvas.addEventListener('touchmove', handleTouchMove);
+            canvas.addEventListener('touchend', handleTouchEnd);
+        }
+
+        function toggleDrawMode(mode) {
+            const canvas = document.getElementById('draw-canvas');
+            const hint = document.getElementById('draw-overlay-hint');
+            const boxBtn = document.getElementById('draw-box-btn');
+            const pointBtn = document.getElementById('draw-point-btn');
+            const statusEl = document.getElementById('draw-status');
+
+            if (drawMode === mode) {
+                // Toggle off
+                clearDrawMode();
+                return;
+            }
+
+            drawMode = mode;
+            canvas.style.display = 'block';
+            canvas.style.pointerEvents = 'auto';
+
+            boxBtn.classList.toggle('active', mode === 'box');
+            pointBtn.classList.toggle('active', mode === 'point');
+
+            if (mode === 'box') {
+                hint.textContent = 'Click and drag to draw a box around the object';
+                hint.style.display = 'block';
+                statusEl.textContent = 'Draw mode: Box - Click and drag on the video';
+                canvas.style.cursor = 'crosshair';
+            } else if (mode === 'point') {
+                hint.textContent = 'Click on the object you want to select';
+                hint.style.display = 'block';
+                statusEl.textContent = 'Draw mode: Point - Click on the object';
+                canvas.style.cursor = 'pointer';
+            }
+        }
+
+        function clearDrawMode() {
+            drawMode = null;
+            isDrawing = false;
+
+            const canvas = document.getElementById('draw-canvas');
+            const ctx = canvas.getContext('2d');
+            const hint = document.getElementById('draw-overlay-hint');
+            const statusEl = document.getElementById('draw-status');
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            canvas.style.display = 'none';
+            canvas.style.pointerEvents = 'none';
+            hint.style.display = 'none';
+            statusEl.textContent = 'Click a button above, then draw on the video';
+
+            document.getElementById('draw-box-btn').classList.remove('active');
+            document.getElementById('draw-point-btn').classList.remove('active');
+        }
+
+        function getCanvasCoords(event, canvas) {
+            const rect = canvas.getBoundingClientRect();
+            const video = document.getElementById('video-feed');
+
+            // Get position relative to canvas
+            let clientX, clientY;
+            if (event.touches) {
+                clientX = event.touches[0].clientX;
+                clientY = event.touches[0].clientY;
+            } else {
+                clientX = event.clientX;
+                clientY = event.clientY;
+            }
+
+            const x = (clientX - rect.left) / rect.width;
+            const y = (clientY - rect.top) / rect.height;
+
+            // Scale to actual video dimensions (assuming 640x480 or similar)
+            // The server will handle the actual frame size
+            return {
+                x: x * canvas.width,
+                y: y * canvas.height,
+                normX: x,
+                normY: y
+            };
+        }
+
+        function handleMouseDown(event) {
+            if (!drawMode) return;
+            event.preventDefault();
+
+            const canvas = document.getElementById('draw-canvas');
+            const coords = getCanvasCoords(event, canvas);
+
+            if (drawMode === 'point') {
+                // Send point immediately
+                sendPointPrompt(coords.normX, coords.normY);
+            } else if (drawMode === 'box') {
+                isDrawing = true;
+                startX = coords.x;
+                startY = coords.y;
+            }
+        }
+
+        function handleMouseMove(event) {
+            if (!drawMode || !isDrawing) return;
+            event.preventDefault();
+
+            const canvas = document.getElementById('draw-canvas');
+            const ctx = canvas.getContext('2d');
+            const coords = getCanvasCoords(event, canvas);
+
+            // Clear and redraw
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.strokeStyle = '#00ff00';
+            ctx.lineWidth = 2;
+            ctx.setLineDash([5, 5]);
+            ctx.strokeRect(startX, startY, coords.x - startX, coords.y - startY);
+        }
+
+        function handleMouseUp(event) {
+            if (!drawMode || !isDrawing) return;
+            event.preventDefault();
+
+            isDrawing = false;
+
+            const canvas = document.getElementById('draw-canvas');
+            const coords = getCanvasCoords(event, canvas);
+
+            // Calculate normalized box coordinates
+            const x1 = Math.min(startX, coords.x) / canvas.width;
+            const y1 = Math.min(startY, coords.y) / canvas.height;
+            const x2 = Math.max(startX, coords.x) / canvas.width;
+            const y2 = Math.max(startY, coords.y) / canvas.height;
+
+            // Send box prompt
+            sendBoxPrompt(x1, y1, x2, y2);
+        }
+
+        function handleTouchStart(event) {
+            handleMouseDown(event);
+        }
+
+        function handleTouchMove(event) {
+            handleMouseMove(event);
+        }
+
+        function handleTouchEnd(event) {
+            handleMouseUp(event);
+        }
+
+        async function sendBoxPrompt(x1, y1, x2, y2) {
+            // Get actual video dimensions from server or estimate
+            const video = document.getElementById('video-feed');
+
+            // Assume standard video dimensions - these will be scaled by the server
+            const frameWidth = 640;
+            const frameHeight = 480;
+
+            try {
+                const response = await fetch('/api/draw_prompt', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        type: 'box',
+                        x1: x1 * frameWidth,
+                        y1: y1 * frameHeight,
+                        x2: x2 * frameWidth,
+                        y2: y2 * frameHeight
+                    })
+                });
+
+                const data = await response.json();
+                if (data.success) {
+                    document.getElementById('draw-status').textContent = 'Box sent! Processing...';
+                    setTimeout(clearDrawMode, 1000);
+                }
+            } catch (e) {
+                console.error('Failed to send box prompt:', e);
+            }
+        }
+
+        async function sendPointPrompt(x, y) {
+            const frameWidth = 640;
+            const frameHeight = 480;
+
+            try {
+                const response = await fetch('/api/draw_prompt', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        type: 'point',
+                        x: x * frameWidth,
+                        y: y * frameHeight
+                    })
+                });
+
+                const data = await response.json();
+                if (data.success) {
+                    document.getElementById('draw-status').textContent = 'Point sent! Processing...';
+                    setTimeout(clearDrawMode, 1000);
+                }
+            } catch (e) {
+                console.error('Failed to send point prompt:', e);
+            }
+        }
+
+        // Make functions globally accessible
+        window.handleReferenceUpload = handleReferenceUpload;
+        window.clearReference = clearReference;
+        window.updateClipThreshold = updateClipThreshold;
+        window.toggleDrawMode = toggleDrawMode;
+        window.clearDrawMode = clearDrawMode;
+
+        // ===== NAVIGATION SYSTEM =====
+
+        let navigationActive = false;
+        let navigationTarget = null;
+        let navigationTargetId = null;
+        let navigationInterval = null;
+        let navTTSEnabled = true;
+        let lastSpokenGuidance = '';
+        let lastSpokenTime = 0;
+        let navigationReached = false;
+
+        // Proximity sounds
+        const proximityBeepInterval = { far: 2000, medium: 1000, close: 500, reachable: 200 };
+        let proximityBeepTimer = null;
+
+        // ===== AR NAVIGATION PATH SYSTEM =====
+        class ARNavigationPath {
+            constructor() {
+                this.canvas = null;
+                this.ctx = null;
+                this.animationFrame = null;
+                this.pathProgress = 0;
+                this.targetPosition = null;  // {x, y} normalized 0-1
+                this.obstacles = [];
+                this.isSearching = true;
+                this.direction = 'forward';
+                this.distanceEstimate = null;
+                this.initialized = false;
+            }
+
+            init() {
+                this.canvas = document.getElementById('ar-nav-canvas');
+                if (!this.canvas) return false;
+
+                this.ctx = this.canvas.getContext('2d');
+                this.resizeCanvas();
+
+                // Resize on window resize
+                window.addEventListener('resize', () => this.resizeCanvas());
+
+                // Watch for video load to resize
+                const video = document.getElementById('nav-video-feed');
+                video.addEventListener('load', () => this.resizeCanvas());
+
+                this.initialized = true;
+                return true;
+            }
+
+            resizeCanvas() {
+                const container = document.getElementById('nav-video-container');
+                const video = document.getElementById('nav-video-feed');
+
+                if (container && video) {
+                    this.canvas.width = video.offsetWidth || container.offsetWidth;
+                    this.canvas.height = video.offsetHeight || container.offsetHeight;
+                }
+            }
+
+            start() {
+                if (!this.initialized) this.init();
+                this.resizeCanvas();
+
+                // Show AR elements
+                document.getElementById('ar-nav-status').style.display = 'flex';
+                document.getElementById('ar-nav-info').style.display = 'block';
+
+                // Start animation loop
+                this.animate();
+            }
+
+            stop() {
+                if (this.animationFrame) {
+                    cancelAnimationFrame(this.animationFrame);
+                    this.animationFrame = null;
+                }
+
+                // Hide AR elements
+                document.getElementById('ar-nav-status').style.display = 'none';
+                document.getElementById('ar-nav-info').style.display = 'none';
+                document.getElementById('ar-chevron-container').classList.remove('visible');
+                document.getElementById('ar-searching-overlay').style.display = 'none';
+
+                // Clear canvas
+                if (this.ctx) {
+                    this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+                }
+            }
+
+            // Update target position from detection data
+            updateTarget(bbox, distance, direction) {
+                if (bbox) {
+                    // bbox is [x1, y1, x2, y2] normalized or pixel coords
+                    const centerX = (bbox[0] + bbox[2]) / 2;
+                    const centerY = (bbox[1] + bbox[3]) / 2;
+
+                    // Normalize if needed (assume pixel coords if > 1)
+                    this.targetPosition = {
+                        x: centerX > 1 ? centerX / this.canvas.width : centerX,
+                        y: centerY > 1 ? centerY / this.canvas.height : centerY
+                    };
+                    this.isSearching = false;
+                } else {
+                    this.isSearching = true;
+                }
+
+                this.direction = direction || 'forward';
+                this.distanceEstimate = distance;
+
+                // Update UI elements
+                this.updateARDisplay();
+            }
+
+            // Update obstacles for path avoidance
+            updateObstacles(obstacleList) {
+                this.obstacles = obstacleList || [];
+            }
+
+            updateARDisplay() {
+                // Direction arrow and text (maps backend directions to display)
+                const arrows = {
+                    'forward': '↑', 'ahead': '↑', 'up': '↑',
+                    'left': '←', 'slight_left': '↖',
+                    'right': '→', 'slight_right': '↗',
+                    'center': '●', 'reached': '✓',
+                    'down': '↓', 'unknown': '?'
+                };
+
+                const texts = {
+                    'forward': 'Ahead', 'ahead': 'Ahead', 'up': 'Move Up',
+                    'left': 'Turn Left', 'slight_left': 'Slight Left',
+                    'right': 'Turn Right', 'slight_right': 'Slight Right',
+                    'center': 'Centered', 'reached': 'Reached!',
+                    'down': 'Move Down', 'unknown': 'Searching'
+                };
+
+                document.getElementById('ar-direction-arrow').textContent = arrows[this.direction] || '↑';
+                document.getElementById('ar-direction-text').textContent = texts[this.direction] || 'Ahead';
+
+                // Distance display
+                const distanceLabels = {
+                    'very_far': '~5m+', 'far': '~3-5m',
+                    'medium': '~1-3m', 'close': '~0.5-1m',
+                    'very_close': '~0.5m', 'reachable': 'Reach!'
+                };
+                document.getElementById('ar-distance-display').textContent =
+                    distanceLabels[this.distanceEstimate] || '~2m';
+
+                // Update chevron direction
+                const chevronContainer = document.getElementById('ar-chevron-container');
+                if (!this.isSearching && this.targetPosition) {
+                    chevronContainer.classList.add('visible');
+
+                    // Position chevrons based on target direction
+                    const offsetX = (this.targetPosition.x - 0.5) * 50;
+                    chevronContainer.style.transform = `translate(calc(-50% + ${offsetX}%), -50%)`;
+
+                    // Rotate based on direction (0 = forward/up, pointing toward target)
+                    let rotation = 0;
+                    if (this.direction === 'left') rotation = -90;
+                    else if (this.direction === 'slight_left') rotation = -45;
+                    else if (this.direction === 'right') rotation = 90;
+                    else if (this.direction === 'slight_right') rotation = 45;
+                    else if (this.direction === 'down') rotation = 180;
+                    // 'up', 'forward', 'ahead', 'center' all keep rotation = 0
+
+                    chevronContainer.style.transform += ` rotate(${rotation}deg)`;
+                } else {
+                    chevronContainer.classList.remove('visible');
+                }
+
+                // Show/hide searching overlay
+                document.getElementById('ar-searching-overlay').style.display =
+                    this.isSearching ? 'flex' : 'none';
+            }
+
+            animate() {
+                if (!this.canvas || !this.ctx) return;
+
+                this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+
+                if (!this.isSearching && this.targetPosition) {
+                    this.drawPath();
+                }
+
+                // Update path animation progress
+                this.pathProgress = (this.pathProgress + 0.02) % 1;
+
+                this.animationFrame = requestAnimationFrame(() => this.animate());
+            }
+
+            drawPath() {
+                const ctx = this.ctx;
+                const w = this.canvas.width;
+                const h = this.canvas.height;
+
+                if (!this.targetPosition) return;
+
+                // Calculate path from bottom center to target
+                const startX = w / 2;
+                const startY = h;  // Bottom of screen (user's position)
+                const endX = this.targetPosition.x * w;
+                const endY = this.targetPosition.y * h;
+
+                // Calculate control points for smooth curve
+                // The path should curve around obstacles and follow floor perspective
+                const controlPoints = this.calculatePathWithObstacles(startX, startY, endX, endY);
+
+                // Draw glowing path
+                this.drawGlowingPath(controlPoints);
+
+                // Draw animated dashes along path
+                this.drawAnimatedPathDashes(controlPoints);
+
+                // Draw target marker
+                this.drawTargetMarker(endX, endY);
+            }
+
+            calculatePathWithObstacles(startX, startY, endX, endY) {
+                const points = [];
+                const w = this.canvas.width;
+                const h = this.canvas.height;
+
+                // Start point (bottom center)
+                points.push({ x: startX, y: startY });
+
+                // If we have obstacles, curve around them
+                if (this.obstacles.length > 0) {
+                    const obstacleInPath = this.obstacles.find(obs => {
+                        if (!obs.position) return false;
+                        // Check if obstacle is in our direct path
+                        const obsX = obs.position === 'left' ? w * 0.25 :
+                                     obs.position === 'right' ? w * 0.75 : w * 0.5;
+                        return Math.abs(obsX - (startX + endX) / 2) < w * 0.3;
+                    });
+
+                    if (obstacleInPath) {
+                        // Curve around the obstacle
+                        const avoidDirection = obstacleInPath.position === 'left' ? 1 : -1;
+                        const midY = (startY + endY) / 2;
+
+                        // Control point to curve around obstacle
+                        points.push({
+                            x: startX + (avoidDirection * w * 0.15),
+                            y: midY + h * 0.1
+                        });
+                    }
+                }
+
+                // Add midpoint with perspective curve (path rises up toward target)
+                const midX = (startX + endX) / 2;
+                const midY = (startY + endY) / 2 + h * 0.05;
+                points.push({ x: midX, y: midY });
+
+                // End point (target)
+                points.push({ x: endX, y: endY });
+
+                return points;
+            }
+
+            drawGlowingPath(points) {
+                const ctx = this.ctx;
+
+                if (points.length < 2) return;
+
+                // Draw multiple layers for glow effect
+                const glowLayers = [
+                    { width: 40, alpha: 0.1, color: '132, 204, 22' },
+                    { width: 25, alpha: 0.2, color: '132, 204, 22' },
+                    { width: 12, alpha: 0.5, color: '132, 204, 22' },
+                    { width: 6, alpha: 0.9, color: '163, 230, 53' }
+                ];
+
+                glowLayers.forEach(layer => {
+                    ctx.beginPath();
+                    ctx.strokeStyle = `rgba(${layer.color}, ${layer.alpha})`;
+                    ctx.lineWidth = layer.width;
+                    ctx.lineCap = 'round';
+                    ctx.lineJoin = 'round';
+
+                    ctx.moveTo(points[0].x, points[0].y);
+
+                    if (points.length === 2) {
+                        ctx.lineTo(points[1].x, points[1].y);
+                    } else {
+                        // Draw smooth curve through points
+                        for (let i = 1; i < points.length - 1; i++) {
+                            const xc = (points[i].x + points[i + 1].x) / 2;
+                            const yc = (points[i].y + points[i + 1].y) / 2;
+                            ctx.quadraticCurveTo(points[i].x, points[i].y, xc, yc);
+                        }
+                        // Last point
+                        ctx.lineTo(points[points.length - 1].x, points[points.length - 1].y);
+                    }
+
+                    ctx.stroke();
+                });
+            }
+
+            drawAnimatedPathDashes(points) {
+                const ctx = this.ctx;
+                const w = this.canvas.width;
+                const h = this.canvas.height;
+
+                if (points.length < 2) return;
+
+                // Calculate total path length
+                let totalLength = 0;
+                for (let i = 1; i < points.length; i++) {
+                    const dx = points[i].x - points[i-1].x;
+                    const dy = points[i].y - points[i-1].y;
+                    totalLength += Math.sqrt(dx * dx + dy * dy);
+                }
+
+                // Draw animated chevrons along path
+                const numChevrons = 8;
+                const spacing = totalLength / numChevrons;
+
+                for (let i = 0; i < numChevrons; i++) {
+                    const t = ((i / numChevrons) + this.pathProgress) % 1;
+                    const pos = this.getPointAlongPath(points, t);
+
+                    if (pos) {
+                        // Calculate direction for chevron rotation
+                        const nextT = Math.min(t + 0.05, 0.99);
+                        const nextPos = this.getPointAlongPath(points, nextT);
+                        const angle = nextPos ?
+                            Math.atan2(nextPos.y - pos.y, nextPos.x - pos.x) :
+                            -Math.PI / 2;
+
+                        // Draw chevron
+                        const size = 15 - (t * 8);  // Smaller as they go up
+                        const alpha = 0.3 + (1 - t) * 0.7;  // Fade as they move
+
+                        ctx.save();
+                        ctx.translate(pos.x, pos.y);
+                        ctx.rotate(angle - Math.PI / 2);
+
+                        ctx.beginPath();
+                        ctx.strokeStyle = `rgba(163, 230, 53, ${alpha})`;
+                        ctx.lineWidth = 3;
+                        ctx.lineCap = 'round';
+                        ctx.lineJoin = 'round';
+
+                        // Draw chevron shape
+                        ctx.moveTo(-size, size / 2);
+                        ctx.lineTo(0, -size / 2);
+                        ctx.lineTo(size, size / 2);
+                        ctx.stroke();
+
+                        ctx.restore();
+                    }
+                }
+            }
+
+            getPointAlongPath(points, t) {
+                if (points.length < 2) return null;
+                if (t <= 0) return points[0];
+                if (t >= 1) return points[points.length - 1];
+
+                // Calculate total length
+                let totalLength = 0;
+                const segments = [];
+                for (let i = 1; i < points.length; i++) {
+                    const dx = points[i].x - points[i-1].x;
+                    const dy = points[i].y - points[i-1].y;
+                    const len = Math.sqrt(dx * dx + dy * dy);
+                    segments.push({ start: points[i-1], end: points[i], length: len });
+                    totalLength += len;
+                }
+
+                // Find point at distance t * totalLength
+                let targetDist = t * totalLength;
+                let currentDist = 0;
+
+                for (const seg of segments) {
+                    if (currentDist + seg.length >= targetDist) {
+                        const segT = (targetDist - currentDist) / seg.length;
+                        return {
+                            x: seg.start.x + (seg.end.x - seg.start.x) * segT,
+                            y: seg.start.y + (seg.end.y - seg.start.y) * segT
+                        };
+                    }
+                    currentDist += seg.length;
+                }
+
+                return points[points.length - 1];
+            }
+
+            drawTargetMarker(x, y) {
+                const ctx = this.ctx;
+
+                // Pulsing target ring
+                const pulse = 0.8 + Math.sin(Date.now() / 200) * 0.2;
+                const baseSize = 30 * pulse;
+
+                // Outer glow
+                ctx.beginPath();
+                ctx.arc(x, y, baseSize + 15, 0, Math.PI * 2);
+                ctx.fillStyle = 'rgba(132, 204, 22, 0.1)';
+                ctx.fill();
+
+                // Ring
+                ctx.beginPath();
+                ctx.arc(x, y, baseSize, 0, Math.PI * 2);
+                ctx.strokeStyle = 'rgba(163, 230, 53, 0.8)';
+                ctx.lineWidth = 4;
+                ctx.stroke();
+
+                // Inner dot
+                ctx.beginPath();
+                ctx.arc(x, y, 8, 0, Math.PI * 2);
+                ctx.fillStyle = '#a3e635';
+                ctx.fill();
+
+                // Crosshair lines
+                ctx.strokeStyle = 'rgba(163, 230, 53, 0.6)';
+                ctx.lineWidth = 2;
+
+                ctx.beginPath();
+                ctx.moveTo(x - baseSize - 10, y);
+                ctx.lineTo(x - baseSize + 5, y);
+                ctx.moveTo(x + baseSize - 5, y);
+                ctx.lineTo(x + baseSize + 10, y);
+                ctx.moveTo(x, y - baseSize - 10);
+                ctx.lineTo(x, y - baseSize + 5);
+                ctx.stroke();
+            }
+        }
+
+        // Global AR navigation instance
+        const arNavPath = new ARNavigationPath();
+
+        async function startNavigation(label, detectionId, box) {
+            navigationActive = true;
+            navigationTarget = label;
+            navigationTargetId = detectionId;
+            navigationReached = false;
+
+            // Show navigation overlay
+            const overlay = document.getElementById('navigation-overlay');
+            overlay.style.display = 'flex';
+            document.getElementById('nav-target-name').textContent = `Navigating to: ${label}`;
+
+            // Start video feed in navigation view
+            document.getElementById('nav-video-feed').src = '/video_feed?' + Date.now();
+
+            // Initialize AR navigation path
+            document.getElementById('ar-target-name').textContent = label;
+            arNavPath.start();
+
+            // Try to start navigation on server
+            try {
+                const response = await fetch('/api/navigation/start', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ target_label: label, target_id: detectionId })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    // Check for memory hint
+                    if (data.memory_hint) {
+                        const memoryHint = document.getElementById('nav-memory-hint');
+                        document.getElementById('nav-memory-text').textContent = data.memory_hint;
+                        memoryHint.style.display = 'flex';
+
+                        if (navTTSEnabled) {
+                            speak(data.memory_hint);
+                        }
+                    }
+
+                    // Announce navigation start
+                    if (navTTSEnabled) {
+                        speak(`Starting navigation to ${label}`);
+                    }
+                } else {
+                    console.error('Failed to start navigation:', data.error);
+                }
+            } catch (e) {
+                console.error('Navigation start error:', e);
+            }
+
+            // Start navigation update loop
+            navigationInterval = setInterval(updateNavigationStatus, 500);
+
+            // Analyze scene context
+            reanalyzeScene();
+        }
+
+        async function stopNavigation() {
+            navigationActive = false;
+
+            // Stop update loop
+            if (navigationInterval) {
+                clearInterval(navigationInterval);
+                navigationInterval = null;
+            }
+
+            // Stop proximity beeps
+            if (proximityBeepTimer) {
+                clearInterval(proximityBeepTimer);
+                proximityBeepTimer = null;
+            }
+
+            // Stop AR navigation path
+            arNavPath.stop();
+
+            // Hide navigation overlay
+            document.getElementById('navigation-overlay').style.display = 'none';
+            document.getElementById('nav-memory-hint').style.display = 'none';
+
+            // Stop navigation on server
+            try {
+                await fetch('/api/navigation/stop', { method: 'POST' });
+
+                if (navTTSEnabled) {
+                    speak(navigationReached ? 'Object reached. Navigation complete.' : 'Navigation stopped.');
+                }
+            } catch (e) {
+                console.error('Navigation stop error:', e);
+            }
+
+            navigationTarget = null;
+            navigationTargetId = null;
+            navigationReached = false;
+        }
+
+        async function updateNavigationStatus() {
+            if (!navigationActive) return;
+
+            try {
+                const response = await fetch('/api/navigation/status');
+                const data = await response.json();
+
+                if (!data.active) {
+                    // Navigation ended on server side
+                    if (data.reached) {
+                        navigationReached = true;
+                        announceReached();
+                    }
+                    return;
+                }
+
+                // Update guidance display
+                if (data.guidance) {
+                    updateGuidanceDisplay(data.guidance);
+
+                    // Update AR navigation path with target position
+                    arNavPath.updateTarget(
+                        data.target_bbox,  // Bounding box from server
+                        data.guidance.distance,
+                        data.guidance.direction
+                    );
+
+                    // TTS guidance (with cooldown)
+                    if (navTTSEnabled && data.speak && data.guidance.guidance_text) {
+                        const now = Date.now();
+                        if (data.guidance.guidance_text !== lastSpokenGuidance || now - lastSpokenTime > 3000) {
+                            speak(data.guidance.guidance_text);
+                            lastSpokenGuidance = data.guidance.guidance_text;
+                            lastSpokenTime = now;
+                        }
+                    }
+
+                    // Update proximity beeps
+                    updateProximityBeeps(data.guidance.distance);
+                }
+
+                // Handle obstacle alerts and update AR path
+                if (data.obstacles && data.obstacles.length > 0) {
+                    handleObstacleAlerts(data.obstacles);
+                    arNavPath.updateObstacles(data.obstacles);
+                } else {
+                    arNavPath.updateObstacles([]);
+                }
+
+                if (data.searching) {
+                    // Object not currently visible - show searching state
+                    arNavPath.updateTarget(null, null, 'forward');
+
+                    document.getElementById('nav-direction-icon').textContent = '🔍';
+                    document.getElementById('nav-direction-text').textContent = 'Searching...';
+                    document.getElementById('nav-guidance-text').textContent =
+                        data.last_seen ? `Last seen: ${data.last_seen}` : 'Turn slowly to find the object';
+                    document.getElementById('nav-distance-value').textContent = 'Unknown';
+
+                    // Hide arrow when searching
+                    document.getElementById('nav-arrow-container').style.opacity = '0.3';
+                    document.getElementById('nav-distance-ring').className = 'nav-distance-ring';
+                }
+            } catch (e) {
+                console.error('Navigation status error:', e);
+            }
+        }
+
+        function updateGuidanceDisplay(guidance) {
+            // Direction icon and text
+            const directionIcons = {
+                'forward': '↑',
+                'left': '←',
+                'right': '→',
+                'slight_left': '↖',
+                'slight_right': '↗',
+                'center': '●',
+                'reached': '✓'
+            };
+
+            const icon = directionIcons[guidance.direction] || '↑';
+            document.getElementById('nav-direction-icon').textContent = icon;
+            document.getElementById('nav-direction-text').textContent =
+                guidance.direction.replace('_', ' ').toUpperCase();
+
+            // Distance
+            const distanceLabels = {
+                'very_far': 'Very Far',
+                'far': 'Far',
+                'medium': 'Medium',
+                'close': 'Close',
+                'very_close': 'Very Close',
+                'reachable': 'Reachable!'
+            };
+            document.getElementById('nav-distance-value').textContent =
+                distanceLabels[guidance.distance] || guidance.distance;
+
+            // Update distance ring
+            const ring = document.getElementById('nav-distance-ring');
+            ring.className = 'nav-distance-ring';
+            if (guidance.distance === 'reachable' || guidance.distance === 'very_close') {
+                ring.classList.add('reachable');
+            } else if (guidance.distance === 'close') {
+                ring.classList.add('close');
+            }
+
+            // Guidance text
+            document.getElementById('nav-guidance-text').textContent = guidance.guidance_text || '';
+
+            // Arrow rotation
+            const arrow = document.getElementById('nav-arrow');
+            const arrowContainer = document.getElementById('nav-arrow-container');
+            arrowContainer.style.opacity = '1';
+            arrow.style.transform = `rotate(${guidance.arrow_angle || 0}deg)`;
+
+            // Check if reached
+            if (guidance.distance === 'reachable') {
+                navigationReached = true;
+                announceReached();
+            }
+        }
+
+        function announceReached() {
+            if (!navigationReached) return;
+
+            // Visual feedback
+            const ring = document.getElementById('nav-distance-ring');
+            ring.classList.add('reachable');
+
+            document.getElementById('nav-direction-icon').textContent = '✓';
+            document.getElementById('nav-direction-text').textContent = 'REACHED';
+            document.getElementById('nav-guidance-text').textContent = 'Object is within reach!';
+
+            // Audio feedback
+            if (navTTSEnabled) {
+                speak('Object reached! You can touch it now.');
+            }
+
+            // Play success sound
+            playReachedSound();
+
+            // Auto-stop after delay
+            setTimeout(() => {
+                if (navigationActive) {
+                    stopNavigation();
+                }
+            }, 3000);
+        }
+
+        function updateProximityBeeps(distance) {
+            // Clear existing timer
+            if (proximityBeepTimer) {
+                clearInterval(proximityBeepTimer);
+                proximityBeepTimer = null;
+            }
+
+            // Set new beep interval based on distance
+            let interval;
+            switch (distance) {
+                case 'reachable':
+                case 'very_close':
+                    interval = proximityBeepInterval.reachable;
+                    break;
+                case 'close':
+                    interval = proximityBeepInterval.close;
+                    break;
+                case 'medium':
+                    interval = proximityBeepInterval.medium;
+                    break;
+                default:
+                    interval = proximityBeepInterval.far;
+            }
+
+            // Start beeping
+            if (navTTSEnabled && distance !== 'very_far') {
+                proximityBeepTimer = setInterval(() => playProximityBeep(distance), interval);
+            }
+        }
+
+        function playProximityBeep(distance) {
+            // Create audio context for beep
+            try {
+                const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                const oscillator = audioCtx.createOscillator();
+                const gainNode = audioCtx.createGain();
+
+                oscillator.connect(gainNode);
+                gainNode.connect(audioCtx.destination);
+
+                // Different frequencies for different distances
+                const frequencies = {
+                    'reachable': 880,  // A5
+                    'very_close': 660, // E5
+                    'close': 440,      // A4
+                    'medium': 330,     // E4
+                    'far': 220         // A3
+                };
+
+                oscillator.frequency.value = frequencies[distance] || 330;
+                oscillator.type = 'sine';
+
+                gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
+
+                oscillator.start(audioCtx.currentTime);
+                oscillator.stop(audioCtx.currentTime + 0.1);
+            } catch (e) {
+                // Audio context not available
+            }
+        }
+
+        function playReachedSound() {
+            try {
+                const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+                // Play a happy ascending arpeggio
+                const notes = [523.25, 659.25, 783.99, 1046.50]; // C5, E5, G5, C6
+                notes.forEach((freq, i) => {
+                    const oscillator = audioCtx.createOscillator();
+                    const gainNode = audioCtx.createGain();
+
+                    oscillator.connect(gainNode);
+                    gainNode.connect(audioCtx.destination);
+
+                    oscillator.frequency.value = freq;
+                    oscillator.type = 'sine';
+
+                    const startTime = audioCtx.currentTime + i * 0.15;
+                    gainNode.gain.setValueAtTime(0.2, startTime);
+                    gainNode.gain.exponentialRampToValueAtTime(0.01, startTime + 0.3);
+
+                    oscillator.start(startTime);
+                    oscillator.stop(startTime + 0.3);
+                });
+            } catch (e) {
+                // Audio context not available
+            }
+        }
+
+        function toggleNavTTS() {
+            navTTSEnabled = !navTTSEnabled;
+            const btn = document.getElementById('nav-tts-btn');
+            btn.querySelector('span').textContent = navTTSEnabled ? 'Voice On' : 'Voice Off';
+            btn.classList.toggle('active', navTTSEnabled);
+
+            if (proximityBeepTimer && !navTTSEnabled) {
+                clearInterval(proximityBeepTimer);
+                proximityBeepTimer = null;
+            }
+        }
+
+        async function reanalyzeScene() {
+            const contextEl = document.getElementById('nav-context-value');
+            contextEl.textContent = 'Analyzing...';
+
+            try {
+                const response = await fetch('/api/navigation/analyze_scene', { method: 'POST' });
+                const data = await response.json();
+
+                if (data.success && data.context) {
+                    let contextText = data.context.location || 'Unknown location';
+                    if (data.context.obstacles && data.context.obstacles.length > 0) {
+                        contextText += ` | Watch for: ${data.context.obstacles.slice(0, 2).join(', ')}`;
+                    }
+                    contextEl.textContent = contextText;
+
+                    // Announce obstacles if TTS enabled
+                    if (navTTSEnabled && data.context.obstacles && data.context.obstacles.length > 0) {
+                        speak(`Watch out for ${data.context.obstacles[0]}`);
+                    }
+                } else {
+                    contextEl.textContent = 'Unable to analyze';
+                }
+            } catch (e) {
+                contextEl.textContent = 'Analysis failed';
+                console.error('Scene analysis error:', e);
+            }
+        }
+
+        // ===== OBSTACLE ALERTS =====
+
+        let lastObstacleAlert = '';
+        let lastObstacleAlertTime = 0;
+
+        function handleObstacleAlerts(obstacles) {
+            const now = Date.now();
+
+            for (const obstacle of obstacles) {
+                // Only alert for high/medium severity or close obstacles
+                if (obstacle.type === 'high' ||
+                    (obstacle.type === 'medium' && obstacle.distance !== 'far') ||
+                    obstacle.distance === 'very_close' || obstacle.distance === 'close') {
+
+                    const alertKey = `${obstacle.label}_${obstacle.distance}`;
+
+                    // Cooldown check
+                    if (alertKey !== lastObstacleAlert || now - lastObstacleAlertTime > 3000) {
+                        // Play warning sound
+                        playObstacleWarning(obstacle.type);
+
+                        // TTS alert
+                        if (navTTSEnabled) {
+                            speak(obstacle.alert_text);
+                        }
+
+                        lastObstacleAlert = alertKey;
+                        lastObstacleAlertTime = now;
+
+                        // Show visual alert
+                        showObstacleVisualAlert(obstacle);
+                    }
+                }
+            }
+        }
+
+        function playObstacleWarning(severity) {
+            try {
+                const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                const oscillator = audioCtx.createOscillator();
+                const gainNode = audioCtx.createGain();
+
+                oscillator.connect(gainNode);
+                gainNode.connect(audioCtx.destination);
+
+                // Different sounds for different severity
+                if (severity === 'high') {
+                    // Urgent double beep
+                    oscillator.frequency.value = 800;
+                    gainNode.gain.setValueAtTime(0.3, audioCtx.currentTime);
+                    gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.15);
+                    oscillator.start(audioCtx.currentTime);
+                    oscillator.stop(audioCtx.currentTime + 0.15);
+
+                    // Second beep
+                    const osc2 = audioCtx.createOscillator();
+                    const gain2 = audioCtx.createGain();
+                    osc2.connect(gain2);
+                    gain2.connect(audioCtx.destination);
+                    osc2.frequency.value = 800;
+                    gain2.gain.setValueAtTime(0.3, audioCtx.currentTime + 0.2);
+                    gain2.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.35);
+                    osc2.start(audioCtx.currentTime + 0.2);
+                    osc2.stop(audioCtx.currentTime + 0.35);
+                } else {
+                    // Single warning beep
+                    oscillator.frequency.value = 500;
+                    gainNode.gain.setValueAtTime(0.2, audioCtx.currentTime);
+                    gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.2);
+                    oscillator.start(audioCtx.currentTime);
+                    oscillator.stop(audioCtx.currentTime + 0.2);
+                }
+            } catch (e) {
+                // Audio not available
+            }
+        }
+
+        function showObstacleVisualAlert(obstacle) {
+            // Create temporary visual alert overlay with context
+            const alertDiv = document.createElement('div');
+            alertDiv.className = `obstacle-alert obstacle-${obstacle.type}`;
+
+            // Build alert content with reason if available
+            let alertContent = `
+                <span class="obstacle-alert-icon">${obstacle.type === 'high' ? '🚨' : '⚠️'}</span>
+                <div class="obstacle-alert-content">
+                    <span class="obstacle-alert-text">${obstacle.alert_text}</span>
+            `;
+
+            // Add position and reason context
+            if (obstacle.position) {
+                alertContent += `<span class="obstacle-alert-position">${obstacle.position}</span>`;
+            }
+            if (obstacle.reason) {
+                alertContent += `<span class="obstacle-alert-reason">${obstacle.reason}</span>`;
+            }
+
+            alertContent += '</div>';
+            alertDiv.innerHTML = alertContent;
+
+            const overlay = document.getElementById('navigation-overlay');
+            overlay.appendChild(alertDiv);
+
+            // Remove after 3 seconds (longer for more context)
+            setTimeout(() => {
+                alertDiv.classList.add('fade-out');
+                setTimeout(() => alertDiv.remove(), 300);
+            }, 3000);
+        }
+
+        // ===== POST-NAVIGATION DIALOG =====
+
+        function showPostNavigationDialog(reached) {
+            const dialog = document.createElement('div');
+            dialog.className = 'post-nav-dialog';
+            dialog.innerHTML = `
+                <div class="post-nav-content">
+                    <h3>${reached ? 'Object Reached!' : 'Navigation Ended'}</h3>
+                    <p>${reached ? 'You successfully found the object.' : 'What would you like to do next?'}</p>
+                    <div class="post-nav-buttons">
+                        <button class="btn post-nav-btn-continue" onclick="continueDetection()">
+                            Continue Detecting
+                        </button>
+                        <button class="btn post-nav-btn-pause" onclick="pauseDetection()">
+                            Pause
+                        </button>
+                    </div>
+                </div>
+            `;
+
+            document.body.appendChild(dialog);
+
+            // TTS announcement
+            if (ttsEnabled) {
+                speak(reached ?
+                    'Object reached! Say continue to keep detecting, or pause to stop.' :
+                    'Navigation ended. Say continue to keep detecting, or pause to stop.');
+            }
+        }
+
+        function continueDetection() {
+            // Remove dialog
+            const dialog = document.querySelector('.post-nav-dialog');
+            if (dialog) dialog.remove();
+
+            // Continue with normal detection
+            if (ttsEnabled) {
+                speak('Continuing detection mode');
+            }
+        }
+
+        async function pauseDetection() {
+            // Remove dialog
+            const dialog = document.querySelector('.post-nav-dialog');
+            if (dialog) dialog.remove();
+
+            // Pause the system
+            await fetch('/api/toggle_pause', { method: 'POST' });
+
+            if (ttsEnabled) {
+                speak('Detection paused. Click resume when ready.');
+            }
+        }
+
+        // Override stopNavigation to show dialog
+        const originalStopNavigation = stopNavigation;
+        stopNavigation = async function() {
+            navigationActive = false;
+
+            // Stop update loop
+            if (navigationInterval) {
+                clearInterval(navigationInterval);
+                navigationInterval = null;
+            }
+
+            // Stop proximity beeps
+            if (proximityBeepTimer) {
+                clearInterval(proximityBeepTimer);
+                proximityBeepTimer = null;
+            }
+
+            // Stop AR navigation path
+            arNavPath.stop();
+
+            // Hide navigation overlay
+            document.getElementById('navigation-overlay').style.display = 'none';
+            document.getElementById('nav-memory-hint').style.display = 'none';
+
+            // Stop navigation on server
+            try {
+                const response = await fetch('/api/navigation/stop', { method: 'POST' });
+                const data = await response.json();
+
+                // Show post-navigation dialog
+                if (data.show_post_nav_dialog) {
+                    showPostNavigationDialog(data.reached);
+                }
+            } catch (e) {
+                console.error('Navigation stop error:', e);
+            }
+
+            navigationTarget = null;
+            navigationTargetId = null;
+            navigationReached = false;
+        };
+
+        // Make navigation functions globally accessible
+        window.startNavigation = startNavigation;
+        window.stopNavigation = stopNavigation;
+        window.toggleNavTTS = toggleNavTTS;
+        window.reanalyzeScene = reanalyzeScene;
+        window.handleObstacleAlerts = handleObstacleAlerts;
+        window.continueDetection = continueDetection;
+        window.pauseDetection = pauseDetection;
+    </script>
+</body>
+</html>

@@ -190,6 +190,9 @@ def convert_to_distributed_tensor(tensor: torch.Tensor) -> Tuple[torch.Tensor, s
     For some backends, such as NCCL, communication only works if the
     tensor is on the GPU. This helper function converts to the correct
     device and returns the tensor + original device.
+
+    Note: NCCL backend only works with CUDA. For MPS or CPU distributed training,
+    use a different backend like 'gloo'.
     """
     orig_device = "cpu" if not tensor.is_cuda else "gpu"
     if (
@@ -197,6 +200,7 @@ def convert_to_distributed_tensor(tensor: torch.Tensor) -> Tuple[torch.Tensor, s
         and torch.distributed.get_backend() == torch.distributed.Backend.NCCL
         and not tensor.is_cuda
     ):
+        # NCCL requires CUDA tensors
         tensor = tensor.cuda()
     return (tensor, orig_device)
 

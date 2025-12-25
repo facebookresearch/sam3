@@ -1,4 +1,4 @@
-# SAM 3: Segment Anything with Concepts
+# SAM 3: Segment Anything with Concepts WITH MPS/CPU SUPPORT FOR APPLE METAL
 
 Meta Superintelligence Labs
 

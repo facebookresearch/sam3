@@ -1,11 +1,19 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates. All Rights Reserved
 
-"""Triton kernel for faster and memory efficient sigmoid focal loss"""
+"""Sigmoid focal loss with optional Triton kernel acceleration for CUDA devices."""
 
 import torch
-import triton
-import triton.language as tl
-from torch._inductor.runtime.triton_helpers import libdevice
+import torch.nn.functional as F
+
+# Try to import Triton (only available on CUDA)
+try:
+    import triton
+    import triton.language as tl
+    from torch._inductor.runtime.triton_helpers import libdevice
+
+    HAS_TRITON = True
+except ImportError:
+    HAS_TRITON = False
 
 """
 
@@ -32,290 +40,410 @@ M = 32 works fine in benchmarking tests. The forward is a tiny bit slower compar
 """
 
 
-@triton.jit
-def _inner_focal_loss_fwd(inputs, targets, alpha, gamma):
-    inv_targets = 1 - targets
-    # Sigmoid
-    sig = tl.sigmoid(inputs)
-
-    # Binary cross entropy with logits
-    # In practice, we want the following:
-    # bce_loss = -targets * tl.log(sig) - (1 - targets) * tl.log(1 - sig)
-    # However, the above is not numerically stable.
-    # We're also not directly taking the sum here, so the usual log-sum-exp trick doesn't apply
-    # The bce can be reformulated, after algebraic manipulation, to
-    # bce_loss = log(1 + exp(-x)) + x * (1-y)
-    # This is still not stable, because for large (-x) the exponential will blow up.
-    # We'll use the following alternate formulation:
-    # bce_loss = max(x, 0) - x * y + log(1 + exp(-abs(x)))
-    # Let's show that it's equivalent:
-    # Case x>=0: abs(x) = x , max(x, 0) = x
-    # so we get x - x * y + log(1 + exp(-x)) which is equivalent
-    # Case x<0: abs(x) = -x, max(x, 0) = 0
-    # we have log(1 + exp(-abs(x))) = log(1 + exp(x)) = log(exp(x)(1 + exp(-x))) = x+log(1 + exp(-x))
-    # plugging it in, we get
-    # 0 - x * y + x + log(1 + exp(-x)), which is also equivalent
-    # Note that this is stable because now the exponent are guaranteed to be below 0.
-    max_val = tl.clamp(inputs, min=0, max=1e9)
-    bce_loss = max_val - inputs * targets + tl.log(1 + tl.exp(-tl.abs(inputs)))
-
-    # Modulating factor
-    p_t = sig * targets + (1 - sig) * inv_targets
-    mod_factor = libdevice.pow(1 - p_t, gamma)
-
-    # Alpha factor
-    alpha_t = alpha * targets + (1 - alpha) * inv_targets
-
-    # Final loss calculation
-    return alpha_t * mod_factor * bce_loss
+# ============================================================================
+# PyTorch-based implementations (for CPU, MPS, and fallback)
+# ============================================================================
 
 
-# Non-reduced version
-@triton.jit
-def sigmoid_focal_loss_fwd_kernel(
-    inputs_ptr,
-    targets_ptr,
-    loss_ptr,
-    alpha: float,
-    gamma: float,
-    n_elements: int,
-    BLOCK_SIZE: tl.constexpr,
-):
-    pid = tl.program_id(axis=0)
-    block_start = pid * BLOCK_SIZE
-    offset = block_start + tl.arange(0, BLOCK_SIZE)
-    mask = offset < n_elements
+def sigmoid_focal_loss_pytorch(
+    inputs: torch.Tensor,
+    targets: torch.Tensor,
+    alpha: float = 0.25,
+    gamma: float = 2.0,
+) -> torch.Tensor:
+    """
+    Pure PyTorch implementation of sigmoid focal loss (no reduction).
 
-    # Load data
-    inputs = tl.load(inputs_ptr + offset, mask=mask).to(tl.float32)
-    targets = tl.load(targets_ptr + offset, mask=mask)
+    Args:
+        inputs: Tensor of any shape, containing logits
+        targets: Tensor of the same shape as inputs, containing float targets
+        alpha: Weighting factor in range (0,1) to balance positive vs negative examples
+        gamma: Exponent of the modulating factor (1 - p_t) ** gamma
 
-    final_loss = _inner_focal_loss_fwd(inputs, targets, alpha, gamma)
+    Returns:
+        Tensor of the same shape as inputs, containing the focal loss for each element
+    """
+    # Compute sigmoid and BCE loss
+    prob = torch.sigmoid(inputs)
+    ce_loss = F.binary_cross_entropy_with_logits(inputs, targets, reduction="none")
 
-    # Store result
-    tl.store(loss_ptr + offset, final_loss, mask=mask)
+    # Compute p_t and alpha_t
+    p_t = prob * targets + (1 - prob) * (1 - targets)
+    alpha_t = alpha * targets + (1 - alpha) * (1 - targets)
 
+    # Compute focal loss
+    focal_weight = (1 - p_t) ** gamma
+    loss = alpha_t * focal_weight * ce_loss
 
-# version with reduction
-@triton.jit
-def sigmoid_focal_loss_fwd_kernel_reduce(
-    inputs_ptr,
-    targets_ptr,
-    loss_ptr,
-    alpha: float,
-    gamma: float,
-    n_elements: int,
-    BLOCK_SIZE: tl.constexpr,
-    REDUCE_SIZE: tl.constexpr,
-):
-    pid = tl.program_id(axis=0)
-    block_start = pid * BLOCK_SIZE
-    reduce_loc = pid % REDUCE_SIZE
-    offset = block_start + tl.arange(0, BLOCK_SIZE)
-    mask = offset < n_elements
-    # Load data
-    inputs = tl.load(inputs_ptr + offset, mask=mask).to(tl.float32)
-    targets = tl.load(targets_ptr + offset, mask=mask)
-
-    final_loss = _inner_focal_loss_fwd(inputs, targets, alpha, gamma) * mask
-
-    fl = tl.sum(final_loss)
-
-    # Store result
-    tl.atomic_add(loss_ptr + reduce_loc, fl)
+    return loss
 
 
-@triton.jit
-def _inner_focal_loss_bwd(inputs, targets, alpha, gamma):
-    inv_targets = 1 - targets
+def sigmoid_focal_loss_reduced_pytorch(
+    inputs: torch.Tensor,
+    targets: torch.Tensor,
+    alpha: float = 0.25,
+    gamma: float = 2.0,
+) -> torch.Tensor:
+    """
+    Pure PyTorch implementation of sigmoid focal loss with sum reduction.
 
-    # Recompute forward
-    max_val = tl.clamp(inputs, min=0, max=1e9)
-    bce_loss = max_val - inputs * targets + tl.log(1 + tl.exp(-tl.abs(inputs)))
+    Args:
+        inputs: Tensor of any shape, containing logits
+        targets: Tensor of the same shape as inputs, containing float targets
+        alpha: Weighting factor in range (0,1) to balance positive vs negative examples
+        gamma: Exponent of the modulating factor (1 - p_t) ** gamma
 
-    # Sigmoid
-    sig = tl.sigmoid(inputs)
-    inv_sig = 1 - sig
-
-    # Modulating factor
-    p_t = sig * targets + inv_sig * inv_targets
-    tmp = libdevice.pow(1 - p_t, gamma - 1)
-    mod_factor = tmp * (1 - p_t)
-
-    # Alpha factor
-    alpha_t = alpha * targets + (1 - alpha) * inv_targets
-
-    # Now computing the derivatives
-    d_pt = (2 * targets - 1) * sig * inv_sig
-    d_mod_factor = -gamma * d_pt * tmp
-
-    d_bce_loss = sig - targets
-
-    return alpha_t * (d_bce_loss * mod_factor + d_mod_factor * bce_loss)
+    Returns:
+        Scalar tensor containing the sum of focal losses
+    """
+    return sigmoid_focal_loss_pytorch(inputs, targets, alpha, gamma).sum()
 
 
-@triton.jit
-def sigmoid_focal_loss_bwd_kernel(
-    inputs_ptr,
-    targets_ptr,
-    grad_inputs_ptr,
-    grad_out_ptr,
-    alpha: float,
-    gamma: float,
-    n_elements: int,
-    BLOCK_SIZE: tl.constexpr,
-):
-    pid = tl.program_id(axis=0)
-    block_start = pid * BLOCK_SIZE
-    offset = block_start + tl.arange(0, BLOCK_SIZE)
-    mask = offset < n_elements
-    input_ptrs = inputs_ptr + offset
-    target_ptrs = targets_ptr + offset
-    grad_input_ptrs = grad_inputs_ptr + offset
-    grad_out_ptrs = grad_out_ptr + offset
-    # Load data
-    inputs = tl.load(input_ptrs, mask=mask).to(tl.float32)
-    targets = tl.load(target_ptrs, mask=mask)
-    grad_out = tl.load(grad_out_ptrs, mask=mask)
-    d_loss = grad_out * _inner_focal_loss_bwd(inputs, targets, alpha, gamma)
-    tl.store(grad_input_ptrs, d_loss, mask=mask)
+# ============================================================================
+# Triton-based implementations (CUDA only)
+# ============================================================================
+
+if HAS_TRITON:
+
+    @triton.jit
+    def _inner_focal_loss_fwd(inputs, targets, alpha, gamma):
+        inv_targets = 1 - targets
+        # Sigmoid
+        sig = tl.sigmoid(inputs)
+
+        # Binary cross entropy with logits
+        # In practice, we want the following:
+        # bce_loss = -targets * tl.log(sig) - (1 - targets) * tl.log(1 - sig)
+        # However, the above is not numerically stable.
+        # We're also not directly taking the sum here, so the usual log-sum-exp trick doesn't apply
+        # The bce can be reformulated, after algebraic manipulation, to
+        # bce_loss = log(1 + exp(-x)) + x * (1-y)
+        # This is still not stable, because for large (-x) the exponential will blow up.
+        # We'll use the following alternate formulation:
+        # bce_loss = max(x, 0) - x * y + log(1 + exp(-abs(x)))
+        # Let's show that it's equivalent:
+        # Case x>=0: abs(x) = x , max(x, 0) = x
+        # so we get x - x * y + log(1 + exp(-x)) which is equivalent
+        # Case x<0: abs(x) = -x, max(x, 0) = 0
+        # we have log(1 + exp(-abs(x))) = log(1 + exp(x)) = log(exp(x)(1 + exp(-x))) = x+log(1 + exp(-x))
+        # plugging it in, we get
+        # 0 - x * y + x + log(1 + exp(-x)), which is also equivalent
+        # Note that this is stable because now the exponent are guaranteed to be below 0.
+        max_val = tl.clamp(inputs, min=0, max=1e9)
+        bce_loss = max_val - inputs * targets + tl.log(1 + tl.exp(-tl.abs(inputs)))
+
+        # Modulating factor
+        p_t = sig * targets + (1 - sig) * inv_targets
+        mod_factor = libdevice.pow(1 - p_t, gamma)
+
+        # Alpha factor
+        alpha_t = alpha * targets + (1 - alpha) * inv_targets
+
+        # Final loss calculation
+        return alpha_t * mod_factor * bce_loss
+
+    # Non-reduced version
+    @triton.jit
+    def sigmoid_focal_loss_fwd_kernel(
+        inputs_ptr,
+        targets_ptr,
+        loss_ptr,
+        alpha: float,
+        gamma: float,
+        n_elements: int,
+        BLOCK_SIZE: tl.constexpr,
+    ):
+        pid = tl.program_id(axis=0)
+        block_start = pid * BLOCK_SIZE
+        offset = block_start + tl.arange(0, BLOCK_SIZE)
+        mask = offset < n_elements
+
+        # Load data
+        inputs = tl.load(inputs_ptr + offset, mask=mask).to(tl.float32)
+        targets = tl.load(targets_ptr + offset, mask=mask)
+
+        final_loss = _inner_focal_loss_fwd(inputs, targets, alpha, gamma)
+
+        # Store result
+        tl.store(loss_ptr + offset, final_loss, mask=mask)
+
+    # version with reduction
+    @triton.jit
+    def sigmoid_focal_loss_fwd_kernel_reduce(
+        inputs_ptr,
+        targets_ptr,
+        loss_ptr,
+        alpha: float,
+        gamma: float,
+        n_elements: int,
+        BLOCK_SIZE: tl.constexpr,
+        REDUCE_SIZE: tl.constexpr,
+    ):
+        pid = tl.program_id(axis=0)
+        block_start = pid * BLOCK_SIZE
+        reduce_loc = pid % REDUCE_SIZE
+        offset = block_start + tl.arange(0, BLOCK_SIZE)
+        mask = offset < n_elements
+        # Load data
+        inputs = tl.load(inputs_ptr + offset, mask=mask).to(tl.float32)
+        targets = tl.load(targets_ptr + offset, mask=mask)
+
+        final_loss = _inner_focal_loss_fwd(inputs, targets, alpha, gamma) * mask
+
+        fl = tl.sum(final_loss)
+
+        # Store result
+        tl.atomic_add(loss_ptr + reduce_loc, fl)
+
+    @triton.jit
+    def _inner_focal_loss_bwd(inputs, targets, alpha, gamma):
+        inv_targets = 1 - targets
+
+        # Recompute forward
+        max_val = tl.clamp(inputs, min=0, max=1e9)
+        bce_loss = max_val - inputs * targets + tl.log(1 + tl.exp(-tl.abs(inputs)))
+
+        # Sigmoid
+        sig = tl.sigmoid(inputs)
+        inv_sig = 1 - sig
+
+        # Modulating factor
+        p_t = sig * targets + inv_sig * inv_targets
+        tmp = libdevice.pow(1 - p_t, gamma - 1)
+        mod_factor = tmp * (1 - p_t)
+
+        # Alpha factor
+        alpha_t = alpha * targets + (1 - alpha) * inv_targets
+
+        # Now computing the derivatives
+        d_pt = (2 * targets - 1) * sig * inv_sig
+        d_mod_factor = -gamma * d_pt * tmp
+
+        d_bce_loss = sig - targets
+
+        return alpha_t * (d_bce_loss * mod_factor + d_mod_factor * bce_loss)
+
+    @triton.jit
+    def sigmoid_focal_loss_bwd_kernel(
+        inputs_ptr,
+        targets_ptr,
+        grad_inputs_ptr,
+        grad_out_ptr,
+        alpha: float,
+        gamma: float,
+        n_elements: int,
+        BLOCK_SIZE: tl.constexpr,
+    ):
+        pid = tl.program_id(axis=0)
+        block_start = pid * BLOCK_SIZE
+        offset = block_start + tl.arange(0, BLOCK_SIZE)
+        mask = offset < n_elements
+        input_ptrs = inputs_ptr + offset
+        target_ptrs = targets_ptr + offset
+        grad_input_ptrs = grad_inputs_ptr + offset
+        grad_out_ptrs = grad_out_ptr + offset
+        # Load data
+        inputs = tl.load(input_ptrs, mask=mask).to(tl.float32)
+        targets = tl.load(target_ptrs, mask=mask)
+        grad_out = tl.load(grad_out_ptrs, mask=mask)
+        d_loss = grad_out * _inner_focal_loss_bwd(inputs, targets, alpha, gamma)
+        tl.store(grad_input_ptrs, d_loss, mask=mask)
+
+    @triton.jit
+    def sigmoid_focal_loss_bwd_kernel_reduce(
+        inputs_ptr,
+        targets_ptr,
+        grad_inputs_ptr,
+        grad_out_ptr,
+        alpha: float,
+        gamma: float,
+        n_elements: int,
+        BLOCK_SIZE: tl.constexpr,
+    ):
+        # The only difference is that the gradient is now a single scalar
+        pid = tl.program_id(axis=0)
+        block_start = pid * BLOCK_SIZE
+        offset = block_start + tl.arange(0, BLOCK_SIZE)
+        mask = offset < n_elements
+        input_ptrs = inputs_ptr + offset
+        target_ptrs = targets_ptr + offset
+        grad_input_ptrs = grad_inputs_ptr + offset
+        # Load data
+        inputs = tl.load(input_ptrs, mask=mask).to(tl.float32)
+        targets = tl.load(target_ptrs, mask=mask)
+        grad_out = tl.load(grad_out_ptr)
+        d_loss = grad_out * _inner_focal_loss_bwd(inputs, targets, alpha, gamma)
+        tl.store(grad_input_ptrs, d_loss, mask=mask)
+
+    class SigmoidFocalLossTriton(torch.autograd.Function):
+        BLOCK_SIZE = 256
+
+        @staticmethod
+        def forward(ctx, inputs, targets, alpha=0.25, gamma=2):
+            n_elements = inputs.numel()
+            assert targets.numel() == n_elements
+            input_shape = inputs.shape
+            inputs = inputs.view(-1).contiguous()
+            targets = targets.view(-1).contiguous()
+            loss = torch.empty(inputs.shape, dtype=torch.float32, device=inputs.device)
+            grid = lambda meta: (triton.cdiv(n_elements, meta["BLOCK_SIZE"]),)
+            sigmoid_focal_loss_fwd_kernel[grid](
+                inputs,
+                targets,
+                loss,
+                alpha,
+                gamma,
+                n_elements,
+                SigmoidFocalLossTriton.BLOCK_SIZE,
+            )
+            ctx.save_for_backward(inputs.view(input_shape), targets.view(input_shape))
+            ctx.alpha = alpha
+            ctx.gamma = gamma
+            return loss.view(input_shape)
+
+        @staticmethod
+        def backward(ctx, grad_output):
+            inputs, targets = ctx.saved_tensors
+            alpha = ctx.alpha
+            gamma = ctx.gamma
+            n_elements = inputs.numel()
+            input_shape = inputs.shape
+            grad_inputs = torch.empty(
+                inputs.shape, dtype=grad_output.dtype, device=grad_output.device
+            )
+            inputs_ptr = inputs.view(-1).contiguous()
+            targets_ptr = targets.view(-1).contiguous()
+            grad_output_ptr = grad_output.view(-1).contiguous()
+            grad_inputs_ptr = grad_inputs
+            assert grad_output.numel() == n_elements
+            grid = lambda meta: (triton.cdiv(n_elements, meta["BLOCK_SIZE"]),)
+            sigmoid_focal_loss_bwd_kernel[grid](
+                inputs_ptr,
+                targets_ptr,
+                grad_inputs_ptr,
+                grad_output_ptr,
+                alpha,
+                gamma,
+                n_elements,
+                SigmoidFocalLossTriton.BLOCK_SIZE,
+            )
+            return grad_inputs.view(input_shape), None, None, None
+
+    class SigmoidFocalLossReducedTriton(torch.autograd.Function):
+        BLOCK_SIZE = 256
+        REDUCE_SIZE = 32
+
+        @staticmethod
+        def forward(ctx, inputs, targets, alpha=0.25, gamma=2):
+            n_elements = inputs.numel()
+            input_shape = inputs.shape
+            inputs = inputs.view(-1).contiguous()
+            targets = targets.view(-1).contiguous()
+            loss = torch.zeros(
+                SigmoidFocalLossReducedTriton.REDUCE_SIZE,
+                device=inputs.device,
+                dtype=torch.float32,
+            )
+            grid = lambda meta: (triton.cdiv(n_elements, meta["BLOCK_SIZE"]),)
+            sigmoid_focal_loss_fwd_kernel_reduce[grid](
+                inputs,
+                targets,
+                loss,
+                alpha,
+                gamma,
+                n_elements,
+                SigmoidFocalLossReducedTriton.BLOCK_SIZE,
+                SigmoidFocalLossReducedTriton.REDUCE_SIZE,
+            )
+            ctx.save_for_backward(inputs.view(input_shape), targets.view(input_shape))
+            ctx.alpha = alpha
+            ctx.gamma = gamma
+            return loss.sum()
+
+        @staticmethod
+        def backward(ctx, grad_output):
+            inputs, targets = ctx.saved_tensors
+            alpha = ctx.alpha
+            gamma = ctx.gamma
+            n_elements = inputs.numel()
+            input_shape = inputs.shape
+            grad_inputs = torch.empty(
+                inputs.shape, dtype=grad_output.dtype, device=grad_output.device
+            )
+            inputs_ptr = inputs.view(-1).contiguous()
+            targets_ptr = targets.reshape(-1).contiguous()
+            assert grad_output.numel() == 1
+            grid = lambda meta: (triton.cdiv(n_elements, meta["BLOCK_SIZE"]),)
+            sigmoid_focal_loss_bwd_kernel_reduce[grid](
+                inputs_ptr,
+                targets_ptr,
+                grad_inputs,
+                grad_output,
+                alpha,
+                gamma,
+                n_elements,
+                SigmoidFocalLossReducedTriton.BLOCK_SIZE,
+            )
+            return grad_inputs.view(input_shape), None, None, None
 
 
-@triton.jit
-def sigmoid_focal_loss_bwd_kernel_reduce(
-    inputs_ptr,
-    targets_ptr,
-    grad_inputs_ptr,
-    grad_out_ptr,
-    alpha: float,
-    gamma: float,
-    n_elements: int,
-    BLOCK_SIZE: tl.constexpr,
-):
-    # The only difference is that the gradient is now a single scalar
-    pid = tl.program_id(axis=0)
-    block_start = pid * BLOCK_SIZE
-    offset = block_start + tl.arange(0, BLOCK_SIZE)
-    mask = offset < n_elements
-    input_ptrs = inputs_ptr + offset
-    target_ptrs = targets_ptr + offset
-    grad_input_ptrs = grad_inputs_ptr + offset
-    # Load data
-    inputs = tl.load(input_ptrs, mask=mask).to(tl.float32)
-    targets = tl.load(target_ptrs, mask=mask)
-    grad_out = tl.load(grad_out_ptr)
-    d_loss = grad_out * _inner_focal_loss_bwd(inputs, targets, alpha, gamma)
-    tl.store(grad_input_ptrs, d_loss, mask=mask)
+# ============================================================================
+# Public API - automatically selects best implementation
+# ============================================================================
 
 
-class SigmoidFocalLoss(torch.autograd.Function):
-    BLOCK_SIZE = 256
+def sigmoid_focal_loss(
+    inputs: torch.Tensor,
+    targets: torch.Tensor,
+    alpha: float = 0.25,
+    gamma: float = 2.0,
+) -> torch.Tensor:
+    """
+    Sigmoid focal loss without reduction.
 
-    @staticmethod
-    def forward(ctx, inputs, targets, alpha=0.25, gamma=2):
-        n_elements = inputs.numel()
-        assert targets.numel() == n_elements
-        input_shape = inputs.shape
-        inputs = inputs.view(-1).contiguous()
-        targets = targets.view(-1).contiguous()
-        loss = torch.empty(inputs.shape, dtype=torch.float32, device=inputs.device)
-        grid = lambda meta: (triton.cdiv(n_elements, meta["BLOCK_SIZE"]),)
-        sigmoid_focal_loss_fwd_kernel[grid](
-            inputs, targets, loss, alpha, gamma, n_elements, SigmoidFocalLoss.BLOCK_SIZE
-        )
-        ctx.save_for_backward(inputs.view(input_shape), targets.view(input_shape))
-        ctx.alpha = alpha
-        ctx.gamma = gamma
-        return loss.view(input_shape)
+    Uses Triton kernel on CUDA when available, falls back to PyTorch otherwise.
 
-    @staticmethod
-    def backward(ctx, grad_output):
-        inputs, targets = ctx.saved_tensors
-        alpha = ctx.alpha
-        gamma = ctx.gamma
-        n_elements = inputs.numel()
-        input_shape = inputs.shape
-        grad_inputs = torch.empty(
-            inputs.shape, dtype=grad_output.dtype, device=grad_output.device
-        )
-        inputs_ptr = inputs.view(-1).contiguous()
-        targets_ptr = targets.view(-1).contiguous()
-        grad_output_ptr = grad_output.view(-1).contiguous()
-        grad_inputs_ptr = grad_inputs
-        assert grad_output.numel() == n_elements
-        grid = lambda meta: (triton.cdiv(n_elements, meta["BLOCK_SIZE"]),)
-        sigmoid_focal_loss_bwd_kernel[grid](
-            inputs_ptr,
-            targets_ptr,
-            grad_inputs_ptr,
-            grad_output_ptr,
-            alpha,
-            gamma,
-            n_elements,
-            SigmoidFocalLoss.BLOCK_SIZE,
-        )
-        return grad_inputs.view(input_shape), None, None, None
+    Args:
+        inputs: Tensor of any shape, containing logits
+        targets: Tensor of the same shape as inputs, containing float targets
+        alpha: Weighting factor in range (0,1) to balance positive vs negative examples
+        gamma: Exponent of the modulating factor (1 - p_t) ** gamma
+
+    Returns:
+        Tensor of the same shape as inputs, containing the focal loss for each element
+    """
+    if HAS_TRITON and inputs.is_cuda:
+        return SigmoidFocalLossTriton.apply(inputs, targets, alpha, gamma)
+    else:
+        return sigmoid_focal_loss_pytorch(inputs, targets, alpha, gamma)
 
 
-triton_sigmoid_focal_loss = SigmoidFocalLoss.apply
+def sigmoid_focal_loss_reduce(
+    inputs: torch.Tensor,
+    targets: torch.Tensor,
+    alpha: float = 0.25,
+    gamma: float = 2.0,
+) -> torch.Tensor:
+    """
+    Sigmoid focal loss with sum reduction.
+
+    Uses Triton kernel on CUDA when available, falls back to PyTorch otherwise.
+
+    Args:
+        inputs: Tensor of any shape, containing logits
+        targets: Tensor of the same shape as inputs, containing float targets
+        alpha: Weighting factor in range (0,1) to balance positive vs negative examples
+        gamma: Exponent of the modulating factor (1 - p_t) ** gamma
+
+    Returns:
+        Scalar tensor containing the sum of focal losses
+    """
+    if HAS_TRITON and inputs.is_cuda:
+        return SigmoidFocalLossReducedTriton.apply(inputs, targets, alpha, gamma)
+    else:
+        return sigmoid_focal_loss_reduced_pytorch(inputs, targets, alpha, gamma)
 
 
-class SigmoidFocalLossReduced(torch.autograd.Function):
-    BLOCK_SIZE = 256
-    REDUCE_SIZE = 32
-
-    @staticmethod
-    def forward(ctx, inputs, targets, alpha=0.25, gamma=2):
-        n_elements = inputs.numel()
-        input_shape = inputs.shape
-        inputs = inputs.view(-1).contiguous()
-        targets = targets.view(-1).contiguous()
-        loss = torch.zeros(
-            SigmoidFocalLossReduced.REDUCE_SIZE,
-            device=inputs.device,
-            dtype=torch.float32,
-        )
-        grid = lambda meta: (triton.cdiv(n_elements, meta["BLOCK_SIZE"]),)
-        sigmoid_focal_loss_fwd_kernel_reduce[grid](
-            inputs,
-            targets,
-            loss,
-            alpha,
-            gamma,
-            n_elements,
-            SigmoidFocalLossReduced.BLOCK_SIZE,
-            SigmoidFocalLossReduced.REDUCE_SIZE,
-        )
-        ctx.save_for_backward(inputs.view(input_shape), targets.view(input_shape))
-        ctx.alpha = alpha
-        ctx.gamma = gamma
-        return loss.sum()
-
-    @staticmethod
-    def backward(ctx, grad_output):
-        inputs, targets = ctx.saved_tensors
-        alpha = ctx.alpha
-        gamma = ctx.gamma
-        n_elements = inputs.numel()
-        input_shape = inputs.shape
-        grad_inputs = torch.empty(
-            inputs.shape, dtype=grad_output.dtype, device=grad_output.device
-        )
-        inputs_ptr = inputs.view(-1).contiguous()
-        targets_ptr = targets.reshape(-1).contiguous()
-        assert grad_output.numel() == 1
-        grid = lambda meta: (triton.cdiv(n_elements, meta["BLOCK_SIZE"]),)
-        sigmoid_focal_loss_bwd_kernel_reduce[grid](
-            inputs_ptr,
-            targets_ptr,
-            grad_inputs,
-            grad_output,
-            alpha,
-            gamma,
-            n_elements,
-            SigmoidFocalLossReduced.BLOCK_SIZE,
-        )
-        return grad_inputs.view(input_shape), None, None, None
-
-
-triton_sigmoid_focal_loss_reduce = SigmoidFocalLossReduced.apply
+# Legacy aliases for backward compatibility
+triton_sigmoid_focal_loss = sigmoid_focal_loss
+triton_sigmoid_focal_loss_reduce = sigmoid_focal_loss_reduce
