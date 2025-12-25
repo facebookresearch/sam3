@@ -371,6 +371,117 @@ class CommandCenter:
         self.pending_point_prompt = None  # (x, y) for point prompt
         self.draw_mode = None  # 'box' or 'point'
 
+        # ===== NAVIGATION SYSTEM (Accessibility) =====
+        self.navigation_active = False
+        self.navigation_target = None  # Target object label
+        self.navigation_target_id = None  # Target detection ID
+        self.navigation_start_time = None
+        self.navigation_last_seen = None  # Last position of target
+        self.navigation_guidance_queue = deque(maxlen=10)  # Pending guidance messages
+        self.navigation_last_guidance = None  # Last spoken guidance
+        self.navigation_last_guidance_time = 0
+        self.navigation_guidance_interval = 1.5  # Seconds between guidance
+        self.navigation_reached = False  # Whether target was reached
+        self.navigation_context = None  # Scene context from Claude
+
+        # Navigation spatial tracking
+        self.navigation_target_history = []  # History of target positions
+        self.navigation_frame_center = (320, 240)  # Frame center (updated dynamically)
+        self.navigation_proximity_threshold = 0.25  # Object covers 25% of frame = reachable
+        self.navigation_close_threshold = 0.15  # Getting close
+        self.navigation_direction_deadzone = 0.1  # Center deadzone
+
+        # ===== LOCATION MEMORY (Persistent) =====
+        self.location_memory = {}  # label -> list of {location, context, timestamp, frequency}
+        self.location_memory_file = os.path.join(os.path.dirname(__file__), '.location_memory.json')
+        self._load_location_memory()
+
+    def _load_location_memory(self):
+        """Load location memory from file."""
+        try:
+            if os.path.exists(self.location_memory_file):
+                with open(self.location_memory_file, 'r') as f:
+                    self.location_memory = json.load(f)
+                print(f"Loaded location memory: {len(self.location_memory)} items")
+        except Exception as e:
+            print(f"Could not load location memory: {e}")
+            self.location_memory = {}
+
+    def _save_location_memory(self):
+        """Save location memory to file."""
+        try:
+            with open(self.location_memory_file, 'w') as f:
+                json.dump(self.location_memory, f, indent=2)
+        except Exception as e:
+            print(f"Could not save location memory: {e}")
+
+    def remember_location(self, label: str, context: str, position: Dict = None):
+        """Remember where an object was found."""
+        label_key = label.lower().strip()
+        timestamp = datetime.now().isoformat()
+
+        if label_key not in self.location_memory:
+            self.location_memory[label_key] = []
+
+        # Add new memory entry
+        entry = {
+            "context": context,
+            "timestamp": timestamp,
+            "position": position,
+            "frequency": 1
+        }
+
+        # Check if similar context exists, update frequency
+        for existing in self.location_memory[label_key]:
+            if existing.get("context", "").lower() == context.lower():
+                existing["frequency"] = existing.get("frequency", 1) + 1
+                existing["timestamp"] = timestamp
+                existing["position"] = position
+                break
+        else:
+            self.location_memory[label_key].append(entry)
+
+        # Keep only last 10 entries per item
+        self.location_memory[label_key] = self.location_memory[label_key][-10:]
+
+        self._save_location_memory()
+        self.log(f"Remembered: {label} found in {context}")
+
+    def recall_location(self, label: str) -> Optional[Dict]:
+        """Recall where an object was last found."""
+        label_key = label.lower().strip()
+
+        if label_key not in self.location_memory:
+            return None
+
+        entries = self.location_memory[label_key]
+        if not entries:
+            return None
+
+        # Return most frequent location, or most recent
+        sorted_entries = sorted(entries, key=lambda x: (x.get("frequency", 1), x.get("timestamp", "")), reverse=True)
+        return sorted_entries[0]
+
+    def add_navigation_guidance(self, message: str, priority: int = 1):
+        """Add a guidance message to the queue."""
+        with self.lock:
+            self.navigation_guidance_queue.append({
+                "message": message,
+                "priority": priority,
+                "timestamp": time.time()
+            })
+
+    def get_pending_guidance(self) -> Optional[str]:
+        """Get the next pending guidance message."""
+        with self.lock:
+            if self.navigation_guidance_queue:
+                # Get highest priority message
+                sorted_queue = sorted(self.navigation_guidance_queue, key=lambda x: -x["priority"])
+                msg = sorted_queue[0]
+                self.navigation_guidance_queue.remove(msg)
+                return msg["message"]
+        return None
+
     def add_voice_feedback(self, message: str, msg_type: str = "info"):
         """Add a voice feedback message."""
         with self.lock:
@@ -655,6 +766,267 @@ def describe_image_with_claude(image_data: str) -> Optional[str]:
     except Exception as e:
         cc.log(f"Failed to describe image with Claude: {e}", "ERROR")
         return None
+
+
+# ===== NAVIGATION SYSTEM FUNCTIONS =====
+
+def analyze_scene_context(image_data: str) -> Optional[Dict]:
+    """
+    Use Claude to analyze the scene for navigation context.
+    Returns location type, obstacles, and spatial awareness info.
+    """
+    global ANTHROPIC_API_KEY
+
+    if not ANTHROPIC_API_KEY:
+        return None
+
+    try:
+        import anthropic
+
+        client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+
+        message = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=300,
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": "image/jpeg",
+                                "data": image_data,
+                            },
+                        },
+                        {
+                            "type": "text",
+                            "text": """Analyze this scene for navigation assistance. Return JSON only:
+{
+    "location": "room type (kitchen, living room, bedroom, bathroom, office, hallway, outdoor, etc.)",
+    "obstacles": ["list of obstacles or hazards visible"],
+    "surfaces": ["tables, counters, shelves visible"],
+    "lighting": "bright/dim/dark",
+    "space": "open/cluttered/narrow",
+    "landmarks": ["notable items that help orient"]
+}"""
+                        }
+                    ],
+                }
+            ],
+        )
+
+        response_text = message.content[0].text.strip()
+
+        # Parse JSON
+        if "```json" in response_text:
+            response_text = response_text.split("```json")[1].split("```")[0].strip()
+        elif "```" in response_text:
+            response_text = response_text.split("```")[1].split("```")[0].strip()
+
+        return json.loads(response_text)
+
+    except Exception as e:
+        cc.log(f"Scene analysis failed: {e}", "WARN")
+        return None
+
+
+def compute_navigation_guidance(target_box: List[float], frame_shape: Tuple[int, int]) -> Dict:
+    """
+    Compute navigation guidance based on target position in frame.
+
+    Returns:
+        direction: 'left', 'right', 'center', 'up', 'down'
+        distance: 'far', 'medium', 'close', 'reachable'
+        guidance_text: Human-readable guidance
+        arrow_angle: Angle for AR arrow (degrees)
+        confidence: How confident we are in the guidance
+    """
+    global cc
+
+    if not target_box:
+        return {
+            "direction": "unknown",
+            "distance": "unknown",
+            "guidance_text": "Looking for target...",
+            "arrow_angle": 0,
+            "confidence": 0
+        }
+
+    h, w = frame_shape[:2]
+    x1, y1, x2, y2 = target_box
+
+    # Object center
+    obj_center_x = (x1 + x2) / 2
+    obj_center_y = (y1 + y2) / 2
+
+    # Frame center
+    frame_center_x = w / 2
+    frame_center_y = h / 2
+
+    # Normalized position (-1 to 1, 0 = center)
+    norm_x = (obj_center_x - frame_center_x) / (w / 2)
+    norm_y = (obj_center_y - frame_center_y) / (h / 2)
+
+    # Object size relative to frame
+    obj_width = x2 - x1
+    obj_height = y2 - y1
+    obj_area_ratio = (obj_width * obj_height) / (w * h)
+
+    # Determine direction
+    deadzone = cc.navigation_direction_deadzone
+
+    if abs(norm_x) < deadzone and abs(norm_y) < deadzone:
+        direction = "center"
+        h_dir = ""
+    elif abs(norm_x) > abs(norm_y):
+        direction = "right" if norm_x > 0 else "left"
+        h_dir = direction
+    else:
+        direction = "down" if norm_y > 0 else "up"
+        h_dir = ""
+
+    # Secondary direction
+    if direction in ["center"]:
+        secondary = ""
+    elif direction in ["left", "right"]:
+        if norm_y < -deadzone:
+            secondary = " and up"
+        elif norm_y > deadzone:
+            secondary = " and down"
+        else:
+            secondary = ""
+    else:
+        if norm_x < -deadzone:
+            secondary = " and left"
+        elif norm_x > deadzone:
+            secondary = " and right"
+        else:
+            secondary = ""
+
+    # Determine distance based on object size
+    if obj_area_ratio >= cc.navigation_proximity_threshold:
+        distance = "reachable"
+    elif obj_area_ratio >= cc.navigation_close_threshold:
+        distance = "close"
+    elif obj_area_ratio >= 0.05:
+        distance = "medium"
+    else:
+        distance = "far"
+
+    # Calculate arrow angle (0 = up, 90 = right, etc.)
+    import math
+    arrow_angle = math.degrees(math.atan2(norm_x, -norm_y))
+
+    # Generate guidance text
+    if distance == "reachable":
+        if direction == "center":
+            guidance_text = "Object is directly in front of you, within reach!"
+        else:
+            guidance_text = f"Object is within reach, slightly to the {direction}{secondary}"
+    elif distance == "close":
+        if direction == "center":
+            guidance_text = "Almost there! Object is straight ahead, getting close"
+        else:
+            guidance_text = f"Getting close! Turn {direction}{secondary}"
+    elif distance == "medium":
+        if direction == "center":
+            guidance_text = "Keep moving forward, object ahead"
+        else:
+            guidance_text = f"Object is to the {direction}{secondary}, move that way"
+    else:  # far
+        if direction == "center":
+            guidance_text = "Object detected ahead, continue forward"
+        else:
+            guidance_text = f"Object is far to the {direction}{secondary}"
+
+    return {
+        "direction": direction,
+        "secondary": secondary.strip(),
+        "distance": distance,
+        "guidance_text": guidance_text,
+        "arrow_angle": arrow_angle,
+        "norm_x": norm_x,
+        "norm_y": norm_y,
+        "obj_area_ratio": obj_area_ratio,
+        "confidence": min(1.0, obj_area_ratio * 10 + 0.5)  # Higher for larger objects
+    }
+
+
+def get_navigation_status() -> Dict:
+    """Get current navigation status and guidance."""
+    global cc
+
+    if not cc.navigation_active:
+        return {
+            "active": False,
+            "target": None,
+            "guidance": None
+        }
+
+    # Find target in current detections
+    target_detection = None
+    for det in cc.current_detections:
+        if det.get("label", "").lower() == cc.navigation_target.lower():
+            target_detection = det
+            break
+        if cc.navigation_target_id is not None and det.get("id") == cc.navigation_target_id:
+            target_detection = det
+            break
+
+    if target_detection:
+        cc.navigation_last_seen = target_detection
+        box = target_detection.get("box")
+
+        if cc.current_raw_frame is not None:
+            frame_shape = cc.current_raw_frame.shape
+        else:
+            frame_shape = (480, 640)
+
+        guidance = compute_navigation_guidance(box, frame_shape)
+
+        # Check if reached
+        if guidance["distance"] == "reachable" and not cc.navigation_reached:
+            cc.navigation_reached = True
+            guidance["reached"] = True
+            guidance["guidance_text"] = f"You've reached the {cc.navigation_target}! It's right in front of you."
+
+        return {
+            "active": True,
+            "target": cc.navigation_target,
+            "target_visible": True,
+            "guidance": guidance,
+            "reached": cc.navigation_reached,
+            "context": cc.navigation_context,
+            "duration": time.time() - cc.navigation_start_time if cc.navigation_start_time else 0
+        }
+    else:
+        # Target not currently visible
+        last_guidance = None
+        if cc.navigation_last_seen:
+            box = cc.navigation_last_seen.get("box")
+            if box:
+                frame_shape = (480, 640)
+                if cc.current_raw_frame is not None:
+                    frame_shape = cc.current_raw_frame.shape
+                last_guidance = compute_navigation_guidance(box, frame_shape)
+                last_guidance["guidance_text"] = f"Lost sight of {cc.navigation_target}. Last seen to the {last_guidance['direction']}"
+
+        return {
+            "active": True,
+            "target": cc.navigation_target,
+            "target_visible": False,
+            "guidance": last_guidance or {
+                "direction": "unknown",
+                "distance": "unknown",
+                "guidance_text": f"Looking for {cc.navigation_target}... Turn slowly to scan the area",
+                "arrow_angle": 0
+            },
+            "reached": False,
+            "context": cc.navigation_context,
+            "searching": True
+        }
 
 
 def get_coco_class_for_label(sam3_label: str) -> Optional[int]:
@@ -2828,6 +3200,178 @@ def api_clear_draw_prompt():
     return jsonify({"success": True})
 
 
+# ===== NAVIGATION SYSTEM API =====
+
+@app.route('/api/navigation/start', methods=['POST'])
+def api_navigation_start():
+    """Start navigation to a detected object."""
+    global cc
+
+    data = request.json
+    target_label = data.get("label")
+    target_id = data.get("detection_id")
+
+    if not target_label and target_id is None:
+        return jsonify({"success": False, "error": "No target specified"})
+
+    # Check for location memory first
+    memory = cc.recall_location(target_label) if target_label else None
+    memory_hint = None
+    if memory:
+        memory_hint = f"I remember finding {target_label} in the {memory.get('context', 'unknown location')} before."
+
+    cc.navigation_active = True
+    cc.navigation_target = target_label
+    cc.navigation_target_id = target_id
+    cc.navigation_start_time = time.time()
+    cc.navigation_last_seen = None
+    cc.navigation_reached = False
+    cc.navigation_target_history = []
+
+    # Analyze scene context
+    if cc.current_raw_frame is not None:
+        try:
+            _, buffer = cv2.imencode('.jpg', cc.current_raw_frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
+            image_data = base64.b64encode(buffer).decode('utf-8')
+            cc.navigation_context = analyze_scene_context(image_data)
+        except Exception as e:
+            cc.log(f"Scene context analysis failed: {e}", "WARN")
+            cc.navigation_context = None
+
+    cc.log(f"Navigation started: looking for '{target_label}'", "SUCCESS")
+
+    # Initial message
+    location = cc.navigation_context.get("location", "this area") if cc.navigation_context else "this area"
+    initial_message = f"Starting navigation to find {target_label}. You appear to be in {location}."
+    if memory_hint:
+        initial_message += f" {memory_hint}"
+
+    return jsonify({
+        "success": True,
+        "target": target_label,
+        "initial_message": initial_message,
+        "memory_hint": memory_hint,
+        "context": cc.navigation_context
+    })
+
+
+@app.route('/api/navigation/stop', methods=['POST'])
+def api_navigation_stop():
+    """Stop navigation."""
+    global cc
+
+    was_active = cc.navigation_active
+    target = cc.navigation_target
+
+    # If we reached the target, remember its location
+    if cc.navigation_reached and cc.navigation_context and target:
+        location = cc.navigation_context.get("location", "unknown location")
+        cc.remember_location(target, location)
+
+    cc.navigation_active = False
+    cc.navigation_target = None
+    cc.navigation_target_id = None
+    cc.navigation_start_time = None
+    cc.navigation_last_seen = None
+    cc.navigation_reached = False
+    cc.navigation_context = None
+    cc.navigation_target_history = []
+
+    if was_active:
+        cc.log(f"Navigation ended for '{target}'")
+
+    return jsonify({"success": True})
+
+
+@app.route('/api/navigation/status')
+def api_navigation_status():
+    """Get current navigation status and guidance."""
+    status = get_navigation_status()
+
+    # Add TTS guidance if needed
+    if status.get("active") and status.get("guidance"):
+        current_time = time.time()
+        guidance_text = status["guidance"].get("guidance_text", "")
+
+        # Only speak if enough time has passed and guidance changed
+        if (current_time - cc.navigation_last_guidance_time > cc.navigation_guidance_interval and
+            guidance_text != cc.navigation_last_guidance):
+            status["speak_guidance"] = True
+            cc.navigation_last_guidance = guidance_text
+            cc.navigation_last_guidance_time = current_time
+        else:
+            status["speak_guidance"] = False
+
+    return jsonify(status)
+
+
+@app.route('/api/navigation/analyze_scene', methods=['POST'])
+def api_navigation_analyze_scene():
+    """Analyze current scene for navigation context."""
+    global cc
+
+    if cc.current_raw_frame is None:
+        return jsonify({"success": False, "error": "No frame available"})
+
+    try:
+        _, buffer = cv2.imencode('.jpg', cc.current_raw_frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
+        image_data = base64.b64encode(buffer).decode('utf-8')
+        context = analyze_scene_context(image_data)
+
+        if context:
+            cc.navigation_context = context
+            return jsonify({"success": True, "context": context})
+        else:
+            return jsonify({"success": False, "error": "Analysis failed"})
+
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
+
+@app.route('/api/location_memory')
+def api_location_memory():
+    """Get stored location memory."""
+    return jsonify({
+        "success": True,
+        "memory": cc.location_memory
+    })
+
+
+@app.route('/api/location_memory/recall', methods=['POST'])
+def api_recall_location():
+    """Recall where an object was last found."""
+    data = request.json
+    label = data.get("label", "")
+
+    memory = cc.recall_location(label)
+
+    if memory:
+        return jsonify({
+            "success": True,
+            "found": True,
+            "label": label,
+            "location": memory.get("context"),
+            "frequency": memory.get("frequency", 1),
+            "last_seen": memory.get("timestamp")
+        })
+    else:
+        return jsonify({
+            "success": True,
+            "found": False,
+            "label": label,
+            "message": f"No memory of where {label} was found"
+        })
+
+
+@app.route('/api/location_memory/clear', methods=['POST'])
+def api_clear_location_memory():
+    """Clear location memory."""
+    cc.location_memory = {}
+    cc._save_location_memory()
+    cc.log("Location memory cleared")
+    return jsonify({"success": True})
+
+
 def generate_self_signed_cert(cert_dir: str = None) -> Tuple[str, str]:
     """Generate a self-signed SSL certificate for HTTPS."""
     try:
@@ -2927,7 +3471,7 @@ def main():
     parser.add_argument("--no-tracking", action="store_true", help="Disable optical flow tracking")
     parser.add_argument("--no-yolo", action="store_true", help="Disable YOLO models")
     parser.add_argument("--api-key", type=str, default=None, help="Anthropic API key (or set ANTHROPIC_API_KEY env var)")
-    parser.add_argument("--https", action="store_true", help="Enable HTTPS (required for microphone access)")
+    parser.add_argument("--no-https", action="store_true", help="Disable HTTPS (not recommended - microphone won't work)")
     parser.add_argument("--ssl-cert", type=str, default=None, help="Path to SSL certificate file")
     parser.add_argument("--ssl-key", type=str, default=None, help="Path to SSL private key file")
 
@@ -2991,11 +3535,11 @@ def main():
     print(f"SAM3 Web Command Center")
     print(f"{'='*50}")
 
-    # Setup SSL if requested
+    # Setup SSL (HTTPS is default, use --no-https to disable)
     ssl_context = None
     protocol = "http"
 
-    if args.https:
+    if not args.no_https:
         if args.ssl_cert and args.ssl_key:
             # Use provided certificates
             if os.path.exists(args.ssl_cert) and os.path.exists(args.ssl_key):
@@ -3017,14 +3561,17 @@ def main():
                 print(f"  NOTE: You may need to accept the security warning in your browser")
             else:
                 print("WARNING: Could not setup HTTPS. Falling back to HTTP.")
-                print("  Microphone may not work without HTTPS!")
+                print("  Microphone and navigation features may not work without HTTPS!")
+    else:
+        print("WARNING: HTTPS disabled. Microphone and navigation features may not work!")
 
     print(f"Open {protocol}://localhost:{args.port} in your browser")
     print(f"YOLO: {'Available' if cc.yolo_available else 'Not available'}")
+    print(f"CLIP: {'Available' if cc.clip_available else 'Not available'}")
     if protocol == "https":
-        print(f"HTTPS: Enabled (microphone access available)")
+        print(f"HTTPS: Enabled (microphone and navigation available)")
     else:
-        print(f"HTTPS: Disabled (use --https to enable for microphone)")
+        print(f"HTTPS: Disabled (use default or remove --no-https for full features)")
     print(f"{'='*50}\n")
 
     try:

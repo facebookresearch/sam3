@@ -741,9 +741,327 @@
         .refresh-btn.spinning svg {
             animation: spin 1s linear infinite;
         }
+
+        /* ===== NAVIGATION SYSTEM STYLES ===== */
+        .navigation-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.85);
+            z-index: 1000;
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .navigation-overlay.active {
+            display: flex;
+        }
+
+        .nav-header {
+            position: absolute;
+            top: 20px;
+            left: 0;
+            right: 0;
+            text-align: center;
+            color: white;
+        }
+
+        .nav-target {
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: #4ade80;
+            margin-bottom: 8px;
+        }
+
+        .nav-context {
+            font-size: 0.9rem;
+            color: #94a3b8;
+        }
+
+        .nav-video-container {
+            position: relative;
+            max-width: 80vw;
+            max-height: 60vh;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+        }
+
+        .nav-video-container img {
+            width: 100%;
+            height: auto;
+            display: block;
+        }
+
+        .nav-arrow-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            pointer-events: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .nav-arrow {
+            font-size: 120px;
+            color: #4ade80;
+            text-shadow: 0 0 20px rgba(74, 222, 128, 0.8);
+            transition: transform 0.3s ease;
+            animation: pulse-arrow 1.5s ease-in-out infinite;
+        }
+
+        @keyframes pulse-arrow {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.7; transform: scale(1.1); }
+        }
+
+        .nav-distance-ring {
+            position: absolute;
+            border: 4px solid;
+            border-radius: 50%;
+            animation: pulse-ring 2s ease-in-out infinite;
+        }
+
+        .nav-distance-ring.far {
+            width: 200px;
+            height: 200px;
+            border-color: #f87171;
+        }
+
+        .nav-distance-ring.medium {
+            width: 150px;
+            height: 150px;
+            border-color: #fbbf24;
+        }
+
+        .nav-distance-ring.close {
+            width: 100px;
+            height: 100px;
+            border-color: #4ade80;
+        }
+
+        .nav-distance-ring.reachable {
+            width: 80px;
+            height: 80px;
+            border-color: #22c55e;
+            border-width: 6px;
+            animation: pulse-reached 0.5s ease-in-out infinite;
+        }
+
+        @keyframes pulse-ring {
+            0%, 100% { opacity: 0.6; }
+            50% { opacity: 1; }
+        }
+
+        @keyframes pulse-reached {
+            0%, 100% { transform: scale(1); box-shadow: 0 0 20px #22c55e; }
+            50% { transform: scale(1.1); box-shadow: 0 0 40px #22c55e; }
+        }
+
+        .nav-guidance-panel {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.9);
+            border-radius: 12px;
+            padding: 20px;
+            border: 2px solid #4ade80;
+        }
+
+        .nav-guidance-text {
+            font-size: 1.5rem;
+            color: white;
+            text-align: center;
+            margin-bottom: 15px;
+            font-weight: 500;
+        }
+
+        .nav-guidance-details {
+            display: flex;
+            justify-content: space-around;
+            flex-wrap: wrap;
+            gap: 15px;
+        }
+
+        .nav-detail {
+            text-align: center;
+            padding: 10px 20px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+        }
+
+        .nav-detail-label {
+            font-size: 0.8rem;
+            color: #94a3b8;
+            margin-bottom: 4px;
+        }
+
+        .nav-detail-value {
+            font-size: 1.1rem;
+            font-weight: bold;
+            color: white;
+        }
+
+        .nav-detail-value.far { color: #f87171; }
+        .nav-detail-value.medium { color: #fbbf24; }
+        .nav-detail-value.close { color: #4ade80; }
+        .nav-detail-value.reachable { color: #22c55e; }
+
+        .nav-controls {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            display: flex;
+            gap: 10px;
+        }
+
+        .nav-stop-btn {
+            padding: 12px 24px;
+            background: #ef4444;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .nav-stop-btn:hover {
+            background: #dc2626;
+            transform: scale(1.05);
+        }
+
+        .nav-reached-celebration {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            animation: celebrate 0.5s ease-out;
+        }
+
+        @keyframes celebrate {
+            0% { transform: translate(-50%, -50%) scale(0); }
+            50% { transform: translate(-50%, -50%) scale(1.2); }
+            100% { transform: translate(-50%, -50%) scale(1); }
+        }
+
+        .nav-reached-icon {
+            font-size: 100px;
+            margin-bottom: 20px;
+        }
+
+        .nav-reached-text {
+            font-size: 2rem;
+            color: #22c55e;
+            font-weight: bold;
+        }
+
+        .detection-nav-btn {
+            background: #8b5cf6;
+            color: white;
+            border: none;
+            padding: 4px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.75rem;
+            margin-left: 6px;
+        }
+
+        .detection-nav-btn:hover {
+            background: #7c3aed;
+        }
+
+        .nav-searching {
+            animation: searching-pulse 1s ease-in-out infinite;
+        }
+
+        @keyframes searching-pulse {
+            0%, 100% { opacity: 0.5; }
+            50% { opacity: 1; }
+        }
     </style>
 </head>
 <body>
+    <!-- ===== NAVIGATION OVERLAY ===== -->
+    <div id="navigation-overlay" class="navigation-overlay">
+        <div class="nav-header">
+            <h2 id="nav-target-name">Navigating to: Object</h2>
+            <button class="nav-close-btn" onclick="stopNavigation()" aria-label="Close navigation">
+                <svg viewBox="0 0 24 24" fill="currentColor" width="24" height="24">
+                    <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
+                </svg>
+            </button>
+        </div>
+
+        <div class="nav-main-content">
+            <div class="nav-video-container">
+                <img id="nav-video-feed" src="/video_feed" alt="Navigation view">
+                <div class="nav-arrow-container" id="nav-arrow-container">
+                    <div class="nav-arrow" id="nav-arrow">→</div>
+                </div>
+                <div class="nav-distance-ring" id="nav-distance-ring"></div>
+            </div>
+
+            <div class="nav-guidance-panel">
+                <div class="nav-direction" id="nav-direction">
+                    <span class="nav-direction-icon" id="nav-direction-icon">↑</span>
+                    <span class="nav-direction-text" id="nav-direction-text">Searching...</span>
+                </div>
+
+                <div class="nav-distance" id="nav-distance">
+                    <span class="nav-distance-label">Distance:</span>
+                    <span class="nav-distance-value" id="nav-distance-value">Unknown</span>
+                </div>
+
+                <div class="nav-guidance-text" id="nav-guidance-text">
+                    Looking for object...
+                </div>
+
+                <div class="nav-context" id="nav-context">
+                    <span class="nav-context-label">Scene:</span>
+                    <span class="nav-context-value" id="nav-context-value">Analyzing...</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="nav-controls">
+            <button class="nav-control-btn" onclick="toggleNavTTS()" id="nav-tts-btn" title="Toggle voice guidance">
+                <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20">
+                    <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>
+                </svg>
+                <span>Voice On</span>
+            </button>
+            <button class="nav-control-btn" onclick="reanalyzeScene()" title="Analyze scene for obstacles">
+                <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20">
+                    <path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/>
+                </svg>
+                <span>Scan Area</span>
+            </button>
+            <button class="nav-control-btn nav-stop-btn" onclick="stopNavigation()">
+                <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20">
+                    <path d="M6 6h12v12H6z"/>
+                </svg>
+                <span>Stop</span>
+            </button>
+        </div>
+
+        <div class="nav-memory-hint" id="nav-memory-hint" style="display: none;">
+            <span class="nav-memory-icon">📍</span>
+            <span class="nav-memory-text" id="nav-memory-text"></span>
+        </div>
+    </div>
+
     <header class="header">
         <h1>SAM3 Command Center</h1>
         <div class="status-bar">
@@ -1363,7 +1681,10 @@
                         </div>
                         <div class="detection-actions">
                             <button class="btn btn-sm" onclick="analyzeObject(${det.id}, ${JSON.stringify(det.box)}, ${index})">
-                                Analyze with Claude
+                                Analyze
+                            </button>
+                            <button class="btn btn-sm detection-nav-btn" onclick="startNavigation('${det.label}', ${det.id}, ${JSON.stringify(det.box)})">
+                                Navigate
                             </button>
                         </div>
                     </div>
@@ -2277,6 +2598,376 @@
         window.updateClipThreshold = updateClipThreshold;
         window.toggleDrawMode = toggleDrawMode;
         window.clearDrawMode = clearDrawMode;
+
+        // ===== NAVIGATION SYSTEM =====
+
+        let navigationActive = false;
+        let navigationTarget = null;
+        let navigationTargetId = null;
+        let navigationInterval = null;
+        let navTTSEnabled = true;
+        let lastSpokenGuidance = '';
+        let lastSpokenTime = 0;
+        let navigationReached = false;
+
+        // Proximity sounds
+        const proximityBeepInterval = { far: 2000, medium: 1000, close: 500, reachable: 200 };
+        let proximityBeepTimer = null;
+
+        async function startNavigation(label, detectionId, box) {
+            navigationActive = true;
+            navigationTarget = label;
+            navigationTargetId = detectionId;
+            navigationReached = false;
+
+            // Show navigation overlay
+            const overlay = document.getElementById('navigation-overlay');
+            overlay.style.display = 'flex';
+            document.getElementById('nav-target-name').textContent = `Navigating to: ${label}`;
+
+            // Start video feed in navigation view
+            document.getElementById('nav-video-feed').src = '/video_feed?' + Date.now();
+
+            // Try to start navigation on server
+            try {
+                const response = await fetch('/api/navigation/start', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ target_label: label, target_id: detectionId })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    // Check for memory hint
+                    if (data.memory_hint) {
+                        const memoryHint = document.getElementById('nav-memory-hint');
+                        document.getElementById('nav-memory-text').textContent = data.memory_hint;
+                        memoryHint.style.display = 'flex';
+
+                        if (navTTSEnabled) {
+                            speak(data.memory_hint);
+                        }
+                    }
+
+                    // Announce navigation start
+                    if (navTTSEnabled) {
+                        speak(`Starting navigation to ${label}`);
+                    }
+                } else {
+                    console.error('Failed to start navigation:', data.error);
+                }
+            } catch (e) {
+                console.error('Navigation start error:', e);
+            }
+
+            // Start navigation update loop
+            navigationInterval = setInterval(updateNavigationStatus, 500);
+
+            // Analyze scene context
+            reanalyzeScene();
+        }
+
+        async function stopNavigation() {
+            navigationActive = false;
+
+            // Stop update loop
+            if (navigationInterval) {
+                clearInterval(navigationInterval);
+                navigationInterval = null;
+            }
+
+            // Stop proximity beeps
+            if (proximityBeepTimer) {
+                clearInterval(proximityBeepTimer);
+                proximityBeepTimer = null;
+            }
+
+            // Hide navigation overlay
+            document.getElementById('navigation-overlay').style.display = 'none';
+            document.getElementById('nav-memory-hint').style.display = 'none';
+
+            // Stop navigation on server
+            try {
+                await fetch('/api/navigation/stop', { method: 'POST' });
+
+                if (navTTSEnabled) {
+                    speak(navigationReached ? 'Object reached. Navigation complete.' : 'Navigation stopped.');
+                }
+            } catch (e) {
+                console.error('Navigation stop error:', e);
+            }
+
+            navigationTarget = null;
+            navigationTargetId = null;
+            navigationReached = false;
+        }
+
+        async function updateNavigationStatus() {
+            if (!navigationActive) return;
+
+            try {
+                const response = await fetch('/api/navigation/status');
+                const data = await response.json();
+
+                if (!data.active) {
+                    // Navigation ended on server side
+                    if (data.reached) {
+                        navigationReached = true;
+                        announceReached();
+                    }
+                    return;
+                }
+
+                // Update guidance display
+                if (data.guidance) {
+                    updateGuidanceDisplay(data.guidance);
+
+                    // TTS guidance (with cooldown)
+                    if (navTTSEnabled && data.speak && data.guidance.guidance_text) {
+                        const now = Date.now();
+                        if (data.guidance.guidance_text !== lastSpokenGuidance || now - lastSpokenTime > 3000) {
+                            speak(data.guidance.guidance_text);
+                            lastSpokenGuidance = data.guidance.guidance_text;
+                            lastSpokenTime = now;
+                        }
+                    }
+
+                    // Update proximity beeps
+                    updateProximityBeeps(data.guidance.distance);
+                } else if (data.searching) {
+                    // Object not currently visible
+                    document.getElementById('nav-direction-icon').textContent = '🔍';
+                    document.getElementById('nav-direction-text').textContent = 'Searching...';
+                    document.getElementById('nav-guidance-text').textContent =
+                        data.last_seen ? `Last seen: ${data.last_seen}` : 'Turn slowly to find the object';
+                    document.getElementById('nav-distance-value').textContent = 'Unknown';
+
+                    // Hide arrow when searching
+                    document.getElementById('nav-arrow-container').style.opacity = '0.3';
+                    document.getElementById('nav-distance-ring').className = 'nav-distance-ring';
+                }
+            } catch (e) {
+                console.error('Navigation status error:', e);
+            }
+        }
+
+        function updateGuidanceDisplay(guidance) {
+            // Direction icon and text
+            const directionIcons = {
+                'forward': '↑',
+                'left': '←',
+                'right': '→',
+                'slight_left': '↖',
+                'slight_right': '↗',
+                'center': '●',
+                'reached': '✓'
+            };
+
+            const icon = directionIcons[guidance.direction] || '↑';
+            document.getElementById('nav-direction-icon').textContent = icon;
+            document.getElementById('nav-direction-text').textContent =
+                guidance.direction.replace('_', ' ').toUpperCase();
+
+            // Distance
+            const distanceLabels = {
+                'very_far': 'Very Far',
+                'far': 'Far',
+                'medium': 'Medium',
+                'close': 'Close',
+                'very_close': 'Very Close',
+                'reachable': 'Reachable!'
+            };
+            document.getElementById('nav-distance-value').textContent =
+                distanceLabels[guidance.distance] || guidance.distance;
+
+            // Update distance ring
+            const ring = document.getElementById('nav-distance-ring');
+            ring.className = 'nav-distance-ring';
+            if (guidance.distance === 'reachable' || guidance.distance === 'very_close') {
+                ring.classList.add('reachable');
+            } else if (guidance.distance === 'close') {
+                ring.classList.add('close');
+            }
+
+            // Guidance text
+            document.getElementById('nav-guidance-text').textContent = guidance.guidance_text || '';
+
+            // Arrow rotation
+            const arrow = document.getElementById('nav-arrow');
+            const arrowContainer = document.getElementById('nav-arrow-container');
+            arrowContainer.style.opacity = '1';
+            arrow.style.transform = `rotate(${guidance.arrow_angle || 0}deg)`;
+
+            // Check if reached
+            if (guidance.distance === 'reachable') {
+                navigationReached = true;
+                announceReached();
+            }
+        }
+
+        function announceReached() {
+            if (!navigationReached) return;
+
+            // Visual feedback
+            const ring = document.getElementById('nav-distance-ring');
+            ring.classList.add('reachable');
+
+            document.getElementById('nav-direction-icon').textContent = '✓';
+            document.getElementById('nav-direction-text').textContent = 'REACHED';
+            document.getElementById('nav-guidance-text').textContent = 'Object is within reach!';
+
+            // Audio feedback
+            if (navTTSEnabled) {
+                speak('Object reached! You can touch it now.');
+            }
+
+            // Play success sound
+            playReachedSound();
+
+            // Auto-stop after delay
+            setTimeout(() => {
+                if (navigationActive) {
+                    stopNavigation();
+                }
+            }, 3000);
+        }
+
+        function updateProximityBeeps(distance) {
+            // Clear existing timer
+            if (proximityBeepTimer) {
+                clearInterval(proximityBeepTimer);
+                proximityBeepTimer = null;
+            }
+
+            // Set new beep interval based on distance
+            let interval;
+            switch (distance) {
+                case 'reachable':
+                case 'very_close':
+                    interval = proximityBeepInterval.reachable;
+                    break;
+                case 'close':
+                    interval = proximityBeepInterval.close;
+                    break;
+                case 'medium':
+                    interval = proximityBeepInterval.medium;
+                    break;
+                default:
+                    interval = proximityBeepInterval.far;
+            }
+
+            // Start beeping
+            if (navTTSEnabled && distance !== 'very_far') {
+                proximityBeepTimer = setInterval(() => playProximityBeep(distance), interval);
+            }
+        }
+
+        function playProximityBeep(distance) {
+            // Create audio context for beep
+            try {
+                const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                const oscillator = audioCtx.createOscillator();
+                const gainNode = audioCtx.createGain();
+
+                oscillator.connect(gainNode);
+                gainNode.connect(audioCtx.destination);
+
+                // Different frequencies for different distances
+                const frequencies = {
+                    'reachable': 880,  // A5
+                    'very_close': 660, // E5
+                    'close': 440,      // A4
+                    'medium': 330,     // E4
+                    'far': 220         // A3
+                };
+
+                oscillator.frequency.value = frequencies[distance] || 330;
+                oscillator.type = 'sine';
+
+                gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
+
+                oscillator.start(audioCtx.currentTime);
+                oscillator.stop(audioCtx.currentTime + 0.1);
+            } catch (e) {
+                // Audio context not available
+            }
+        }
+
+        function playReachedSound() {
+            try {
+                const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+                // Play a happy ascending arpeggio
+                const notes = [523.25, 659.25, 783.99, 1046.50]; // C5, E5, G5, C6
+                notes.forEach((freq, i) => {
+                    const oscillator = audioCtx.createOscillator();
+                    const gainNode = audioCtx.createGain();
+
+                    oscillator.connect(gainNode);
+                    gainNode.connect(audioCtx.destination);
+
+                    oscillator.frequency.value = freq;
+                    oscillator.type = 'sine';
+
+                    const startTime = audioCtx.currentTime + i * 0.15;
+                    gainNode.gain.setValueAtTime(0.2, startTime);
+                    gainNode.gain.exponentialRampToValueAtTime(0.01, startTime + 0.3);
+
+                    oscillator.start(startTime);
+                    oscillator.stop(startTime + 0.3);
+                });
+            } catch (e) {
+                // Audio context not available
+            }
+        }
+
+        function toggleNavTTS() {
+            navTTSEnabled = !navTTSEnabled;
+            const btn = document.getElementById('nav-tts-btn');
+            btn.querySelector('span').textContent = navTTSEnabled ? 'Voice On' : 'Voice Off';
+            btn.classList.toggle('active', navTTSEnabled);
+
+            if (proximityBeepTimer && !navTTSEnabled) {
+                clearInterval(proximityBeepTimer);
+                proximityBeepTimer = null;
+            }
+        }
+
+        async function reanalyzeScene() {
+            const contextEl = document.getElementById('nav-context-value');
+            contextEl.textContent = 'Analyzing...';
+
+            try {
+                const response = await fetch('/api/navigation/analyze_scene', { method: 'POST' });
+                const data = await response.json();
+
+                if (data.success && data.context) {
+                    let contextText = data.context.location || 'Unknown location';
+                    if (data.context.obstacles && data.context.obstacles.length > 0) {
+                        contextText += ` | Watch for: ${data.context.obstacles.slice(0, 2).join(', ')}`;
+                    }
+                    contextEl.textContent = contextText;
+
+                    // Announce obstacles if TTS enabled
+                    if (navTTSEnabled && data.context.obstacles && data.context.obstacles.length > 0) {
+                        speak(`Watch out for ${data.context.obstacles[0]}`);
+                    }
+                } else {
+                    contextEl.textContent = 'Unable to analyze';
+                }
+            } catch (e) {
+                contextEl.textContent = 'Analysis failed';
+                console.error('Scene analysis error:', e);
+            }
+        }
+
+        // Make navigation functions globally accessible
+        window.startNavigation = startNavigation;
+        window.stopNavigation = stopNavigation;
+        window.toggleNavTTS = toggleNavTTS;
+        window.reanalyzeScene = reanalyzeScene;
     </script>
 </body>
 </html>
