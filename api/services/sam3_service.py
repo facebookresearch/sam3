@@ -63,8 +63,20 @@ class Sam3VideoService:
             else:
                 raise RuntimeError("CUDA is required for SAM3")
             
-            print(f"Loading SAM3 model on GPUs: {gpus_to_use}")
-            self._predictor = build_sam3_video_predictor(gpus_to_use=gpus_to_use)
+            # Use local weights from container (downloaded from GCS during build)
+            checkpoint_path = "/app/weights/sam3.pt"
+            if not os.path.exists(checkpoint_path):
+                raise FileNotFoundError(
+                    f"Model weights not found at {checkpoint_path}. "
+                    "Weights should be downloaded from GCS during container build."
+                )
+            
+            print(f"Loading SAM3 model from: {checkpoint_path}")
+            print(f"Using GPUs: {gpus_to_use}")
+            self._predictor = build_sam3_video_predictor(
+                checkpoint_path=checkpoint_path,
+                gpus_to_use=gpus_to_use
+            )
             self._model_loaded = True
             print("SAM3 model loaded successfully!")
             return True
