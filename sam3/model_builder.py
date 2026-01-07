@@ -47,11 +47,15 @@ from sam3.sam.transformer import RoPEAttention
 # Setup TensorFloat-32 for Ampere GPUs if available
 def _setup_tf32() -> None:
     """Enable TensorFloat-32 for Ampere GPUs if available."""
-    if torch.cuda.is_available():
-        device_props = torch.cuda.get_device_properties(0)
-        if device_props.major >= 8:
-            torch.backends.cuda.matmul.allow_tf32 = True
-            torch.backends.cudnn.allow_tf32 = True
+    try:
+        if torch.cuda.is_available():
+            device_props = torch.cuda.get_device_properties(0)
+            if device_props.major >= 8:
+                torch.backends.cuda.matmul.allow_tf32 = True
+                torch.backends.cudnn.allow_tf32 = True
+    except (RuntimeError, AttributeError):
+        # CUDA not available or not compiled with CUDA support (e.g., macOS)
+        pass
 
 
 _setup_tf32()
@@ -550,7 +554,16 @@ def _load_checkpoint(model, checkpoint_path):
 def _setup_device_and_mode(model, device, eval_mode):
     """Setup model device and evaluation mode."""
     if device == "cuda":
-        model = model.cuda()
+        try:
+            model = model.cuda()
+        except (RuntimeError, AssertionError) as e:
+            if "CUDA" in str(e) or "cuda" in str(e).lower():
+                print(f"Warning: CUDA not available, falling back to CPU. Error: {e}")
+                device = "cpu"
+            else:
+                raise
+    elif device == "cpu":
+        model = model.cpu()
     if eval_mode:
         model.eval()
     return model

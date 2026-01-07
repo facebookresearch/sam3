@@ -656,7 +656,12 @@ class SequenceGeometryEncoder(nn.Module):
             # We need to denormalize, and convert to [x, y, x, y]
             boxes_xyxy = box_cxcywh_to_xyxy(boxes)
             scale = torch.tensor([W, H, W, H], dtype=boxes_xyxy.dtype)
-            scale = scale.pin_memory().to(device=boxes_xyxy.device, non_blocking=True)
+            # Remove pin_memory() to avoid MPS device mismatch errors
+            # pin_memory() only works with CPU and causes issues when moving to MPS
+            if boxes_xyxy.device.type == "cuda":
+                scale = scale.pin_memory().to(device=boxes_xyxy.device, non_blocking=True)
+            else:
+                scale = scale.to(device=boxes_xyxy.device)
             scale = scale.view(1, 1, 4)
             boxes_xyxy = boxes_xyxy * scale
             sampled = torchvision.ops.roi_align(
