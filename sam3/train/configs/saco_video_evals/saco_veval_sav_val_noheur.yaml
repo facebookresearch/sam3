@@ -11,7 +11,7 @@ paths:
   experiment_log_dir: <YOUR EXPERIMENET LOG_DIR>
   ytvis_json: <YOUR_GT_PATH>/saco_veval_sav_val.json
   ytvis_dir : <YOUR_VIDEO_JPG_DIR>
-  bpe_path: <BPE_PATH> # This should be under assets/bpe_simple_vocab_16e6.txt.gz
+  bpe_path: <BPE_PATH> # This should be under sam3/assets/bpe_simple_vocab_16e6.txt.gz
   num_videos: null
 
 # ============================================================================
