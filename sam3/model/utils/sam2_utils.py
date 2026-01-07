@@ -212,7 +212,13 @@ def load_video_frames_from_video_file(
     compute_device=torch.device("cuda"),
 ):
     """Load the video frames from a video file."""
-    import decord
+    try:
+        import decord
+    except ImportError:
+        raise ImportError(
+            "decord is required for video loading. "
+            "Install with: pip install decord"
+        )
 
     img_mean = torch.tensor(img_mean, dtype=torch.float32)[:, None, None]
     img_std = torch.tensor(img_std, dtype=torch.float32)[:, None, None]
