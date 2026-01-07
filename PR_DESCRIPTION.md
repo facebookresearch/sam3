@@ -129,4 +129,4 @@ model = build_sam3_image_model(device="cpu")
 
 - PyTorch MPS documentation: https://pytorch.org/docs/stable/notes/mps.html
 - PyTorch MPS limitations: https://github.com/pytorch/pytorch/issues/84936
-- SAM2 MPS support (reference): Similar patterns used in SAM2 for MPS compatibility
+- SAM2 MPS support (precedent): https://github.com/facebookresearch/sam2/pull/192 - This PR follows similar patterns for MPS compatibility
