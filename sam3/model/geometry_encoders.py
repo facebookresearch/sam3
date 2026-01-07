@@ -44,8 +44,14 @@ def concat_padded_sequences(seq1, mask1, seq2, mask2, return_index: bool = False
     assert seq1_length == mask1.size(1)
     assert seq2_length == mask2.size(1)
 
-    torch._assert_async(is_right_padded(mask1))
-    torch._assert_async(is_right_padded(mask2))
+    # MPS doesn't support _assert_async, use regular assert or skip on MPS
+    if mask1.device.type != "mps" and mask2.device.type != "mps":
+        torch._assert_async(is_right_padded(mask1))
+        torch._assert_async(is_right_padded(mask2))
+    else:
+        # For MPS, use regular assertions (will be slower but works)
+        assert is_right_padded(mask1).all(), "mask1 is not right-padded"
+        assert is_right_padded(mask2).all(), "mask2 is not right-padded"
 
     actual_seq1_lengths = (~mask1).sum(dim=-1)
     actual_seq2_lengths = (~mask2).sum(dim=-1)
@@ -613,9 +619,25 @@ class SequenceGeometryEncoder(nn.Module):
             grid = points.transpose(0, 1).unsqueeze(2)
             # re normalize to [-1, 1]
             grid = (grid * 2) - 1
-            sampled = torch.nn.functional.grid_sample(
-                img_feats, grid, align_corners=False
-            )
+            
+            # MPS has known bugs with grid_sample (see PyTorch issue #84936)
+            # Use CPU round-trip for MPS: move to CPU, run grid_sample, move back
+            if img_feats.device.type == "mps":
+                # Save original dtype
+                orig_dtype = img_feats.dtype
+                # Move to CPU and ensure float32 (required for grid_sample stability)
+                img_feats_cpu = img_feats.cpu().float()
+                grid_cpu = grid.cpu().float()
+                # Run grid_sample on CPU
+                sampled = torch.nn.functional.grid_sample(
+                    img_feats_cpu, grid_cpu, align_corners=False
+                )
+                # Move back to MPS and restore original dtype
+                sampled = sampled.to(device=img_feats.device, dtype=orig_dtype)
+            else:
+                sampled = torch.nn.functional.grid_sample(
+                    img_feats, grid, align_corners=False
+                )
             assert list(sampled.shape) == [bs, self.d_model, n_points, 1]
             sampled = sampled.squeeze(-1).permute(2, 0, 1)
             proj = self.points_pool_project(sampled)
@@ -660,6 +682,9 @@ class SequenceGeometryEncoder(nn.Module):
             # pin_memory() only works with CPU and causes issues when moving to MPS
             if boxes_xyxy.device.type == "cuda":
                 scale = scale.pin_memory().to(device=boxes_xyxy.device, non_blocking=True)
+            elif boxes_xyxy.device.type == "mps":
+                # MPS doesn't support pin_memory, use simple transfer
+                scale = scale.to(device=boxes_xyxy.device)
             else:
                 scale = scale.to(device=boxes_xyxy.device)
             scale = scale.view(1, 1, 4)

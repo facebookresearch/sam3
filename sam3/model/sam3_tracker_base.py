@@ -157,7 +157,17 @@ class Sam3TrackerBase(torch.nn.Module):
 
     @property
     def device(self):
-        return next(self.parameters()).device
+        dev = next(self.parameters()).device
+        # Check if device is CUDA - tracking/video currently requires CUDA
+        # Image inference works on CPU/MPS, but tracking is CUDA-only
+        if dev.type != "cuda":
+            raise NotImplementedError(
+                f"Tracking/video inference currently requires CUDA. "
+                f"Model is on device: {dev.type}. "
+                f"Image inference works on CPU and MPS. "
+                f"Please use build_sam3_image_model() for image tasks on non-CUDA devices."
+            )
+        return dev
 
     def _get_tpos_enc(self, rel_pos_list, device, max_abs_pos=None, dummy=False):
         if dummy:

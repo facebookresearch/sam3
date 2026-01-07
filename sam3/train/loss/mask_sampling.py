@@ -28,7 +28,22 @@ def point_sample(input, point_coords, **kwargs):
         add_dim = True
         point_coords = point_coords.unsqueeze(2)
     normalized_point_coords = 2.0 * point_coords - 1.0  # Normalize to [-1,1]
-    output = F.grid_sample(input, normalized_point_coords, **kwargs)
+    
+    # MPS has known bugs with grid_sample (see PyTorch issue #84936)
+    # Use CPU round-trip for MPS: move to CPU, run grid_sample, move back
+    if input.device.type == "mps":
+        # Save original dtype
+        orig_dtype = input.dtype
+        # Move to CPU and ensure float32 (required for grid_sample stability)
+        input_cpu = input.cpu().float()
+        normalized_point_coords_cpu = normalized_point_coords.cpu().float()
+        # Run grid_sample on CPU
+        output = F.grid_sample(input_cpu, normalized_point_coords_cpu, **kwargs)
+        # Move back to MPS and restore original dtype
+        output = output.to(device=input.device, dtype=orig_dtype)
+    else:
+        output = F.grid_sample(input, normalized_point_coords, **kwargs)
+    
     if add_dim:
         output = output.squeeze(3)
     return output

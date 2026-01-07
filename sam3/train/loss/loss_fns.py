@@ -1256,8 +1256,14 @@ class TrackingByDetectionAssoc(LossWithWeights):
             & (matched_obj_ids_det[:, :, None] == matched_obj_ids_trk[:, None, :])
         )  # (B, Q_det, Q_trk)
         # there should be at most one match for each detection and each previous tracked object
-        torch._assert_async(torch.all(det_is_same_obj_id_as_trk.sum(dim=2) <= 1))
-        torch._assert_async(torch.all(det_is_same_obj_id_as_trk.sum(dim=1) <= 1))
+        # MPS doesn't support _assert_async, use regular assert
+        device_type = det_is_same_obj_id_as_trk.device.type
+        if device_type == "mps":
+            assert torch.all(det_is_same_obj_id_as_trk.sum(dim=2) <= 1), "At most one match per detection"
+            assert torch.all(det_is_same_obj_id_as_trk.sum(dim=1) <= 1), "At most one match per tracked object"
+        else:
+            torch._assert_async(torch.all(det_is_same_obj_id_as_trk.sum(dim=2) <= 1))
+            torch._assert_async(torch.all(det_is_same_obj_id_as_trk.sum(dim=1) <= 1))
         batch_idx, det_idx, trk_idx = det_is_same_obj_id_as_trk.nonzero(as_tuple=True)
 
         # Part B: Detection-to-tracking association loss

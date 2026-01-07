@@ -145,24 +145,30 @@ def edt_triton(data: torch.Tensor):
     B, H, W = data.shape
     data = data.contiguous()
     
-    # CPU fallback using OpenCV when triton is not available or on CPU
-    if not TRITON_AVAILABLE or not data.is_cuda:
+    # CPU/MPS fallback using OpenCV when triton is not available or not on CUDA
+    # Triton is CUDA-only, so we use OpenCV for CPU and MPS devices
+    if not TRITON_AVAILABLE or data.device.type != "cuda":
         try:
             import cv2
             import numpy as np
-            # Convert to numpy and process each image in the batch
-            data_np = data.cpu().numpy()
-            results = []
-            for img in data_np:
-                # Invert: 0 becomes 1, 1 becomes 0 for distance transform
-                img_inv = 1 - img.astype(np.uint8)
-                # Compute distance transform
-                dist = cv2.distanceTransform(img_inv, cv2.DIST_L2, 0)
-                results.append(dist)
-            output = torch.from_numpy(np.stack(results)).to(data.device)
-            return output
         except ImportError:
-            raise ImportError("OpenCV (cv2) is required for CPU mode. Install with: pip install opencv-python")
+            raise ImportError(
+                "OpenCV (cv2) is required for CPU/MPS mode. "
+                "Install with: pip install opencv-python"
+            )
+        # Convert to numpy and process each image in the batch
+        # Note: Always process on CPU (OpenCV doesn't support GPU directly)
+        # then move result back to original device
+        data_np = data.cpu().numpy()
+        results = []
+        for img in data_np:
+            # Invert: 0 becomes 1, 1 becomes 0 for distance transform
+            img_inv = 1 - img.astype(np.uint8)
+            # Compute distance transform using OpenCV (CPU implementation)
+            dist = cv2.distanceTransform(img_inv, cv2.DIST_L2, 0)
+            results.append(dist)
+        output = torch.from_numpy(np.stack(results)).to(data.device)
+        return output
     
     # GPU path with triton
     assert data.is_cuda

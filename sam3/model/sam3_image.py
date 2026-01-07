@@ -122,7 +122,11 @@ class Sam3Image(torch.nn.Module):
                 # If this assert fails, it likely means we're requesting different img_ids (perhaps a different frame?)
                 # We currently don't expect this to happen. We could technically trigger a recompute here,
                 # but likely at the cost of a cpu<->gpu sync point, which would deteriorate perf
-                torch._assert_async((img_ids >= 0).all())
+                # MPS doesn't support _assert_async, use regular assert
+                if img_ids.device.type == "mps":
+                    assert (img_ids >= 0).all(), "img_ids must be non-negative"
+                else:
+                    torch._assert_async((img_ids >= 0).all())
 
             vis_feats = backbone_out["backbone_fpn"][-self.num_feature_levels :]
             vis_pos_enc = backbone_out["vision_pos_enc"][-self.num_feature_levels :]
