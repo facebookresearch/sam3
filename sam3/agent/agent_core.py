@@ -11,6 +11,7 @@ from PIL import Image
 
 from .client_llm import send_generate_request
 from .client_sam3 import call_sam_service
+from .helpers.filename_utils import sanitize_filename
 from .viz import visualize
 
 
@@ -321,12 +322,14 @@ def agent_inference(
                 print(f"🔍 Checking mask {i+1}/{num_masks}...")
                 image_w_mask_i, image_w_zoomed_in_mask_i = visualize(current_outputs, i)
 
+                # Sanitize the text prompt to create safe filenames
+                sanitized_prompt = sanitize_filename(LATEST_SAM3_TEXT_PROMPT)
                 image_w_zoomed_in_mask_i_path = os.path.join(
-                    sam_output_dir, rf"{LATEST_SAM3_TEXT_PROMPT}.png".replace("/", "_")
-                ).replace(".png", f"_zoom_in_mask_{i + 1}.png")
+                    sam_output_dir, f"{sanitized_prompt}_zoom_in_mask_{i + 1}.png"
+                )
                 image_w_mask_i_path = os.path.join(
-                    sam_output_dir, rf"{LATEST_SAM3_TEXT_PROMPT}.png".replace("/", "_")
-                ).replace(".png", f"_selected_mask_{i + 1}.png")
+                    sam_output_dir, f"{sanitized_prompt}_selected_mask_{i + 1}.png"
+                )
                 image_w_zoomed_in_mask_i.save(image_w_zoomed_in_mask_i_path)
                 image_w_mask_i.save(image_w_mask_i_path)
 
@@ -393,13 +396,11 @@ def agent_inference(
             }
 
             image_w_check_masks = visualize(updated_outputs)
+            # Sanitize the text prompt to create a safe filename
+            sanitized_prompt = sanitize_filename(LATEST_SAM3_TEXT_PROMPT)
             image_w_check_masks_path = os.path.join(
-                sam_output_dir, rf"{LATEST_SAM3_TEXT_PROMPT}.png"
-            ).replace(
-                ".png",
-                f"_selected_masks_{'-'.join(map(str, [i+1 for i in masks_to_keep]))}.png".replace(
-                    "/", "_"
-                ),
+                sam_output_dir,
+                f"{sanitized_prompt}_selected_masks_{'-'.join(map(str, [i+1 for i in masks_to_keep]))}.png"
             )
             image_w_check_masks.save(image_w_check_masks_path)
             # save the updated json outputs and append to message history

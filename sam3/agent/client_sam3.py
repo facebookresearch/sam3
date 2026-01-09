@@ -11,6 +11,7 @@ from PIL import Image
 from sam3.model.box_ops import box_xyxy_to_xywh
 from sam3.train.masks_ops import rle_encode
 
+from .helpers.filename_utils import sanitize_filename
 from .helpers.mask_overlap_removal import remove_overlapping_masks
 from .viz import visualize
 
@@ -61,9 +62,8 @@ def call_sam_service(
     """
     print(f"📞 Loading image '{image_path}' and sending with prompt '{text_prompt}'...")
 
-    text_prompt_for_save_path = (
-        text_prompt.replace("/", "_") if "/" in text_prompt else text_prompt
-    )
+    # Sanitize the text prompt to create a safe filename
+    text_prompt_for_save_path = sanitize_filename(text_prompt)
 
     os.makedirs(
         os.path.join(output_folder_path, image_path.replace("/", "-")), exist_ok=True
