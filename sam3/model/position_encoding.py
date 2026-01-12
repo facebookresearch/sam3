@@ -22,6 +22,7 @@ class PositionEmbeddingSine(nn.Module):
         normalize: bool = True,
         scale: Optional[float] = None,
         precompute_resolution: Optional[int] = None,
+        device: Optional[str] = None,  # Allow explicit device specification
     ):
         super().__init__()
         assert num_pos_feats % 2 == 0, "Expecting even model width"
@@ -45,8 +46,19 @@ class PositionEmbeddingSine(nn.Module):
                 (precompute_resolution // 16, precompute_resolution // 16),
                 (precompute_resolution // 32, precompute_resolution // 32),
             ]
+            # Determine device - use explicit device if provided, otherwise auto-detect
+            # Note: This ensures cache is created on the correct device to avoid device mismatches
+            if device is not None:
+                # Use the explicitly provided device
+                cache_device = device
+            elif torch.cuda.is_available():
+                cache_device = "cuda"
+            elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+                cache_device = "mps"
+            else:
+                cache_device = "cpu"
             for size in precompute_sizes:
-                tensors = torch.zeros((1, 1) + size, device="cuda")
+                tensors = torch.zeros((1, 1) + size, device=cache_device)
                 self.forward(tensors)
                 # further clone and detach it in the cache (just to be safe)
                 self.cache[size] = self.cache[size].clone().detach()

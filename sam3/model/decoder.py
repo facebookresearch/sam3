@@ -68,7 +68,22 @@ class TransformerDecoderLayer(nn.Module):
         return tensor if pos is None else tensor + pos
 
     def forward_ffn(self, tgt):
-        with torch.amp.autocast(device_type="cuda", enabled=False):
+        # Determine device type for autocast
+        # Note: autocast is disabled (enabled=False) for all devices to maintain consistency
+        # MPS doesn't support bfloat16 autocast well, and CPU autocast is typically not needed
+        try:
+            device_type = next(self.parameters()).device.type
+            if device_type not in ["cuda", "mps", "cpu"]:
+                device_type = "cpu"
+        except (StopIteration, RuntimeError, AttributeError):
+            # Fallback to auto-detection
+            if torch.cuda.is_available():
+                device_type = "cuda"
+            elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+                device_type = "mps"
+            else:
+                device_type = "cpu"
+        with torch.amp.autocast(device_type=device_type, enabled=False):
             tgt2 = self.linear2(self.dropout3(self.activation(self.linear1(tgt))))
         tgt = tgt + self.dropout4(tgt2)
         tgt = self.norm3(tgt)
@@ -274,8 +289,29 @@ class TransformerDecoder(nn.Module):
 
             if resolution is not None and stride is not None:
                 feat_size = resolution // stride
+                # Try to get device from model parameters if module is already part of a model
+                # This ensures coordinate cache is created on the same device as the model
+                # to avoid device mismatch errors
+                device = None
+                try:
+                    # Check if we can get device from a parameter (if model is already on a device)
+                    param_device = next(self.parameters()).device
+                    if param_device.type in ["cuda", "mps", "cpu"]:
+                        device = param_device.type
+                except (StopIteration, RuntimeError, AttributeError):
+                    pass
+                
+                # Fallback to auto-detection if device not determined from parameters
+                if device is None:
+                    if torch.cuda.is_available():
+                        device = "cuda"
+                    elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+                        device = "mps"
+                    else:
+                        device = "cpu"
+                
                 coords_h, coords_w = self._get_coords(
-                    feat_size, feat_size, device="cuda"
+                    feat_size, feat_size, device=device
                 )
                 self.compilable_cord_cache = (coords_h, coords_w)
                 self.compilable_stored_size = (feat_size, feat_size)

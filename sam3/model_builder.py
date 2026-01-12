@@ -48,17 +48,62 @@ from sam3.sam.transformer import RoPEAttention
 # Setup TensorFloat-32 for Ampere GPUs if available
 def _setup_tf32() -> None:
     """Enable TensorFloat-32 for Ampere GPUs if available."""
-    if torch.cuda.is_available():
-        device_props = torch.cuda.get_device_properties(0)
-        if device_props.major >= 8:
-            torch.backends.cuda.matmul.allow_tf32 = True
-            torch.backends.cudnn.allow_tf32 = True
+    try:
+        if torch.cuda.is_available():
+            device_props = torch.cuda.get_device_properties(0)
+            if device_props.major >= 8:
+                torch.backends.cuda.matmul.allow_tf32 = True
+                torch.backends.cudnn.allow_tf32 = True
+    except (RuntimeError, AttributeError):
+        # CUDA not available or not compiled with CUDA support (e.g., macOS)
+        pass
 
 
 _setup_tf32()
 
 
-def _create_position_encoding(precompute_resolution=None):
+def get_device(device=None):
+    """
+    Single source of truth for device selection.
+    
+    Args:
+        device: Explicit device string ("cuda", "mps", "cpu") or None for auto-detect
+        
+    Returns:
+        torch.device: The selected device
+    """
+    if device is not None:
+        return torch.device(device)
+    
+    # Auto-detect: CUDA -> MPS -> CPU
+    if torch.cuda.is_available():
+        return torch.device("cuda")
+    elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+        return torch.device("mps")
+    else:
+        return torch.device("cpu")
+
+
+def get_device_info(device=None):
+    """
+    Get device information as a tuple of booleans.
+    
+    Args:
+        device: Explicit device string or None for auto-detect
+        
+    Returns:
+        tuple: (is_cuda, is_mps, is_cpu, device_obj)
+    """
+    dev = get_device(device)
+    return (
+        dev.type == "cuda",
+        dev.type == "mps",
+        dev.type == "cpu",
+        dev
+    )
+
+
+def _create_position_encoding(precompute_resolution=None, device=None):
     """Create position encoding for visual backbone."""
     return PositionEmbeddingSine(
         num_pos_feats=256,
@@ -66,6 +111,7 @@ def _create_position_encoding(precompute_resolution=None):
         scale=None,
         temperature=10000,
         precompute_resolution=precompute_resolution,
+        device=device,  # Pass device to ensure cache is created on correct device
     )
 
 
@@ -232,10 +278,10 @@ def _create_segmentation_head(compile_mode=None):
     return segmentation_head
 
 
-def _create_geometry_encoder():
+def _create_geometry_encoder(device=None):
     """Create geometry encoder with all its components."""
     # Create position encoding for geometry encoder
-    geo_pos_enc = _create_position_encoding()
+    geo_pos_enc = _create_position_encoding(device=device)
     # Create CX block for fuser
     cx_block = CXBlock(
         dim=256,
@@ -330,7 +376,7 @@ def _create_sam3_model(
     return model
 
 
-def _create_tracker_maskmem_backbone():
+def _create_tracker_maskmem_backbone(device=None):
     """Create the SAM3 Tracker memory encoder."""
     # Position encoding for mask memory backbone
     position_encoding = PositionEmbeddingSine(
@@ -339,6 +385,7 @@ def _create_tracker_maskmem_backbone():
         scale=None,
         temperature=10000,
         precompute_resolution=1008,
+        device=device,  # Use provided device to ensure cache is on correct device
     )
 
     # Mask processing components
@@ -442,11 +489,12 @@ def build_tracker(
     """
 
     # Create model components
-    maskmem_backbone = _create_tracker_maskmem_backbone()
+    # Note: device parameter not available in tracker builder, but tracker is not used for image model
+    maskmem_backbone = _create_tracker_maskmem_backbone(device=None)
     transformer = _create_tracker_transformer()
     backbone = None
     if with_backbone:
-        vision_backbone = _create_vision_backbone(compile_mode=compile_mode)
+        vision_backbone = _create_vision_backbone(compile_mode=compile_mode, device=None)
         backbone = SAM3VLBackbone(scalp=1, visual=vision_backbone, text=None)
     # Create the Tracker module
     model = Sam3TrackerPredictor(
@@ -499,11 +547,11 @@ def _create_text_encoder(bpe_path: str) -> VETextEncoder:
 
 
 def _create_vision_backbone(
-    compile_mode=None, enable_inst_interactivity=True
+    compile_mode=None, enable_inst_interactivity=True, device=None
 ) -> Sam3DualViTDetNeck:
     """Create SAM3 visual backbone with ViT and neck."""
     # Position encoding
-    position_encoding = _create_position_encoding(precompute_resolution=1008)
+    position_encoding = _create_position_encoding(precompute_resolution=1008, device=device)
     # ViT backbone
     vit_backbone: ViT = _create_vit_backbone(compile_mode=compile_mode)
     vit_neck: Sam3DualViTDetNeck = _create_vit_neck(
@@ -550,8 +598,29 @@ def _load_checkpoint(model, checkpoint_path):
 
 def _setup_device_and_mode(model, device, eval_mode):
     """Setup model device and evaluation mode."""
+    # Normalize device to string if it's a torch.device
+    if isinstance(device, torch.device):
+        device = str(device.type)
+    
     if device == "cuda":
-        model = model.cuda()
+        try:
+            model = model.cuda()
+        except (RuntimeError, AssertionError) as e:
+            if "CUDA" in str(e) or "cuda" in str(e).lower():
+                print(f"Warning: CUDA not available, falling back to CPU. Error: {e}")
+                device = "cpu"
+                model = model.cpu()
+            else:
+                raise
+    elif device == "mps":
+        try:
+            model = model.to("mps")
+        except (RuntimeError, AssertionError) as e:
+            print(f"Warning: MPS not available or error occurred, falling back to CPU. Error: {e}")
+            device = "cpu"
+            model = model.cpu()
+    elif device == "cpu":
+        model = model.cpu()
     if eval_mode:
         model.eval()
     return model
@@ -559,7 +628,7 @@ def _setup_device_and_mode(model, device, eval_mode):
 
 def build_sam3_image_model(
     bpe_path=None,
-    device="cuda" if torch.cuda.is_available() else "cpu",
+    device=None,  # Auto-detect if None
     eval_mode=True,
     checkpoint_path=None,
     load_from_HF=True,
@@ -572,16 +641,19 @@ def build_sam3_image_model(
 
     Args:
         bpe_path: Path to the BPE tokenizer vocabulary
-        device: Device to load the model on ('cuda' or 'cpu')
+        device: Device to load the model on ('cuda', 'mps', or 'cpu'). Auto-detects if None.
         eval_mode: Whether to set the model to evaluation mode
         checkpoint_path: Optional path to model checkpoint
         enable_segmentation: Whether to enable segmentation head
         enable_inst_interactivity: Whether to enable instance interactivity (SAM 1 task)
-        compile_mode: To enable compilation, set to "default"
+        compile: Whether to compile the model with torch.compile
 
     Returns:
         A SAM3 image model
     """
+    # Use centralized device selection
+    device_obj = get_device(device)
+    device = str(device_obj.type)  # Convert to string for backward compatibility
     if bpe_path is None:
         bpe_path = pkg_resources.resource_filename(
             "sam3", "assets/bpe_simple_vocab_16e6.txt.gz"
@@ -590,7 +662,7 @@ def build_sam3_image_model(
     # Create visual components
     compile_mode = "default" if compile else None
     vision_encoder = _create_vision_backbone(
-        compile_mode=compile_mode, enable_inst_interactivity=enable_inst_interactivity
+        compile_mode=compile_mode, enable_inst_interactivity=enable_inst_interactivity, device=device
     )
 
     # Create text components
@@ -613,7 +685,7 @@ def build_sam3_image_model(
     )
 
     # Create geometry encoder
-    input_geometry_encoder = _create_geometry_encoder()
+    input_geometry_encoder = _create_geometry_encoder(device=device)
     if enable_inst_interactivity:
         sam3_pvs_base = build_tracker(apply_temporal_disambiguation=False)
         inst_predictor = SAM3InteractiveImagePredictor(sam3_pvs_base)
