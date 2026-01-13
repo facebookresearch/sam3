@@ -9,6 +9,7 @@ one of the domains, and masks from the 3 annotators. Dashed borders indicate spe
 <p align="center">
   <img src="../../../assets/saco_gold_annotation.png?" style="width:80%;" />
 </p>
+
 # Preparation
 
 ## Download annotations
