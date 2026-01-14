@@ -123,10 +123,18 @@ class Sam3VideoPredictor:
             "session_id": session_id,
             "start_time": time.time(),
         }
-        logger.debug(
-            f"started new session {session_id}; {self._get_session_stats()}; "
-            f"{self._get_torch_and_gpu_properties()}"
-        )
+        # Wrap in try-except to handle UTF-8 encoding issues on some platforms (e.g., Jetson)
+        try:
+            logger.debug(
+                f"started new session {session_id}; {self._get_session_stats()}; "
+                f"{self._get_torch_and_gpu_properties()}"
+            )
+        except (UnicodeDecodeError, UnicodeEncodeError) as e:
+            # Fallback if GPU properties contain non-UTF-8 characters (Issue #285)
+            logger.debug(
+                f"started new session {session_id}; {self._get_session_stats()}; "
+                "(GPU properties unavailable due to encoding)"
+            )
         return {"session_id": session_id}
 
     def add_prompt(
