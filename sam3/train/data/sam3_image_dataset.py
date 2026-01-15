@@ -15,7 +15,8 @@ from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
 import torch
 import torch.utils.data
 import torchvision
-from decord import cpu, VideoReader
+import logging
+
 from iopath.common.file_io import g_pathmgr
 
 from PIL import Image as PILImage
@@ -26,6 +27,14 @@ from torchvision.datasets.vision import VisionDataset
 
 from .coco_json_loaders import COCO_FROM_JSON
 
+logger = logging.getLogger(__name__)
+
+try:
+    from decord import cpu, VideoReader
+except ImportError:
+    logger.warning("Warning: 'decord' not found. Video loading will fail, but Image inference will work.")
+    cpu = None
+    VideoReader = None
 
 @dataclass
 class InferenceMetadata:

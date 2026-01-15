@@ -4,8 +4,15 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from numpy.typing import NDArray
+import logging
+logger = logging.getLogger(__name__)
 
-from sam3.model.edt import edt_triton
+
+try:
+    from sam3.model.edt import edt_triton
+    TRITON_AVAILABLE = True
+except ImportError:
+    TRITON_AVAILABLE = False
 
 
 def sample_box_points(
@@ -262,7 +269,11 @@ def get_next_point(gt_masks, pred_masks, method):
     if method == "uniform":
         return sample_random_points_from_errors(gt_masks, pred_masks)
     elif method == "center":
-        return sample_one_point_from_error_center(gt_masks, pred_masks)
+        if TRITON_AVAILABLE:
+            return sample_one_point_from_error_center(gt_masks, pred_masks)
+        else:
+            logger.warning("Triton not available using fallback!")
+            return sample_one_point_from_error_center_slow(gt_masks, pred_masks)
     else:
         raise ValueError(f"unknown sampling method {method}")
 
