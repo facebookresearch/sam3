@@ -58,7 +58,7 @@ def _setup_tf32() -> None:
 _setup_tf32()
 
 
-def _create_position_encoding(precompute_resolution=None):
+def _create_position_encoding(precompute_resolution=None, device = "cuda"):
     """Create position encoding for visual backbone."""
     return PositionEmbeddingSine(
         num_pos_feats=256,
@@ -66,6 +66,7 @@ def _create_position_encoding(precompute_resolution=None):
         scale=None,
         temperature=10000,
         precompute_resolution=precompute_resolution,
+        device = device
     )
 
 
@@ -500,11 +501,12 @@ def _create_text_encoder(bpe_path: str) -> VETextEncoder:
 
 
 def _create_vision_backbone(
-    compile_mode=None, enable_inst_interactivity=True
+    compile_mode=None, enable_inst_interactivity=True,
+    device = "cuda"
 ) -> Sam3DualViTDetNeck:
     """Create SAM3 visual backbone with ViT and neck."""
     # Position encoding
-    position_encoding = _create_position_encoding(precompute_resolution=1008)
+    position_encoding = _create_position_encoding(precompute_resolution=1008, device = device)
     # ViT backbone
     vit_backbone: ViT = _create_vit_backbone(compile_mode=compile_mode)
     vit_neck: Sam3DualViTDetNeck = _create_vit_neck(
@@ -591,7 +593,8 @@ def build_sam3_image_model(
     # Create visual components
     compile_mode = "default" if compile else None
     vision_encoder = _create_vision_backbone(
-        compile_mode=compile_mode, enable_inst_interactivity=enable_inst_interactivity
+        compile_mode=compile_mode, enable_inst_interactivity=enable_inst_interactivity,
+        device = device
     )
 
     # Create text components
