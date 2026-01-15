@@ -58,7 +58,7 @@ def _setup_tf32() -> None:
 _setup_tf32()
 
 
-def _create_position_encoding(precompute_resolution=None):
+def _create_position_encoding(precompute_resolution=None, device = "cuda"):
     """Create position encoding for visual backbone."""
     return PositionEmbeddingSine(
         num_pos_feats=256,
@@ -66,6 +66,7 @@ def _create_position_encoding(precompute_resolution=None):
         scale=None,
         temperature=10000,
         precompute_resolution=precompute_resolution,
+        device = device
     )
 
 
@@ -153,7 +154,7 @@ def _create_transformer_encoder() -> TransformerEncoderFusion:
     return encoder
 
 
-def _create_transformer_decoder() -> TransformerDecoder:
+def _create_transformer_decoder(device: str = "cuda") -> TransformerDecoder:
     """Create transformer decoder with its layer."""
     decoder_layer = TransformerDecoderLayer(
         activation="relu",
@@ -186,6 +187,7 @@ def _create_transformer_decoder() -> TransformerDecoder:
         stride=14,
         use_act_checkpoint=True,
         presence_token=True,
+        device=device
     )
     return decoder
 
@@ -499,11 +501,12 @@ def _create_text_encoder(bpe_path: str) -> VETextEncoder:
 
 
 def _create_vision_backbone(
-    compile_mode=None, enable_inst_interactivity=True
+    compile_mode=None, enable_inst_interactivity=True,
+    device = "cuda"
 ) -> Sam3DualViTDetNeck:
     """Create SAM3 visual backbone with ViT and neck."""
     # Position encoding
-    position_encoding = _create_position_encoding(precompute_resolution=1008)
+    position_encoding = _create_position_encoding(precompute_resolution=1008, device = device)
     # ViT backbone
     vit_backbone: ViT = _create_vit_backbone(compile_mode=compile_mode)
     vit_neck: Sam3DualViTDetNeck = _create_vit_neck(
@@ -515,10 +518,10 @@ def _create_vision_backbone(
     return vit_neck
 
 
-def _create_sam3_transformer(has_presence_token: bool = True) -> TransformerWrapper:
+def _create_sam3_transformer(has_presence_token: bool = True, device="cuda") -> TransformerWrapper:
     """Create SAM3 transformer encoder and decoder."""
     encoder: TransformerEncoderFusion = _create_transformer_encoder()
-    decoder: TransformerDecoder = _create_transformer_decoder()
+    decoder: TransformerDecoder = _create_transformer_decoder(device)
 
     return TransformerWrapper(encoder=encoder, decoder=decoder, d_model=256)
 
@@ -590,7 +593,8 @@ def build_sam3_image_model(
     # Create visual components
     compile_mode = "default" if compile else None
     vision_encoder = _create_vision_backbone(
-        compile_mode=compile_mode, enable_inst_interactivity=enable_inst_interactivity
+        compile_mode=compile_mode, enable_inst_interactivity=enable_inst_interactivity,
+        device = device
     )
 
     # Create text components
@@ -600,7 +604,7 @@ def build_sam3_image_model(
     backbone = _create_vl_backbone(vision_encoder, text_encoder)
 
     # Create transformer components
-    transformer = _create_sam3_transformer()
+    transformer = _create_sam3_transformer(device=device)
 
     # Create dot product scoring
     dot_prod_scoring = _create_dot_product_scoring()
