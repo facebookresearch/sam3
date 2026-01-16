@@ -57,42 +57,80 @@ This breakthrough is driven by an innovative data engine that has automatically 
 
 ## Installation
 
-### Prerequisites
+### Quick Install (Recommended)
 
-- Python 3.12 or higher
-- PyTorch 2.7 or higher
-- CUDA-compatible GPU with CUDA 12.6 or higher
-
-1. **Create a new Conda environment:**
-
-```bash
-conda create -n sam3 python=3.12
-conda deactivate
-conda activate sam3
-```
-
-2. **Install PyTorch with CUDA support:**
-
-```bash
-pip install torch==2.7.0 torchvision torchaudio --index-url https://download.pytorch.org/whl/cu126
-```
-
-3. **Clone the repository and install the package:**
+The install script automatically detects your platform (x86 or Jetson) and configures everything:
 
 ```bash
 git clone https://github.com/facebookresearch/sam3.git
 cd sam3
-pip install -e .
+./install.sh
 ```
 
-4. **Install additional dependencies for example notebooks or development:**
+The script will:
+- Detect x86 or Jetson hardware automatically
+- Use the appropriate Python version (3.12 for x86, 3.10 for Jetson)
+- Install PyTorch from the correct source
+- Install SAM3 with notebook dependencies
+
+**Install options:**
+```bash
+./install.sh              # Default: includes notebook dependencies
+./install.sh --minimal    # Base package only
+./install.sh --dev        # Development dependencies
+./install.sh --all        # All optional dependencies
+```
+
+### Manual Installation
+
+#### Prerequisites
+
+- Python 3.9 or higher (3.12 recommended for x86, 3.10 required for Jetson)
+- PyTorch 2.7 or higher
+- CUDA-compatible GPU with CUDA 12.6 or higher
+
+#### x86 Platforms
 
 ```bash
-# For running example notebooks
-pip install -e ".[notebooks]"
+# Create environment
+conda create -n sam3 python=3.12
+conda activate sam3
 
-# For development
-pip install -e ".[train,dev]"
+# Install PyTorch
+pip install torch==2.7.0 torchvision torchaudio --index-url https://download.pytorch.org/whl/cu126
+
+# Clone and install
+git clone https://github.com/facebookresearch/sam3.git
+cd sam3
+pip install -e ".[notebooks]"
+```
+
+#### NVIDIA Jetson Platforms
+
+For Jetson AGX Orin, Orin Nano, and other devices running JetPack 6.x:
+
+```bash
+# Create environment (Python 3.10 required for NVIDIA PyTorch)
+python3.10 -m venv sam3_env
+source sam3_env/bin/activate
+
+# Install PyTorch from NVIDIA Jetson AI Lab
+pip install torch==2.8.0 torchvision==0.23.0 --index-url=https://pypi.jetson-ai-lab.io/jp6/cu126
+
+# Clone and install with Jetson extras
+git clone https://github.com/facebookresearch/sam3.git
+cd sam3
+pip install -e ".[jetson,notebooks]"
+```
+
+See the [Jetson Setup Guide](docs/JETSON_SETUP.md) for detailed instructions and troubleshooting.
+
+#### Optional Dependencies
+
+```bash
+pip install -e ".[notebooks]"     # Jupyter notebooks and visualization
+pip install -e ".[train,dev]"     # Training and development tools
+pip install -e ".[jetson]"        # Jetson-specific tools (jtop monitoring)
 ```
 
 ## Getting Started
