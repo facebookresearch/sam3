@@ -1,0 +1,64 @@
+# SAM3 FastAPI Service Dependencies
+# Python 3.12+ compatible | Updated: January 2026
+# ⚠️  IMPORTANT: All versions verified to be compatible with SAM3's numpy>=1.26,<2 requirement
+
+# ==================== Web Framework ====================
+
+# FastAPI: Modern web framework (no numpy dependency)
+# Latest: 0.125.x | Docs: https://fastapi.tiangolo.com/
+fastapi>=0.115.0,<1.0.0
+
+# Uvicorn: ASGI server (no numpy dependency)
+# Latest: 0.40.0 | Docs: https://www.uvicorn.org/
+uvicorn[standard]>=0.32.0,<1.0.0
+
+# Python-multipart: File upload support (no numpy dependency)
+# Latest: 0.0.21 | Docs: https://github.com/Kludex/python-multipart
+python-multipart>=0.0.21,<1.0.0
+
+# Pydantic: Data validation (no numpy dependency)
+# Latest: 2.12.5 | Docs: https://docs.pydantic.dev/
+pydantic>=2.10.0,<3.0.0
+
+# ==================== Image Processing ====================
+
+# Pillow: Image library (SHARED WITH SAM3, no numpy runtime dependency)
+# Latest: 12.1.0 | SAM3 uses: PIL (Pillow fork)
+# Note: Pillow does NOT depend on numpy at runtime (only for testing)
+# Safe to use any version. Using 10.x for stability with SAM3.
+# Docs: https://pillow.readthedocs.io/
+Pillow>=10.0.0,<13.0.0
+
+# ==================== HTTP Client ====================
+
+# Requests: HTTP library for client examples (no numpy dependency)
+# Latest: 2.32.5 | Docs: https://requests.readthedocs.io/
+requests>=2.32.0,<3.0.0
+
+# ==================== Installation Instructions ====================
+#
+# 1. Install PyTorch with CUDA (REQUIRED, not in this file):
+#    pip install torch torchvision --index-url https://download.pytorch.org/whl/cu126
+#
+# 2. Install SAM3 (REQUIRED, not in this file):
+#    pip install -e .
+#    This will install SAM3's dependencies including:
+#    - numpy>=1.26,<2  ⚠️  CRITICAL: Must be <2.0
+#    - timm>=1.0.17
+#    - tqdm, ftfy, regex, iopath, typing_extensions, huggingface_hub
+#
+# 3. Install service dependencies (this file):
+#    pip install -r service/requirements.txt
+#
+# ==================== Compatibility Notes ====================
+#
+# ✅ All packages in this file are compatible with SAM3:
+#    - None of them depend on numpy
+#    - No version conflicts with SAM3's dependencies
+#    - Pillow works with any numpy version (no runtime dependency)
+#
+# ✅ Tested on Python 3.12
+#
+# ⚠️  DO NOT install packages that require numpy>=2.0
+#    (would conflict with SAM3's numpy>=1.26,<2)
+#
