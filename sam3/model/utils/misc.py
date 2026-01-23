@@ -1,5 +1,7 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates. All Rights Reserved
 
+# pyre-unsafe
+
 from collections import defaultdict
 from dataclasses import fields, is_dataclass
 from typing import Any, Mapping, Protocol, runtime_checkable

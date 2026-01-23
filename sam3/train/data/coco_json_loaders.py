@@ -1,5 +1,7 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates. All Rights Reserved
 
+# pyre-unsafe
+
 import json
 from collections import defaultdict
 from typing import Dict, List, Tuple
@@ -140,9 +142,9 @@ class COCO_FROM_JSON:
             self.prompts = {}
             for loc_dict in prompts:
                 self.prompts[int(loc_dict["id"])] = loc_dict["name"]
-            assert len(self.prompts) == len(
-                self._sorted_cat_ids
-            ), "Number of prompts must match number of categories"
+            assert len(self.prompts) == len(self._sorted_cat_ids), (
+                "Number of prompts must match number of categories"
+            )
 
     def getDatapointIds(self):
         """Return all datapoint indices for training."""

@@ -1,4 +1,6 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates. All Rights Reserved
+
+# pyre-unsafe
 """
 Transformer decoder.
 Inspired from Pytorch's version, adds the pre-norm variant
@@ -7,18 +9,13 @@ Inspired from Pytorch's version, adds the pre-norm variant
 from typing import Any, Dict, List, Optional
 
 import numpy as np
-
 import torch
-
 from sam3.sam.transformer import RoPEAttention
-
 from torch import nn, Tensor
 from torchvision.ops.roi_align import RoIAlign
 
 from .act_ckpt_utils import activation_ckpt_wrapper
-
 from .box_ops import box_cxcywh_to_xyxy
-
 from .model_misc import (
     gen_sineembed_for_position,
     get_activation_fn,
@@ -442,9 +439,9 @@ class TransformerDecoder(nn.Module):
             - valid_ratios/spatial_shapes: bs, nlevel, 2
         """
         if memory_mask is not None:
-            assert (
-                self.boxRPB == "none"
-            ), "inputting a memory_mask in the presence of boxRPB is unexpected/not implemented"
+            assert self.boxRPB == "none", (
+                "inputting a memory_mask in the presence of boxRPB is unexpected/not implemented"
+            )
 
         apply_dac = apply_dac if apply_dac is not None else self.dac
         if apply_dac:
@@ -514,18 +511,18 @@ class TransformerDecoder(nn.Module):
             query_pos = self.ref_point_head(query_sine_embed)  # nq, bs, d_model
 
             if self.boxRPB != "none" and reference_boxes is not None:
-                assert (
-                    spatial_shapes.shape[0] == 1
-                ), "only single scale support implemented"
+                assert spatial_shapes.shape[0] == 1, (
+                    "only single scale support implemented"
+                )
                 memory_mask = self._get_rpb_matrix(
                     reference_boxes,
                     (spatial_shapes[0, 0], spatial_shapes[0, 1]),
                 )
                 memory_mask = memory_mask.flatten(0, 1)  # (bs*n_heads, nq, H*W)
             if self.training:
-                assert (
-                    self.use_act_checkpoint
-                ), "Activation checkpointing not enabled in the decoder"
+                assert self.use_act_checkpoint, (
+                    "Activation checkpointing not enabled in the decoder"
+                )
             output, presence_out = activation_ckpt_wrapper(layer)(
                 tgt=output,
                 tgt_query_pos=query_pos,
@@ -674,9 +671,9 @@ class TransformerEncoderCrossAttention(nn.Module):
                 src_pos[0],
             )
 
-        assert (
-            src.shape[1] == prompt.shape[1]
-        ), "Batch size must be the same for src and prompt"
+        assert src.shape[1] == prompt.shape[1], (
+            "Batch size must be the same for src and prompt"
+        )
 
         output = src
 

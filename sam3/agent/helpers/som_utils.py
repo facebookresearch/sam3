@@ -1,5 +1,7 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates. All Rights Reserved
 
+# pyre-unsafe
+
 import colorsys
 from dataclasses import dataclass
 from typing import List, Tuple

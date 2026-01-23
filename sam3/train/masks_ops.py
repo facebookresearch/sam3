@@ -1,5 +1,7 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates. All Rights Reserved
 
+# pyre-unsafe
+
 """Utilities for masks manipulation"""
 
 import numpy as np
@@ -101,9 +103,9 @@ def dilation(mask, kernel_size):
 
     assert mask.ndim == 3
     kernel_size = int(kernel_size)
-    assert (
-        kernel_size % 2 == 1
-    ), f"Dilation expects a odd kernel size, got {kernel_size}"
+    assert kernel_size % 2 == 1, (
+        f"Dilation expects a odd kernel size, got {kernel_size}"
+    )
 
     if mask.is_cuda:
         m = mask.unsqueeze(1).to(torch.float16)

@@ -1,5 +1,7 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates. All Rights Reserved
 
+# pyre-unsafe
+
 import cv2
 import numpy as np
 import pycocotools.mask as mask_utils
@@ -71,7 +73,9 @@ def visualize(
         idx = int(zoom_in_index)
         num_masks = len(input_json.get("pred_masks", []))
         if idx < 0 or idx >= num_masks:
-            raise ValueError(f"zoom_in_index {idx} is out of range (0..{num_masks-1}).")
+            raise ValueError(
+                f"zoom_in_index {idx} is out of range (0..{num_masks - 1})."
+            )
 
         # (1) Replicate zoom_in_and_visualize
         object_data = {

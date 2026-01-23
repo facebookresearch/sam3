@@ -1,13 +1,13 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates. All Rights Reserved
 
+# pyre-unsafe
+
 import logging
 import random
-
 from collections import defaultdict
 from typing import List, Optional, Union
 
 import torch
-
 from sam3.train.data.sam3_image_dataset import Datapoint, FindQuery, Object
 
 
@@ -379,9 +379,9 @@ class FlexibleFilterFindGetQueries:
         if len(new_find_queries) == 0:
             start_with_zero_check = True
 
-        assert (
-            start_with_zero_check
-        ), "Invalid Find queries, they need to start at query_processing_order = 0"
+        assert start_with_zero_check, (
+            "Invalid Find queries, they need to start at query_processing_order = 0"
+        )
 
         datapoint.find_queries = new_find_queries
 

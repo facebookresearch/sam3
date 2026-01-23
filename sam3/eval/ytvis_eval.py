@@ -1,4 +1,6 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates. All Rights Reserved
+
+# pyre-unsafe
 import copy
 import gc
 import logging
@@ -107,9 +109,7 @@ class YTVISevalMixin:
             )  # Num preds x Num GTS x Num frames
             inter = inter.sum(-1)
             union = union.sum(-1)
-            assert (
-                union > 0
-            ).all(), (
+            assert (union > 0).all(), (
                 "There exists a tracklet with zero GTs across time. This is suspicious"
             )
             return inter / union
@@ -134,9 +134,9 @@ class YTVISevalMixin:
                 iou = inter / union
                 assert iou >= 0 and iou <= 1, "Encountered an error in IoU computation"
             else:
-                assert np.isclose(inter, 0) and np.isclose(
-                    union, 0
-                ), "Encountered an error in IoU computation"
+                assert np.isclose(inter, 0) and np.isclose(union, 0), (
+                    "Encountered an error in IoU computation"
+                )
                 iou = 1
             return iou
 
@@ -204,16 +204,16 @@ class YTVISResultsWriter:
             if len(prediction) == 0:
                 continue
             for k in ["boxes", "scores", "labels"]:
-                assert (
-                    k in prediction
-                ), f"Expected predictions to have `{k}` key, available keys are {prediction.keys()}"
+                assert k in prediction, (
+                    f"Expected predictions to have `{k}` key, available keys are {prediction.keys()}"
+                )
             if self.save_per_frame_scores:
-                assert (
-                    "per_frame_scores" in prediction
-                ), f"Expected predictions to have `per_frame_scores` key, available keys are {prediction.keys()}"
-            assert xor(
-                "masks" in prediction, "masks_rle" in prediction
-            ), f"Expected predictions to have either `masks` key or `masks_rle` key, available keys are {prediction.keys()}"
+                assert "per_frame_scores" in prediction, (
+                    f"Expected predictions to have `per_frame_scores` key, available keys are {prediction.keys()}"
+                )
+            assert xor("masks" in prediction, "masks_rle" in prediction), (
+                f"Expected predictions to have either `masks` key or `masks_rle` key, available keys are {prediction.keys()}"
+            )
 
             boxes = prediction["boxes"]
             boxes = convert_to_xywh(boxes).tolist()
@@ -221,9 +221,9 @@ class YTVISResultsWriter:
             labels = prediction["labels"].tolist()
             if "masks" in prediction:
                 masks = prediction["masks"].squeeze(2)
-                assert (
-                    masks.ndim == 4
-                ), "Expected masks to be of shape(N_preds,T_frames,H,W)"
+                assert masks.ndim == 4, (
+                    "Expected masks to be of shape(N_preds,T_frames,H,W)"
+                )
 
                 areas = [mask.flatten(1).sum(1).tolist() for mask in masks]
                 rles = [rle_encode(masklet) for masklet in masks]

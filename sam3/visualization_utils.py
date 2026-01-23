@@ -1,4 +1,6 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates. All Rights Reserved
+
+# pyre-unsafe
 import json
 import os
 import subprocess
@@ -156,22 +158,22 @@ def plot_mask(mask, color="r", ax=None):
 def normalize_bbox(bbox_xywh, img_w, img_h):
     # Assumes bbox_xywh is in XYWH format
     if isinstance(bbox_xywh, list):
-        assert (
-            len(bbox_xywh) == 4
-        ), "bbox_xywh list must have 4 elements. Batching not support except for torch tensors."
+        assert len(bbox_xywh) == 4, (
+            "bbox_xywh list must have 4 elements. Batching not support except for torch tensors."
+        )
         normalized_bbox = bbox_xywh.copy()
         normalized_bbox[0] /= img_w
         normalized_bbox[1] /= img_h
         normalized_bbox[2] /= img_w
         normalized_bbox[3] /= img_h
     else:
-        assert isinstance(
-            bbox_xywh, torch.Tensor
-        ), "Only torch tensors are supported for batching."
+        assert isinstance(bbox_xywh, torch.Tensor), (
+            "Only torch tensors are supported for batching."
+        )
         normalized_bbox = bbox_xywh.clone()
-        assert (
-            normalized_bbox.size(-1) == 4
-        ), "bbox_xywh tensor must have last dimension of size 4."
+        assert normalized_bbox.size(-1) == 4, (
+            "bbox_xywh tensor must have last dimension of size 4."
+        )
         normalized_bbox[..., 0] /= img_w
         normalized_bbox[..., 1] /= img_h
         normalized_bbox[..., 2] /= img_w
@@ -242,10 +244,10 @@ def visualize_formatted_frame_output(
 
     num_outputs = len(outputs_list)
     if titles is None:
-        titles = [f"Set {i+1}" for i in range(num_outputs)]
-    assert (
-        len(titles) == num_outputs
-    ), "length of `titles` should match that of `outputs_list` if not None."
+        titles = [f"Set {i + 1}" for i in range(num_outputs)]
+    assert len(titles) == num_outputs, (
+        "length of `titles` should match that of `outputs_list` if not None."
+    )
 
     _, axes = plt.subplots(1, num_outputs, figsize=figsize)
     if num_outputs == 1:
@@ -701,9 +703,9 @@ def get_all_annotations_for_frame(
 
     # Get the frame
     video_df_current = video_df[video_df.id == video_id]
-    assert (
-        len(video_df_current) == 1
-    ), f"Expected 1 video row, got {len(video_df_current)}"
+    assert len(video_df_current) == 1, (
+        f"Expected 1 video row, got {len(video_df_current)}"
+    )
     video_row = video_df_current.iloc[0]
     file_name = video_row.file_names[frame_idx]
     file_path = os.path.join(
@@ -794,7 +796,7 @@ def visualize_prompt_overlay(
             ax.text(
                 x_img + 5,
                 y_img - 5,
-                f"P{i+1}",
+                f"P{i + 1}",
                 color=color,
                 fontsize=10,
                 weight="bold",
@@ -826,7 +828,7 @@ def visualize_prompt_overlay(
             ax.text(
                 x_img,
                 y_img - 5,
-                f"B{i+1}",
+                f"B{i + 1}",
                 color=color,
                 fontsize=10,
                 weight="bold",

@@ -1,5 +1,7 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates. All Rights Reserved
 
+# pyre-unsafe
+
 """Postprocessors class to transform MDETR output according to the downstream task"""
 
 import dataclasses
@@ -81,9 +83,9 @@ class PostProcessImage(nn.Module):
             ret_tensordict: Experimental argument. If true, return a tensordict.TensorDict instead of a list of dictionaries for easier manipulation.
         """
         if ret_tensordict:
-            assert (
-                consistent is True
-            ), "We don't support returning TensorDict if the outputs have different shapes"  # NOTE: It's possible but we don't support it.
+            assert consistent is True, (
+                "We don't support returning TensorDict if the outputs have different shapes"
+            )  # NOTE: It's possible but we don't support it.
             assert self.detection_threshold <= 0.0, "TODO: implement?"
             try:
                 from tensordict import TensorDict
@@ -116,7 +118,9 @@ class PostProcessImage(nn.Module):
 
         if boxes is None:
             assert out_masks is not None
-            assert not ret_tensordict, "We don't support returning TensorDict if the output does not contain boxes"
+            assert not ret_tensordict, (
+                "We don't support returning TensorDict if the output does not contain boxes"
+            )
             B = len(out_masks)
             boxes = [None] * B
             scores = [None] * B
@@ -416,9 +420,9 @@ class PostProcessAPIVideo(PostProcessImage):
             if video_id == -1:
                 video_id = unique_vid_id.item()
             else:
-                assert (
-                    video_id == unique_vid_id.item()
-                ), "We can only postprocess one video per datapoint"
+                assert video_id == unique_vid_id.item(), (
+                    "We can only postprocess one video per datapoint"
+                )
             # keeping track of which objects appear in the current frame
             obj_ids_per_frame = frame_outs["pred_object_ids"]
             assert obj_ids_per_frame.size(-1) == frame_outs["pred_logits"].size(-2)

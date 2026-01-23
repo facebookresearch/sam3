@@ -1,5 +1,7 @@
 # flake8: noqa
 
+# pyre-unsafe
+
 # note: this file has been modified from its original version in TrackEval in
 # https://github.com/JonathonLuiten/TrackEval/blob/master/trackeval/datasets/youtube_vis.py
 # to support the following:

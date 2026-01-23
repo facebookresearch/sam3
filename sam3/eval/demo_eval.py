@@ -1,5 +1,7 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates. All Rights Reserved
 
+# pyre-unsafe
+
 """
 This evaluator is based upon COCO evaluation, but evaluates the model in a "demo" setting.
 This means that the model's predictions are thresholded and evaluated as "hard" predictions.
@@ -11,11 +13,9 @@ from typing import Optional
 import numpy as np
 import pycocotools.mask as maskUtils
 from pycocotools.cocoeval import COCOeval
-
 from sam3.eval.coco_eval import CocoEvaluator
 from sam3.train.masks_ops import compute_F_measure
 from sam3.train.utils.distributed import is_main_process
-
 from scipy.optimize import linear_sum_assignment
 
 
@@ -154,9 +154,9 @@ class DemoEval(COCOeval):
             TP = (match_scores >= thresh).sum()
             FP = len(dt) - TP
             FN = len(gt) - TP
-            assert (
-                FP >= 0 and FN >= 0
-            ), f"FP: {FP}, FN: {FN}, TP: {TP}, match_scores: {match_scores}, len(dt): {len(dt)}, len(gt): {len(gt)}, ious: {ious}"
+            assert FP >= 0 and FN >= 0, (
+                f"FP: {FP}, FN: {FN}, TP: {TP}, match_scores: {match_scores}, len(dt): {len(dt)}, len(gt): {len(gt)}, ious: {ious}"
+            )
             TPs.append(TP)
             FPs.append(FP)
             FNs.append(FN)
@@ -526,17 +526,17 @@ class DemoEvaluator(CocoEvaluator):
         if len(scorings) == 1:
             return scorings[0]
 
-        assert (
-            scorings[0].ndim == 3
-        ), f"Expecting results in [numCats, numAreas, numImgs] format, got {scorings[0].shape}"
-        assert (
-            scorings[0].shape[0] == 1
-        ), f"Expecting a single category, got {scorings[0].shape[0]}"
+        assert scorings[0].ndim == 3, (
+            f"Expecting results in [numCats, numAreas, numImgs] format, got {scorings[0].shape}"
+        )
+        assert scorings[0].shape[0] == 1, (
+            f"Expecting a single category, got {scorings[0].shape[0]}"
+        )
 
         for scoring in scorings:
-            assert (
-                scoring.shape == scorings[0].shape
-            ), f"Shape mismatch: {scoring.shape}, {scorings[0].shape}"
+            assert scoring.shape == scorings[0].shape, (
+                f"Shape mismatch: {scoring.shape}, {scorings[0].shape}"
+            )
 
         selected_imgs = []
         for img_id in range(scorings[0].shape[-1]):

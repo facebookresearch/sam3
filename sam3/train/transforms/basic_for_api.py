@@ -1,11 +1,12 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates. All Rights Reserved
 
+# pyre-unsafe
+
 """
 Transforms and data augmentation for both image + bbox.
 """
 
 import logging
-
 import numbers
 import random
 from collections.abc import Sequence
@@ -15,9 +16,7 @@ import torch
 import torchvision.transforms as T
 import torchvision.transforms.functional as F
 import torchvision.transforms.v2.functional as Fv2
-
 from PIL import Image as PILImage
-
 from sam3.model.box_ops import box_xyxy_to_cxcywh, masks_to_boxes
 from sam3.train.data.sam3_image_dataset import Datapoint
 from torchvision.transforms import InterpolationMode

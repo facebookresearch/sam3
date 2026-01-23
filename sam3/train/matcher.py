@@ -1,12 +1,13 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates. All Rights Reserved
 
+# pyre-unsafe
+
 """
 Modules to compute the matching cost and solve the corresponding LSAP.
 """
 
 import numpy as np
 import torch
-
 from sam3.model.box_ops import box_cxcywh_to_xyxy, box_iou, generalized_box_iou
 from scipy.optimize import linear_sum_assignment
 from torch import nn
@@ -58,9 +59,9 @@ class HungarianMatcher(nn.Module):
         self.cost_bbox = cost_bbox
         self.cost_giou = cost_giou
         self.norm = nn.Sigmoid() if focal_loss else nn.Softmax(-1)
-        assert (
-            cost_class != 0 or cost_bbox != 0 or cost_giou != 0
-        ), "all costs cant be 0"
+        assert cost_class != 0 or cost_bbox != 0 or cost_giou != 0, (
+            "all costs cant be 0"
+        )
         self.focal_loss = focal_loss
         self.focal_alpha = focal_alpha
         self.focal_gamma = focal_gamma
@@ -195,9 +196,9 @@ class BinaryHungarianMatcher(nn.Module):
         self.cost_bbox = cost_bbox
         self.cost_giou = cost_giou
         self.norm = nn.Sigmoid()
-        assert (
-            cost_class != 0 or cost_bbox != 0 or cost_giou != 0
-        ), "all costs cant be 0"
+        assert cost_class != 0 or cost_bbox != 0 or cost_giou != 0, (
+            "all costs cant be 0"
+        )
 
     @torch.no_grad()
     def forward(self, outputs, batched_targets, repeats=0, repeat_batch=1):
@@ -320,9 +321,9 @@ class BinaryFocalHungarianMatcher(nn.Module):
         self.alpha = alpha
         self.gamma = gamma
         self.stable = stable
-        assert (
-            cost_class != 0 or cost_bbox != 0 or cost_giou != 0
-        ), "all costs cant be 0"
+        assert cost_class != 0 or cost_bbox != 0 or cost_giou != 0, (
+            "all costs cant be 0"
+        )
 
     @torch.no_grad()
     def forward(self, outputs, batched_targets, repeats=1, repeat_batch=1):
@@ -468,9 +469,9 @@ class BinaryHungarianMatcherV2(nn.Module):
         self.cost_bbox = cost_bbox
         self.cost_giou = cost_giou
         self.norm = nn.Sigmoid()
-        assert (
-            cost_class != 0 or cost_bbox != 0 or cost_giou != 0
-        ), "all costs cant be 0"
+        assert cost_class != 0 or cost_bbox != 0 or cost_giou != 0, (
+            "all costs cant be 0"
+        )
         self.focal = focal
         if focal:
             self.alpha = alpha

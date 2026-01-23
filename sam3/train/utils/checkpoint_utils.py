@@ -1,5 +1,7 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates. All Rights Reserved
 
+# pyre-unsafe
+
 
 import contextlib
 import fnmatch
@@ -34,9 +36,9 @@ def unix_pattern_to_parameter_names(
     parameter_names = []
     for param_name in constraints:
         matching_parameters = set(fnmatch.filter(all_parameter_names, param_name))
-        assert (
-            len(matching_parameters) > 0
-        ), f"param_names {param_name} don't match any param in the given names."
+        assert len(matching_parameters) > 0, (
+            f"param_names {param_name} don't match any param in the given names."
+        )
         parameter_names.append(matching_parameters)
     return set.union(*parameter_names)
 

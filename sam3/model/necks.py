@@ -1,12 +1,13 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates. All Rights Reserved
 
+# pyre-unsafe
+
 """Necks are the interface between a vision backbone and the rest of the detection model"""
 
 from copy import deepcopy
 from typing import List, Optional, Tuple
 
 import torch
-
 import torch.nn as nn
 
 

@@ -1,6 +1,8 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates. All Rights Reserved
 # (c) Meta Platforms, Inc. and affiliates. Confidential and proprietary.
 
+# pyre-unsafe
+
 import copy
 import json
 import logging
@@ -93,9 +95,9 @@ class YTVIS(COCO):
             anns = resFile
         assert type(anns) == list, "results is not an array of objects"
         annsImgIds = [ann["image_id"] for ann in anns]
-        assert set(annsImgIds) == (
-            set(annsImgIds) & set(self.getImgIds())
-        ), "Results do not correspond to current coco set"
+        assert set(annsImgIds) == (set(annsImgIds) & set(self.getImgIds())), (
+            "Results do not correspond to current coco set"
+        )
         if "bboxes" in anns[0] and not anns[0]["bboxes"] == []:
             res.dataset["categories"] = copy.deepcopy(self.dataset["categories"])
             for id, ann in enumerate(anns):

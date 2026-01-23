@@ -1,5 +1,7 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates. All Rights Reserved
 
+# pyre-unsafe
+
 """Some utilities for RLE encoding that doesn't require downloading the masks to the cpu"""
 
 import numpy as np

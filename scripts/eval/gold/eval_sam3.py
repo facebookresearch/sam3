@@ -1,5 +1,7 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates. All Rights Reserved
 
+# pyre-unsafe
+
 """Script to run the evaluator offline given the GTs for SAC-Gold test set and SAM3 model prediction files.
 It reports CGF1, IL_MCC, PM_F1 metrics for each subset of SAC-Gold test set.
 

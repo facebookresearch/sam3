@@ -1,5 +1,7 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates. All Rights Reserved
 
+# pyre-unsafe
+
 """
 ViTDet backbone adapted from Detectron2.
 This module implements Vision Transformer (ViT) backbone for object detection.
@@ -706,9 +708,9 @@ class ViT(nn.Module):
         self.retain_cls_token = retain_cls_token
         if self.retain_cls_token:
             assert pretrain_use_cls_token
-            assert (
-                len(window_block_indexes) == 0
-            ), "windowing not supported with cls token"
+            assert len(window_block_indexes) == 0, (
+                "windowing not supported with cls token"
+            )
 
             assert sum(self.rel_pos_blocks) == 0, "rel pos not supported with cls token"
 

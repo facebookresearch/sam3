@@ -1,6 +1,8 @@
 # fmt: off
 # flake8: noqa
 
+# pyre-unsafe
+
 import copy
 import os
 import pickle

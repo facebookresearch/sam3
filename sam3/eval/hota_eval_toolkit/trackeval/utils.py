@@ -1,5 +1,7 @@
 # flake8: noqa
 
+# pyre-unsafe
+
 import argparse
 import csv
 import os

@@ -1,5 +1,7 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates. All Rights Reserved
 
+# pyre-unsafe
+
 import logging
 import os
 import random
@@ -10,13 +12,10 @@ from copy import deepcopy
 
 import submitit
 import torch
-
 from hydra import compose, initialize_config_module
 from hydra.utils import instantiate
-
 from iopath.common.file_io import g_pathmgr
 from omegaconf import OmegaConf
-
 from sam3.train.utils.train_utils import makedir, register_omegaconf_resolvers
 from tqdm import tqdm
 
@@ -210,9 +209,9 @@ def main(args) -> None:
             },
         }
         if "include_nodes" in submitit_conf:
-            assert (
-                len(submitit_conf["include_nodes"]) >= cfg.launcher.num_nodes
-            ), "Not enough nodes"
+            assert len(submitit_conf["include_nodes"]) >= cfg.launcher.num_nodes, (
+                "Not enough nodes"
+            )
             job_kwargs["slurm_additional_parameters"]["nodelist"] = " ".join(
                 submitit_conf["include_nodes"]
             )

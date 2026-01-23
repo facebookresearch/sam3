@@ -1,5 +1,7 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates. All Rights Reserved
 
+# pyre-unsafe
+
 import copy
 import json
 import os
@@ -294,9 +296,9 @@ def agent_inference(
             assert LATEST_SAM3_TEXT_PROMPT != ""
 
             # Make sure that the last message is a image
-            assert (
-                messages[-1]["content"][1]["type"] == "image"
-            ), "Second content element should be an image"
+            assert messages[-1]["content"][1]["type"] == "image", (
+                "Second content element should be an image"
+            )
             messages.pop()  # Remove the last user message
             # Add simplified replacement message
             simplified_message = {
@@ -316,7 +318,7 @@ def agent_inference(
 
             # MLLM check the mask one by one
             for i in range(num_masks):
-                print(f"🔍 Checking mask {i+1}/{num_masks}...")
+                print(f"🔍 Checking mask {i + 1}/{num_masks}...")
                 image_w_mask_i, image_w_zoomed_in_mask_i = visualize(current_outputs, i)
 
                 image_w_zoomed_in_mask_i_path = os.path.join(
@@ -361,7 +363,7 @@ def agent_inference(
                     raise ValueError(
                         "Generated text is None, which is unexpected. Please check the Qwen server and the input parameters."
                     )
-                print(f"Generated text for mask {i+1}: {checking_generated_text}")
+                print(f"Generated text for mask {i + 1}: {checking_generated_text}")
                 verdict = (
                     checking_generated_text.split("<verdict>")[-1]
                     .split("</verdict>")[0]
@@ -369,11 +371,11 @@ def agent_inference(
                 )
                 if "Accept" in verdict:
                     assert not "Reject" in verdict
-                    print(f"Mask {i+1} accepted, keeping it in the outputs.")
+                    print(f"Mask {i + 1} accepted, keeping it in the outputs.")
                     masks_to_keep.append(i)
                 elif "Reject" in verdict:
                     assert not "Accept" in verdict
-                    print(f"Mask {i+1} rejected, removing it from the outputs.")
+                    print(f"Mask {i + 1} rejected, removing it from the outputs.")
                 else:
                     raise ValueError(
                         f"Unexpected verdict in generated text: {checking_generated_text}. Expected 'Accept' or 'Reject'."
@@ -395,7 +397,7 @@ def agent_inference(
                 sam_output_dir, rf"{LATEST_SAM3_TEXT_PROMPT}.png"
             ).replace(
                 ".png",
-                f"_selected_masks_{'-'.join(map(str, [i+1 for i in masks_to_keep]))}.png".replace(
+                f"_selected_masks_{'-'.join(map(str, [i + 1 for i in masks_to_keep]))}.png".replace(
                     "/", "_"
                 ),
             )

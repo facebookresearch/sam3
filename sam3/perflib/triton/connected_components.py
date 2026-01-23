@@ -1,4 +1,6 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates. All Rights Reserved
+
+# pyre-unsafe
 import math
 
 import torch
@@ -405,16 +407,16 @@ def connected_components_triton(input_tensor: torch.Tensor):
             - A BxHxW output tensor with dense labels. Background is 0.
             - A BxHxW tensor with the size of the connected component for each pixel.
     """
-    assert (
-        input_tensor.is_cuda and input_tensor.is_contiguous()
-    ), "Input tensor must be a contiguous CUDA tensor."
+    assert input_tensor.is_cuda and input_tensor.is_contiguous(), (
+        "Input tensor must be a contiguous CUDA tensor."
+    )
     out_shape = input_tensor.shape
     if input_tensor.dim() == 4 and input_tensor.shape[1] == 1:
         input_tensor = input_tensor.squeeze(1)
     else:
-        assert (
-            input_tensor.dim() == 3
-        ), "Input tensor must be (B, H, W) or (B, 1, H, W)."
+        assert input_tensor.dim() == 3, (
+            "Input tensor must be (B, H, W) or (B, 1, H, W)."
+        )
 
     B, H, W = input_tensor.shape
     numel = B * H * W

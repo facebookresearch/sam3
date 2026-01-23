@@ -1,5 +1,7 @@
 # flake8: noqa
 
+# pyre-unsafe
+
 import os
 import time
 import traceback
@@ -253,9 +255,10 @@ class Evaluator:
                         if show_progressbar and TQDM_IMPORTED:
                             seq_list_sorted = sorted(seq_list)
 
-                            with Pool(config["NUM_PARALLEL_CORES"]) as pool, tqdm.tqdm(
-                                total=len(seq_list)
-                            ) as pbar:
+                            with (
+                                Pool(config["NUM_PARALLEL_CORES"]) as pool,
+                                tqdm.tqdm(total=len(seq_list)) as pbar,
+                            ):
                                 _eval_sequence = partial(
                                     eval_sequence,
                                     dataset=dataset,

@@ -1,5 +1,7 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates. All Rights Reserved
 
+# pyre-unsafe
+
 """Provides utility to combine a vision backbone with a language backbone."""
 
 from copy import copy
@@ -7,7 +9,6 @@ from typing import List, Optional
 
 import torch
 import torch.nn as nn
-
 from torch.nn.attention import sdpa_kernel, SDPBackend
 
 from .act_ckpt_utils import activation_ckpt_wrapper

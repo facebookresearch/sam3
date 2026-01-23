@@ -1,5 +1,7 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates. All Rights Reserved
 
+# pyre-unsafe
+
 import fnmatch
 import inspect
 import itertools
@@ -20,7 +22,6 @@ from typing import (
 )
 
 import hydra
-
 import torch
 import torch.nn as nn
 from omegaconf import DictConfig
@@ -210,9 +211,9 @@ def unix_module_cls_pattern_to_parameter_names(
                 "match any classes in the model"
             )
         matching_parameters = module_cls_to_param_names[module_cls]
-        assert (
-            len(matching_parameters) > 0
-        ), f"module_cls_name {module_cls_name} does not contain any parameters in the model"
+        assert len(matching_parameters) > 0, (
+            f"module_cls_name {module_cls_name} does not contain any parameters in the model"
+        )
         logging.info(
             f"Matches for module_cls_name [{module_cls_name}]: {matching_parameters} "
         )
@@ -238,9 +239,9 @@ def unix_param_pattern_to_parameter_names(
     allowed_parameter_names = []
     for param_name in filter_param_names:
         matching_parameters = set(fnmatch.filter(parameter_names, param_name))
-        assert (
-            len(matching_parameters) >= 1
-        ), f"param_name {param_name} does not match any parameters in the model"
+        assert len(matching_parameters) >= 1, (
+            f"param_name {param_name} does not match any parameters in the model"
+        )
         logging.info(f"Matches for param_name [{param_name}]: {matching_parameters}")
         allowed_parameter_names.append(matching_parameters)
     return set.union(*allowed_parameter_names)

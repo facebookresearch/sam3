@@ -1,5 +1,7 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates. All Rights Reserved
 
+# pyre-unsafe
+
 """
 An awesome colormap for really neat visualizations.
 Copied from Detectron, and removed gray colors.

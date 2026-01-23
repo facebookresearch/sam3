@@ -1,5 +1,7 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates. All Rights Reserved
 
+# pyre-unsafe
+
 import colorsys
 import logging
 import math
@@ -18,7 +20,6 @@ from matplotlib.backends.backend_agg import FigureCanvasAgg
 from PIL import Image
 
 from .boxes import Boxes, BoxMode
-
 from .color_map import random_color
 from .keypoints import Keypoints
 from .masks import BitMasks, PolygonMasks
@@ -220,9 +221,9 @@ class _PanopticPrediction:
                 empty_ids.append(id)
         if len(empty_ids) == 0:
             return np.zeros(self._seg.shape, dtype=np.uint8)
-        assert (
-            len(empty_ids) == 1
-        ), ">1 ids corresponds to no labels. This is currently not supported"
+        assert len(empty_ids) == 1, (
+            ">1 ids corresponds to no labels. This is currently not supported"
+        )
         return (self._seg != empty_ids[0]).numpy().astype(np.bool)
 
     def semantic_masks(self):

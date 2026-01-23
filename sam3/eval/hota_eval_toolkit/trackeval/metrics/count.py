@@ -1,5 +1,7 @@
 # flake8: noqa
 
+# pyre-unsafe
+
 from .. import _timing
 from ._base_metric import _BaseMetric
 

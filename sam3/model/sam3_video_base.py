@@ -1,5 +1,7 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates. All Rights Reserved
 
+# pyre-unsafe
+
 import datetime
 import logging
 import math
@@ -14,7 +16,6 @@ import numpy.typing as npt
 import torch
 import torch.distributed as dist
 import torch.nn.functional as F
-
 from sam3 import perflib
 from sam3.logger import get_logger
 from sam3.model.box_ops import fast_diag_box_iou
@@ -618,9 +619,9 @@ class Sam3VideoBase(nn.Module):
                 num_obj_dropped_due_to_limit,
                 trk_id_to_max_iou_high_conf_det,
             ]
-            assert (
-                len(update_plan) == NUM_BROADCAST_ITEMS
-            ), f"Manually update NUM_BROADCAST_ITEMS to be: {len(update_plan)}"
+            assert len(update_plan) == NUM_BROADCAST_ITEMS, (
+                f"Manually update NUM_BROADCAST_ITEMS to be: {len(update_plan)}"
+            )
             self.broadcast_python_obj_cpu(update_plan, src=0)
         elif self.rank > 0 and self.world_size > 1:
             update_plan = [
@@ -840,9 +841,9 @@ class Sam3VideoBase(nn.Module):
         binary_tracker_low_res_masks_global = tracker_low_res_masks_global > 0
         batch_size = tracker_low_res_masks_global.size(0)
         if batch_size > 0:
-            assert (
-                len(obj_ids_global) == batch_size
-            ), f"Mismatch in number of objects: {len(obj_ids_global)} vs {batch_size}"
+            assert len(obj_ids_global) == batch_size, (
+                f"Mismatch in number of objects: {len(obj_ids_global)} vs {batch_size}"
+            )
             NEVER_OCCLUDED = -1
             ALWAYS_OCCLUDED = 100000  # This value should be larger than any possible frame index, indicates that the object was removed by hotstart logic
             last_occluded_prev = torch.cat(
@@ -1021,9 +1022,9 @@ class Sam3VideoBase(nn.Module):
         reverse: bool = False,
     ):
         # Suppress overlapping masks for objects that were most recently occluded
-        assert (
-            binary_low_res_masks.dtype == torch.bool
-        ), f"Expected boolean tensor, got {binary_low_res_masks.dtype}"
+        assert binary_low_res_masks.dtype == torch.bool, (
+            f"Expected boolean tensor, got {binary_low_res_masks.dtype}"
+        )
         to_suppress = torch.zeros(
             binary_low_res_masks.size(0),
             device=binary_low_res_masks.device,
@@ -1128,9 +1129,9 @@ class Sam3VideoBase(nn.Module):
                 num_frames_propagated += 1
 
             # only 1 frames should be propagated
-            assert (
-                num_frames_propagated == 1 and out_frame_idx == frame_idx
-            ), f"num_frames_propagated: {num_frames_propagated}, out_frame_idx: {out_frame_idx}, frame_idx: {frame_idx}"
+            assert num_frames_propagated == 1 and out_frame_idx == frame_idx, (
+                f"num_frames_propagated: {num_frames_propagated}, out_frame_idx: {out_frame_idx}, frame_idx: {frame_idx}"
+            )
             assert isinstance(out_obj_ids, list)
             obj_ids_local.extend(out_obj_ids)
             low_res_masks_list.append(out_low_res_masks.squeeze(1))
@@ -1187,9 +1188,9 @@ class Sam3VideoBase(nn.Module):
 
         assert det_masks.is_floating_point(), "float tensor expected (do not binarize)"
         assert trk_masks.is_floating_point(), "float tensor expected (do not binarize)"
-        assert (
-            trk_masks.size(0) == len(trk_obj_ids)
-        ), f"trk_masks and trk_obj_ids should have the same length, {trk_masks.size(0)} vs {len(trk_obj_ids)}"
+        assert trk_masks.size(0) == len(trk_obj_ids), (
+            f"trk_masks and trk_obj_ids should have the same length, {trk_masks.size(0)} vs {len(trk_obj_ids)}"
+        )
         if trk_masks.size(0) == 0:
             # all detections are new
             new_det_fa_inds = np.arange(det_masks.size(0))
@@ -1653,9 +1654,9 @@ class Sam3VideoBase(nn.Module):
         # a) first, expand "confirmation_data" to include new masklets added in this frame
         status_prev = confirmation_data["status"]
         consecutive_det_num_prev = confirmation_data["consecutive_det_num"]
-        assert (
-            status_prev.shape == obj_ids_all_gpu_prev.shape
-        ), f"Got {status_prev.shape} vs {obj_ids_all_gpu_prev.shape}"
+        assert status_prev.shape == obj_ids_all_gpu_prev.shape, (
+            f"Got {status_prev.shape} vs {obj_ids_all_gpu_prev.shape}"
+        )
 
         obj_id_to_updated_idx = {
             obj_id: idx for idx, obj_id in enumerate(obj_ids_all_gpu_updated)

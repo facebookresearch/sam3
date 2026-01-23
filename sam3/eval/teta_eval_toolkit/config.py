@@ -1,6 +1,8 @@
 # fmt: off
 # flake8: noqa
 
+# pyre-unsafe
+
 """Config."""
 import argparse
 import os

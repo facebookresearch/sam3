@@ -1,5 +1,7 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates. All Rights Reserved
 
+# pyre-unsafe
+
 """
 COCO prediction dumper for distributed training.
 
@@ -81,9 +83,9 @@ class PredictionDumper:
         self.merge_predictions = merge_predictions
         self.pred_file_evaluators = pred_file_evaluators
         if self.pred_file_evaluators is not None:
-            assert (
-                merge_predictions
-            ), "merge_predictions must be True if pred_file_evaluators are provided"
+            assert merge_predictions, (
+                "merge_predictions must be True if pred_file_evaluators are provided"
+            )
         assert self.dump_dir is not None, "dump_dir must be provided"
 
         if is_main_process():

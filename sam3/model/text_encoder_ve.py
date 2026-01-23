@@ -1,5 +1,7 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates. All Rights Reserved
 
+# pyre-unsafe
+
 from collections import OrderedDict
 from typing import Callable, List, Optional, Tuple, Union
 
@@ -316,9 +318,9 @@ class VETextEncoder(nn.Module):
             # The text is already encoded, use as is.
             text_attention_mask, text_memory_resized, tokenized = text
             inputs_embeds = tokenized["inputs_embeds"]
-            assert (
-                input_boxes is None or len(input_boxes) == 0
-            ), "Can't replace boxes in text if it's already encoded"
+            assert input_boxes is None or len(input_boxes) == 0, (
+                "Can't replace boxes in text if it's already encoded"
+            )
 
         # Note that the input_embeds are returned in pytorch's convention (sequence first)
         return (

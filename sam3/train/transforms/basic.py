@@ -1,5 +1,7 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates. All Rights Reserved
 
+# pyre-unsafe
+
 """
 Transforms and data augmentation for both image + bbox.
 """
@@ -12,7 +14,6 @@ import PIL
 import torch
 import torchvision.transforms as T
 import torchvision.transforms.functional as F
-
 from sam3.model.box_ops import box_xyxy_to_cxcywh
 from sam3.model.data_misc import interpolate
 
@@ -275,9 +276,9 @@ class RandomSizeCrop:
                     max(0, minY - h + 1), max(maxY - 1, max(0, minY - h + 1))
                 )
             result_img, result_target = crop(img, target, [j, i, h, w])
-            assert (
-                len(result_target["boxes"]) == init_boxes
-            ), f"img_w={img.width}\timg_h={img.height}\tminX={minX}\tminY={minY}\tmaxX={maxX}\tmaxY={maxY}\tminW={minW}\tminH={minH}\tmaxW={maxW}\tmaxH={maxH}\tw={w}\th={h}\ti={i}\tj={j}\tinit_boxes={init_boxes_tensor}\tresults={result_target['boxes']}"
+            assert len(result_target["boxes"]) == init_boxes, (
+                f"img_w={img.width}\timg_h={img.height}\tminX={minX}\tminY={minY}\tmaxX={maxX}\tmaxY={maxY}\tminW={minW}\tminH={minH}\tmaxW={maxW}\tmaxH={maxH}\tw={w}\th={h}\ti={i}\tj={j}\tinit_boxes={init_boxes_tensor}\tresults={result_target['boxes']}"
+            )
 
             return result_img, result_target
         else:

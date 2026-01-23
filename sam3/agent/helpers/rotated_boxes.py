@@ -1,5 +1,7 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates. All Rights Reserved
 
+# pyre-unsafe
+
 from __future__ import absolute_import, division, print_function, unicode_literals
 
 import math
@@ -361,9 +363,9 @@ class RotatedBoxes(Boxes):
         if isinstance(item, int):
             return RotatedBoxes(self.tensor[item].view(1, -1))
         b = self.tensor[item]
-        assert (
-            b.dim() == 2
-        ), "Indexing on RotatedBoxes with {} failed to return a matrix!".format(item)
+        assert b.dim() == 2, (
+            "Indexing on RotatedBoxes with {} failed to return a matrix!".format(item)
+        )
         return RotatedBoxes(b)
 
     def __len__(self) -> int:

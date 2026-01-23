@@ -1,5 +1,7 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates. All Rights Reserved
 
+# pyre-unsafe
+
 """Simple script to run the CGF1 evaluator given a prediction file and GT file(s).
 
 Usage: python standalone_cgf1.py --pred_file <path_to_prediction_file> --gt_files <path_to_gt_file1> <path_to_gt_file2> ...

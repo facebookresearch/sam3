@@ -1,5 +1,7 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates. All Rights Reserved
 
+# pyre-unsafe
+
 from typing import Callable, Iterable, Optional
 
 from torch.utils.data import DataLoader, Dataset, DistributedSampler, IterableDataset

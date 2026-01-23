@@ -1,5 +1,7 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates. All Rights Reserved
 
+# pyre-unsafe
+
 import math
 from enum import IntEnum, unique
 from typing import List, Tuple, Union
@@ -82,9 +84,9 @@ class BoxMode(IntEnum):
         ], "Relative mode not yet supported!"
 
         if from_mode == BoxMode.XYWHA_ABS and to_mode == BoxMode.XYXY_ABS:
-            assert (
-                arr.shape[-1] == 5
-            ), "The last dimension of input shape must be 5 for XYWHA format"
+            assert arr.shape[-1] == 5, (
+                "The last dimension of input shape must be 5 for XYWHA format"
+            )
             original_dtype = arr.dtype
             arr = arr.double()
 
@@ -242,9 +244,9 @@ class Boxes:
         if isinstance(item, int):
             return Boxes(self.tensor[item].view(1, -1))
         b = self.tensor[item]
-        assert (
-            b.dim() == 2
-        ), "Indexing on Boxes with {} failed to return a matrix!".format(item)
+        assert b.dim() == 2, (
+            "Indexing on Boxes with {} failed to return a matrix!".format(item)
+        )
         return Boxes(b)
 
     def __len__(self) -> int:
@@ -423,7 +425,7 @@ def matched_pairwise_iou(boxes1: Boxes, boxes2: Boxes) -> torch.Tensor:
         Tensor: iou, sized [N].
     """
     assert len(boxes1) == len(boxes2), (
-        "boxlists should have the same" "number of entries, got {}, {}".format(
+        "boxlists should have the samenumber of entries, got {}, {}".format(
             len(boxes1), len(boxes2)
         )
     )

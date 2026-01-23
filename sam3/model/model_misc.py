@@ -1,5 +1,7 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates. All Rights Reserved
 
+# pyre-unsafe
+
 """Various utility models"""
 
 import copy
@@ -328,9 +330,9 @@ class SAM3Output(list):
             self.output = output
         else:
             self.output = []
-        assert isinstance(
-            iter_mode, SAM3Output.IterMode
-        ), f"iter_mode shoulf be of enum type 'SAM3Output.IterMode'. Got {type(iter_mode)}"
+        assert isinstance(iter_mode, SAM3Output.IterMode), (
+            f"iter_mode shoulf be of enum type 'SAM3Output.IterMode'. Got {type(iter_mode)}"
+        )
 
         self.iter_mode = iter_mode
         # We create a weak reference to self to be used in the lambda functions.
@@ -409,9 +411,9 @@ class SAM3Output(list):
         return SAM3Output._IterationMode(model_output=model_output, iter_mode=iter_mode)
 
     def append(self, item: list):
-        assert isinstance(
-            item, list
-        ), f"Only list items are supported. Got {type(item)}"
+        assert isinstance(item, list), (
+            f"Only list items are supported. Got {type(item)}"
+        )
         self.output.append(item)
 
     def __repr__(self):

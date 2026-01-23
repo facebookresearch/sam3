@@ -1,6 +1,8 @@
 # fmt: off
 # flake8: noqa
 
+# pyre-unsafe
+
 """COCO Dataset."""
 import copy
 import itertools
