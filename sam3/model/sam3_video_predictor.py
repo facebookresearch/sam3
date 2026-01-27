@@ -40,6 +40,15 @@ class Sam3VideoPredictor:
         self.video_loader_type = video_loader_type
         from sam3.model_builder import build_sam3_video_model
 
+        # Check CUDA availability before building video model
+        # Video/tracking inference currently requires CUDA
+        if not torch.cuda.is_available():
+            raise NotImplementedError(
+                "Video/tracking inference currently requires CUDA. "
+                "Image inference works on CPU and MPS. "
+                "Please use build_sam3_image_model() for image tasks on non-CUDA devices."
+            )
+        
         self.model = (
             build_sam3_video_model(
                 checkpoint_path=checkpoint_path,
