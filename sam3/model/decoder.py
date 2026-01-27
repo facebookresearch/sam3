@@ -214,6 +214,7 @@ class TransformerDecoder(nn.Module):
         separate_norm_instance: bool = False,
         resolution: Optional[int] = None,
         stride: Optional[int] = None,
+        device: str = "cuda"
     ):
         super().__init__()
         self.d_model = d_model
@@ -275,7 +276,7 @@ class TransformerDecoder(nn.Module):
             if resolution is not None and stride is not None:
                 feat_size = resolution // stride
                 coords_h, coords_w = self._get_coords(
-                    feat_size, feat_size, device="cuda"
+                    feat_size, feat_size, device=device
                 )
                 self.compilable_cord_cache = (coords_h, coords_w)
                 self.compilable_stored_size = (feat_size, feat_size)
