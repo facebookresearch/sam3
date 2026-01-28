@@ -17,8 +17,13 @@ from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
 import torch
 import torch.utils.data
 import torchvision
-from decord import cpu, VideoReader
 from iopath.common.file_io import g_pathmgr
+
+# Lazy import of decord to avoid conflicts with OpenCV
+# Decord will only be imported when actually needed in _load_images
+# This prevents decord from loading when just importing sam3, which would
+# cause cv2.imshow() to segfault due to library conflicts
+
 from PIL import Image as PILImage
 from PIL.Image import DecompressionBombError
 from sam3.model.box_ops import box_xywh_to_xyxy
@@ -202,6 +207,14 @@ class CustomCocoDetectionAPI(VisionDataset):
             try:
                 if ".mp4" in path and path[-4:] == ".mp4":
                     # Going to load a video frame
+                    # Lazy import decord only when needed to avoid conflicts with OpenCV
+                    try:
+                        from decord import cpu, VideoReader
+                    except ImportError:
+                        raise ImportError(
+                            "decord is required for video loading but is not installed. "
+                            "Install it with: pip install decord or pip install -e '.[notebooks]'"
+                        )
                     video_path, frame = path.split("@")
                     video = VideoReader(video_path, ctx=cpu(0))
                     # Convert to PIL image

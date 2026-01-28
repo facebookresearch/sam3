@@ -88,12 +88,14 @@ pip install -e .
 4. **Install additional dependencies for example notebooks or development:**
 
 ```bash
-# For running example notebooks
+# For running example notebooks (includes einops, decord, pycocotools, triton)
 pip install -e ".[notebooks]"
 
 # For development
 pip install -e ".[train,dev]"
 ```
+
+**Note:** Recent fixes include lazy loading of decord to prevent cv2.imshow() segfaults and updated notebook dependencies.
 
 ## Getting Started
 
