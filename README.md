@@ -59,49 +59,42 @@ This breakthrough is driven by an innovative data engine that has automatically 
 
 ### Prerequisites
 
+- [uv](https://github.com/astral-sh/uv) installed
 - Python 3.12 or higher
-- PyTorch 2.7 or higher
 - CUDA-compatible GPU with CUDA 12.6 or higher
 
-1. **Create a new Conda environment:**
-
-```bash
-conda create -n sam3 python=3.12
-conda deactivate
-conda activate sam3
-```
-
-2. **Install PyTorch with CUDA support:**
-
-```bash
-pip install torch==2.7.0 torchvision torchaudio --index-url https://download.pytorch.org/whl/cu126
-```
-
-3. **Clone the repository and install the package:**
+1. **Clone the repository:**
 
 ```bash
 git clone https://github.com/facebookresearch/sam3.git
 cd sam3
-pip install -e .
 ```
 
-4. **Install additional dependencies for example notebooks or development:**
+2. **Sync the environment:**
+
+This will create a virtual environment, install Python 3.12, PyTorch 2.7.0 (with CUDA 12.6), and all project dependencies.
 
 ```bash
-# For running example notebooks
-pip install -e ".[notebooks]"
+uv sync --extra notebooks --extra train --extra dev
+```
 
-# For development
-pip install -e ".[train,dev]"
+3. **Verify installation:**
+
+```bash
+uv run python -c "import torch; import sam3; print('Installation successful!')"
 ```
 
 ## Getting Started
 
 ⚠️ Before using SAM 3, please request access to the checkpoints on the SAM 3
 Hugging Face [repo](https://huggingface.co/facebook/sam3). Once accepted, you
-need to be authenticated to download the checkpoints. You can do this by running
-the following [steps](https://huggingface.co/docs/huggingface_hub/en/quick-start#authentication)
-(e.g. `hf auth login` after generating an access token.)
+need to be authenticated to download the checkpoints. You can do this by running:
+
+```bash
+uv run huggingface-cli login
+```
+
+and pasting your access token from [your settings](https://huggingface.co/settings/tokens).
 
 ### Basic Usage
 
@@ -174,11 +167,8 @@ dataset.
 To run the Jupyter notebook examples:
 
 ```bash
-# Make sure you have the notebooks dependencies installed
-pip install -e ".[notebooks]"
-
-# Start Jupyter notebook
-jupyter notebook examples/sam3_image_predictor_example.ipynb
+# Start Jupyter notebook (notebooks dependencies are installed via uv sync)
+uv run jupyter notebook examples/sam3_image_predictor_example.ipynb
 ```
 
 ## Model
@@ -347,13 +337,13 @@ We release 2 image benchmarks, [SA-Co/Gold](scripts/eval/gold/README.md) and
 To set up the development environment:
 
 ```bash
-pip install -e ".[dev,train]"
+uv sync --extra dev --extra train
 ```
 
 To format the code:
 
 ```bash
-ufmt format .
+uv run ufmt format .
 ```
 
 ## Contributing
