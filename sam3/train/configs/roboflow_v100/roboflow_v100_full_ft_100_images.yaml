@@ -140,7 +140,7 @@ roboflow_train:
   #         loss_dice: 10.0
   #       compute_aux: false
   #   loss_fn_semantic_seg:
-  #     _target_: sam3.losses.loss_fns.SemanticSegCriterion
+  #     _target_: sam3.train.loss.loss_fns.SemanticSegCriterion
   #     presence_head: True
   #     presence_loss: False  # Change
   #     focal: True
