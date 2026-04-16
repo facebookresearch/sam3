@@ -16,6 +16,10 @@ from sam3.model.data_misc import BatchedInferenceMetadata, interpolate
 from sam3.train.masks_ops import rle_encode, robust_rle_encode
 from torch import nn
 
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+device_type = "cuda" if "cuda" in str(device) else "cpu"
+
+have_cuda: bool = True if device_type == "cuda" else False
 
 class PostProcessNullOp(nn.Module):
     def __init__(self, **kwargs):
@@ -41,7 +45,7 @@ class PostProcessImage(nn.Module):
         use_original_sizes_box: bool = False,
         use_original_sizes_mask: bool = False,
         convert_mask_to_rle: bool = False,
-        always_interpolate_masks_on_gpu: bool = True,
+        always_interpolate_masks_on_gpu: bool = have_cuda,
         use_presence: bool = True,
         detection_threshold: float = -1.0,
     ) -> None:

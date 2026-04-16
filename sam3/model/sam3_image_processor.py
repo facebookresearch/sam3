@@ -10,11 +10,16 @@ from sam3.model import box_ops
 from sam3.model.data_misc import FindStage, interpolate
 from torchvision.transforms import v2
 
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+device_type = "cuda" if "cuda" in str(device) else "cpu"
+
+have_cuda: bool = True if device_type == "cuda" else False
+
 
 class Sam3Processor:
     """ """
 
-    def __init__(self, model, resolution=1008, device="cuda", confidence_threshold=0.5):
+    def __init__(self, model, resolution=1008, device=device_type, confidence_threshold=0.5):
         self.model = model
         self.resolution = resolution
         self.device = device

@@ -28,6 +28,11 @@ from .model_misc import (
     inverse_sigmoid,
     MLP,
 )
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+device_type = "cuda" if "cuda" in str(device) else "cpu"
+
+have_cuda: bool = True if device_type == "cuda" else False
+
 
 
 class TransformerDecoderLayer(nn.Module):
@@ -73,7 +78,7 @@ class TransformerDecoderLayer(nn.Module):
         return tensor if pos is None else tensor + pos
 
     def forward_ffn(self, tgt):
-        with torch.amp.autocast(device_type="cuda", enabled=False):
+        with torch.amp.autocast(device_type=device_type, enabled=False):
             tgt2 = self.linear2(self.dropout3(self.activation(self.linear1(tgt))))
         tgt = tgt + self.dropout4(tgt2)
         tgt = self.norm3(tgt)
@@ -280,7 +285,7 @@ class TransformerDecoder(nn.Module):
             if resolution is not None and stride is not None:
                 feat_size = resolution // stride
                 coords_h, coords_w = self._get_coords(
-                    feat_size, feat_size, device="cuda"
+                    feat_size, feat_size, device=device_type
                 )
                 self.compilable_cord_cache = (coords_h, coords_w)
                 self.compilable_stored_size = (feat_size, feat_size)
@@ -467,7 +472,7 @@ class TransformerDecoder(nn.Module):
                     )
                 )
                 reference_boxes = reference_boxes.repeat(2, 1, 1)
-
+                reference_boxes.to(device)
         bs = tgt.shape[1]
         intermediate = []
         intermediate_presence_logits = []
@@ -483,6 +488,7 @@ class TransformerDecoder(nn.Module):
                     else reference_boxes.repeat(1, bs, 1)
                 )
                 reference_boxes = reference_boxes.sigmoid()
+                reference_boxes.to(device)
             intermediate_ref_boxes = [reference_boxes]
         else:
             reference_boxes = None

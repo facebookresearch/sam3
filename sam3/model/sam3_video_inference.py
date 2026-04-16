@@ -25,7 +25,9 @@ from torchvision.ops import masks_to_boxes
 from tqdm.auto import tqdm
 
 logger = get_logger(__name__)
-
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+device_type = "cuda" if "cuda" in str(device) else "cpu"
+have_cuda: bool = True if device_type == "cuda" else False
 
 class Sam3VideoInference(Sam3VideoBase):
     TEXT_ID_FOR_TEXT = 0
@@ -55,7 +57,7 @@ class Sam3VideoInference(Sam3VideoBase):
     def init_state(
         self,
         resource_path,
-        offload_video_to_cpu=False,
+        offload_video_to_cpu=not have_cuda,
         async_loading_frames=False,
         video_loader_type="cv2",
     ):
@@ -906,7 +908,7 @@ class Sam3VideoInference(Sam3VideoBase):
         )
         return frame_idx, self._postprocess_output(inference_state, out)
 
-    @torch.autocast(device_type="cuda", dtype=torch.bfloat16)
+    @torch.autocast(device_type=device_type, dtype=torch.bfloat16)
     def forward(self, input: BatchedDatapoint, is_inference: bool = False):
         """This method is only used for benchmark eval (not used in the demo)."""
         # set the model to single GPU for benchmark evaluation (to be compatible with trainer)

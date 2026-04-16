@@ -11,6 +11,10 @@ from sam3.model.sam3_tracker_utils import fill_holes_in_mask_scores
 from sam3.model.utils.sam2_utils import load_video_frames
 from tqdm.auto import tqdm
 
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+device_type = "cuda" if "cuda" in str(device) else "cpu"
+
+have_cuda: bool = True if device_type == "cuda" else False
 
 class Sam3TrackerPredictor(Sam3TrackerBase):
     """
@@ -47,7 +51,7 @@ class Sam3TrackerPredictor(Sam3TrackerBase):
         self.max_point_num_in_prompt_enc = max_point_num_in_prompt_enc
         self.non_overlap_masks_for_output = non_overlap_masks_for_output
 
-        self.bf16_context = torch.autocast(device_type="cuda", dtype=torch.bfloat16)
+        self.bf16_context = torch.autocast(device_type=device_type, dtype=torch.bfloat16)
         self.bf16_context.__enter__()  # keep using for the entire model process
 
         self.iter_use_prev_mask_pred = True
