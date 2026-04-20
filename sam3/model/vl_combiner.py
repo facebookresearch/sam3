@@ -12,7 +12,8 @@ import torch.nn as nn
 from torch.nn.attention import sdpa_kernel, SDPBackend
 
 from .act_ckpt_utils import activation_ckpt_wrapper
-from .necks import Sam3DualViTDetNeck
+from .data_misc import NestedTensor
+from .necks import Sam3DualViTDetNeck, Sam3TriViTDetNeck
 
 
 class SAM3VLBackbone(nn.Module):
@@ -173,5 +174,257 @@ class SAM3VLBackbone(nn.Module):
         output["language_embeds"] = (
             text_embeds  # Text embeddings before forward to the encoder
         )
+
+        return output
+
+
+class SAM3VLBackboneTri(SAM3VLBackbone):
+    """VL backbone with triple-head vision (sam3, interactive, propagation) + text encoder."""
+
+    def __init__(self, visual, text, compile_visual=False, scalp=0):
+        super().__init__(
+            visual=visual, text=text, compile_visual=compile_visual, scalp=scalp
+        )
+        assert isinstance(self.vision_backbone, Sam3TriViTDetNeck), (
+            f"Expected vision backbone to be of type Sam3TriViTDetNeck, got {type(self.vision_backbone)}"
+        )
+
+    def forward_image(
+        self,
+        samples,
+        *,
+        need_sam3_out: bool = True,
+        need_interactive_out: bool = True,
+        need_propagation_out: bool = True,
+    ):
+        return activation_ckpt_wrapper(self._forward_image_tri_no_act_ckpt)(
+            samples=samples,
+            need_sam3_out=need_sam3_out,
+            need_interactive_out=need_interactive_out,
+            need_propagation_out=need_propagation_out,
+            act_ckpt_enable=self.act_ckpt_whole_vision_backbone and self.training,
+        )
+
+    def _forward_image_tri_no_act_ckpt(
+        self,
+        samples,
+        need_sam3_out=True,
+        need_interactive_out=True,
+        need_propagation_out=True,
+    ):
+        (
+            sam3_features,
+            sam3_pos,
+            interactive_features,
+            interactive_pos,
+            propagation_features,
+            propagation_pos,
+        ) = self.vision_backbone.forward(
+            samples,
+            need_sam3_out=need_sam3_out,
+            need_interactive_out=need_interactive_out,
+            need_propagation_out=need_propagation_out,
+        )
+        if self.scalp > 0:
+            sam3_features, sam3_pos = (
+                sam3_features[: -self.scalp],
+                sam3_pos[: -self.scalp],
+            )
+            interactive_features, interactive_pos = (
+                interactive_features[: -self.scalp],
+                interactive_pos[: -self.scalp],
+            )
+            propagation_features, propagation_pos = (
+                propagation_features[: -self.scalp],
+                propagation_pos[: -self.scalp],
+            )
+
+        output = {}
+        if need_sam3_out:
+            sam3_last = sam3_features[-1]
+            output.update(
+                {
+                    "vision_features": sam3_last.tensors,
+                    "vision_mask": sam3_last.mask,
+                    "vision_pos_enc": sam3_pos,
+                    "backbone_fpn": sam3_features,
+                }
+            )
+        if need_interactive_out:
+            inte_last = interactive_features[-1]
+            output["interactive"] = {
+                "vision_features": inte_last.tensors,
+                "vision_mask": inte_last.mask,
+                "vision_pos_enc": interactive_pos,
+                "backbone_fpn": interactive_features,
+            }
+        if need_propagation_out:
+            prop_last = propagation_features[-1]
+            output["sam2_backbone_out"] = {
+                "vision_features": prop_last.tensors,
+                "vision_mask": prop_last.mask,
+                "vision_pos_enc": propagation_pos,
+                "backbone_fpn": propagation_features,
+            }
+        return output
+
+
+class VisionOnly(nn.Module):
+    def __init__(
+        self,
+        visual,
+        n_features,
+        forward_in_chunk_for_eval=False,
+        eval_chunk_size=4,
+        eval_cast_to_cpu=False,
+        scalp=0,
+        compile_mode: str = None,
+        compile_extra_args: Optional[dict] = None,
+    ):
+        super().__init__()
+        self.vision_backbone = visual
+        self.should_compile = compile_mode is not None or compile_extra_args is not None
+        self.compile_mode = compile_mode
+        self.compile_extra_args = compile_extra_args or {}
+        self.compiled = False
+        self.n_features = n_features
+        self.forward_in_chunk_for_eval = forward_in_chunk_for_eval
+        self.eval_chunk_size = eval_chunk_size
+        self.eval_cast_to_cpu = eval_cast_to_cpu
+        self.scalp = scalp
+
+    def _compile(self):
+        if self.should_compile and not self.compiled:
+            self.vision_backbone = torch.compile(
+                self.vision_backbone, mode=self.compile_mode, **self.compile_extra_args
+            )
+            self.compiled = True
+
+    def forward_image(self, samples):
+        self._compile()
+        # Forward through backbone
+        features, pos = self.vision_backbone(samples)
+        if self.scalp > 0:
+            features, pos = features[: -self.scalp], pos[: -self.scalp]
+        elif self.scalp < 0:
+            features.pop(self.scalp)
+            pos.pop(self.scalp)
+
+        src, mask = features[-1].decompose()
+        output = {
+            "vision_features": src,
+            "vision_mask": mask,
+            "vision_pos_enc": pos,
+            "backbone_fpn": features,
+        }
+        return output
+
+    def forward_text(
+        self,
+        captions,
+        input_boxes=None,
+        additional_text=None,
+        device="cuda",
+    ):
+        bs = len(captions)
+        output = {
+            "language_features": torch.zeros((0, bs, self.n_features), device=device),
+            "language_mask": torch.zeros((bs, 0), device=device),
+        }
+        return output
+
+
+class TriHeadVisionOnly(VisionOnly):
+    def __init__(
+        self,
+        visual,
+        n_features,
+        forward_in_chunk_for_eval=False,
+        eval_chunk_size=4,
+        eval_cast_to_cpu=False,
+        scalp=0,
+        compile_mode: str = None,
+        compile_extra_args: Optional[dict] = None,
+    ):
+        super().__init__(
+            visual=visual,
+            n_features=n_features,
+            forward_in_chunk_for_eval=forward_in_chunk_for_eval,
+            eval_chunk_size=eval_chunk_size,
+            eval_cast_to_cpu=eval_cast_to_cpu,
+            scalp=scalp,
+            compile_mode=compile_mode,
+            compile_extra_args=compile_extra_args,
+        )
+        assert isinstance(self.vision_backbone, Sam3TriViTDetNeck), (
+            f"Expected vision backbone to be of type Sam3TriViTDetNeck, got {type(self.vision_backbone)}"
+        )
+
+    def forward_image(
+        self,
+        samples,
+        *,
+        need_sam3_out: bool = True,
+        need_interactive_out: bool = True,
+        need_propagation_out: bool = True,
+    ):
+        self._compile()
+        # Forward through backbone
+        (
+            sam3_features,
+            sam3_pos,
+            interactive_features,
+            interactive_pos,
+            propagation_features,
+            propagation_pos,
+        ) = self.vision_backbone(
+            samples,
+            need_sam3_out=need_sam3_out,
+            need_interactive_out=need_interactive_out,
+            need_propagation_out=need_propagation_out,
+        )
+
+        if self.scalp > 0:
+            sam3_features, sam3_pos = (
+                sam3_features[: -self.scalp],
+                sam3_pos[: -self.scalp],
+            )
+            interactive_features, interactive_pos = (
+                interactive_features[: -self.scalp],
+                interactive_pos[: -self.scalp],
+            )
+            propagation_features, propagation_pos = (
+                propagation_features[: -self.scalp],
+                propagation_pos[: -self.scalp],
+            )
+
+        output = {}
+
+        if need_sam3_out:
+            sam3_last = sam3_features[-1]
+            output.update(
+                {
+                    "vision_features": sam3_last.tensors,
+                    "vision_mask": sam3_last.mask,
+                    "vision_pos_enc": sam3_pos,
+                    "backbone_fpn": sam3_features,
+                }
+            )
+        if need_interactive_out:
+            inte_last = interactive_features[-1]
+            output["interactive"] = {
+                "vision_features": inte_last.tensors,
+                "vision_mask": inte_last.mask,
+                "vision_pos_enc": interactive_pos,
+                "backbone_fpn": interactive_features,
+            }
+        if need_propagation_out:
+            prop_last = propagation_features[-1]
+            output["sam2_backbone_out"] = {
+                "vision_features": prop_last.tensors,
+                "vision_mask": prop_last.mask,
+                "vision_pos_enc": propagation_pos,
+                "backbone_fpn": propagation_features,
+            }
 
         return output

@@ -55,6 +55,13 @@ This breakthrough is driven by an innovative data engine that has automatically 
   <img src="assets/player.gif" width=380 />
 </p>
 
+## Latest updates
+
+**03/27/2026 -- SAM 3.1 Object Multiplex is released. It introduces a shared-memory approach for joint multi-object tracking that is significantly faster without sacrificing accuracy.**
+
+- A new suite of improved model checkpoints (denoted as **SAM 3.1**) are released on [Hugging Face](https://huggingface.co/facebook/sam3.1). See [`RELEASE_SAM3p1.md`](RELEASE_SAM3p1.md) for full details.
+  * To use the new SAM 3.1 checkpoints, you need the latest model code from this repo. If you have installed an earlier version of this repo, pull the latest code from this repo (with `git pull`), and then reinstall the repo following [Installation](#installation) below.
+
 ## Installation
 
 ### Prerequisites
@@ -74,7 +81,7 @@ conda activate sam3
 2. **Install PyTorch with CUDA support:**
 
 ```bash
-pip install torch==2.7.0 torchvision torchaudio --index-url https://download.pytorch.org/whl/cu126
+pip install torch==2.10.0 torchvision --index-url https://download.pytorch.org/whl/cu128
 ```
 
 3. **Clone the repository and install the package:**
@@ -93,6 +100,12 @@ pip install -e ".[notebooks]"
 
 # For development
 pip install -e ".[train,dev]"
+```
+
+5. **Optional dependencies for faster inference**
+```bash
+pip install einops ninja && pip install flash-attn-3 --no-deps --index-url https://download.pytorch.org/whl/cu128
+pip install git+https://github.com/ronghanghu/cc_torch.git
 ```
 
 ## Getting Started

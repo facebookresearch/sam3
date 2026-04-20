@@ -16,6 +16,53 @@ import torch
 MyTensor = Union[torch.Tensor, List[Any]]
 
 
+class NestedTensor:
+    def __init__(self, tensors, mask):
+        self.tensors = tensors
+        self.mask = mask
+
+    def to(self, *args, **kwargs):
+        cast_tensor = self.tensors.to(*args, **kwargs)
+        cast_mask = self.mask.to(*args, **kwargs) if self.mask is not None else None
+        return type(self)(cast_tensor, cast_mask)
+
+    def clone(self):
+        new_tensors = self.tensors.clone()
+        new_mask = None if self.mask is None else self.mask.clone()
+        return NestedTensor(new_tensors, new_mask)
+
+    def __getitem__(self, idx):
+        return self.tensors[idx]
+
+    def __len__(self):
+        return len(self.tensors)
+
+    @property
+    def device(self):
+        return self.tensors.device
+
+    @property
+    def shape(self):
+        return self.tensors.shape
+
+    # custom memory pinning method on custom type
+    def pin_memory(self, device=None):
+        self.tensors = self.tensors.pin_memory(device)
+        if self.mask is not None:
+            self.mask = self.mask.pin_memory(device)
+
+
+# Register NestedTensor as a pytree node so tree_map_only can traverse into it
+# (matches onevision/utils/misc.py registration)
+from torch.utils import _pytree as pytree
+
+pytree.register_pytree_node(
+    NestedTensor,
+    lambda x: ([x.tensors, x.mask], None),
+    lambda values, _: NestedTensor(values[0], values[1]),
+)
+
+
 def interpolate(
     input, size=None, scale_factor=None, mode="nearest", align_corners=None
 ):
@@ -80,6 +127,15 @@ class FindStage:
     # We track the object ids referred to by this query.
     # This is beneficial for tracking in videos without the need for pointers.
     object_ids: Optional[List[List]] = None  # List of objects per query
+
+    # Multiplex-specific fields (used by sam3_demo_multiplex)
+    img_ids_np: Optional[Any] = None
+    input_boxes_before_embed: Optional[MyTensor] = None
+    input_boxes_before_embed__type = torch.float
+    input_points_before_embed: Optional[MyTensor] = None
+    input_points_before_embed__type = torch.float
+    ptrs: Optional[Any] = None
+    ptrs_seg: Optional[Any] = None
 
 
 @dataclass
@@ -165,6 +221,7 @@ class BatchedDatapoint:
     find_targets: List[BatchedFindTarget]
     find_metadatas: List[BatchedInferenceMetadata]
     raw_images: Optional[List[Any]] = None
+    get_queries: Optional[Any] = None
 
 
 def convert_my_tensors(obj):
@@ -188,6 +245,7 @@ def convert_my_tensors(obj):
         ):
             stack_dim = 0
             if field.name in [
+                "input_boxes_before_embed",
                 "input_boxes",
                 "input_boxes_label",
             ]:

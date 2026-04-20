@@ -22,13 +22,58 @@ import torch.nn.functional as F
 import torch.utils.checkpoint as checkpoint
 
 try:
-    from timm.layers import DropPath, Mlp, trunc_normal_
+    from timm.layers import DropPath, trunc_normal_
 except ModuleNotFoundError:
     # compatibility for older timm versions
-    from timm.models.layers import DropPath, Mlp, trunc_normal_
+    from timm.models.layers import DropPath, trunc_normal_
+from sam3.model.data_misc import NestedTensor
+from sam3.model.model_misc import AttentionType, LayerScale
+from sam3.perflib.fused import addmm_act
+from sam3.sam.rope import apply_rotary_enc_real, VisionRotaryEmbeddingVE
 from torch import Tensor
 
-from .model_misc import LayerScale
+
+class Mlp(nn.Module):
+    """MLP as used in Vision Transformer, MLP-Mixer and related networks"""
+
+    def __init__(
+        self,
+        in_features,
+        hidden_features=None,
+        out_features=None,
+        act_layer=nn.GELU,
+        norm_layer=None,
+        bias=True,
+        drop=0.0,
+        use_conv=False,
+    ):
+        super().__init__()
+        out_features = out_features or in_features
+        hidden_features = hidden_features or in_features
+        if isinstance(bias, bool):
+            bias = (bias, bias)
+        if isinstance(drop, (int, float)):
+            drop_probs = (drop, drop)
+        else:
+            drop_probs = drop
+        linear_layer = partial(nn.Conv2d, kernel_size=1) if use_conv else nn.Linear
+
+        self.fc1 = linear_layer(in_features, hidden_features, bias=bias[0])
+        self.act = act_layer()
+        self.drop1 = nn.Dropout(drop_probs[0])
+        self.norm = (
+            norm_layer(hidden_features) if norm_layer is not None else nn.Identity()
+        )
+        self.fc2 = linear_layer(hidden_features, out_features, bias=bias[1])
+        self.drop2 = nn.Dropout(drop_probs[1])
+
+    def forward(self, x):
+        x = addmm_act(type(self.act), self.fc1, x)
+        x = self.drop1(x)
+        x = self.norm(x)
+        x = self.fc2(x)
+        x = self.drop2(x)
+        return x
 
 
 def init_t_xy(
@@ -349,11 +394,16 @@ class Attention(nn.Module):
         use_rel_pos: bool = False,
         rel_pos_zero_init: bool = True,
         input_size: Optional[Tuple[int, int]] = None,
+        attn_type: AttentionType = AttentionType.Vanilla,
         cls_token: bool = False,
         use_rope: bool = False,
         rope_theta: float = 10000.0,
         rope_pt_size: Optional[Tuple[int, int]] = None,
         rope_interp: bool = False,
+        rope_tiled: bool = False,
+        use_ve_rope: bool = False,
+        use_fa3: bool = False,
+        use_rope_real: bool = False,
     ):
         """
         Args:
@@ -369,7 +419,9 @@ class Attention(nn.Module):
             use_rope: whether to use rope 2d (indep of use_rel_pos, as it can be used together)
             rope_theta: control frequencies of rope
             rope_pt_size: size of rope in previous stage of training, needed for interpolation or tiling
+            rope_tiled: whether to tile rope or not; tile expected to be of size rope_pt_size x rope_pt_size
             rope_interp: whether to interpolate (or extrapolate) rope to match input size
+            use_ve_rope: use ve orig rope implementation, if small numerical differences are important (normally not)
         """
         super().__init__()
         self.num_heads = num_heads
@@ -377,6 +429,7 @@ class Attention(nn.Module):
         self.scale = self.head_dim**-0.5
         self.cls_token = cls_token
 
+        self.attn_type = attn_type
         self.qkv = nn.Linear(dim, dim * 3, bias=qkv_bias)
         self.proj = nn.Linear(dim, dim)
 
@@ -388,6 +441,10 @@ class Attention(nn.Module):
         self.rope_theta = rope_theta
         self.rope_pt_size = rope_pt_size
         self.rope_interp = rope_interp
+        self.rope_tiled = rope_tiled
+        self.use_ve_rope = use_ve_rope
+        self.use_fa3 = use_fa3
+        self.use_rope_real = use_rope_real
 
         # init rel_pos embeddings and rope
         self._setup_rel_pos(rel_pos_zero_init)
@@ -430,6 +487,15 @@ class Attention(nn.Module):
         if self.rope_pt_size is None:
             self.rope_pt_size = self.input_size
 
+        if self.use_ve_rope:
+            assert not self.rope_tiled, "not supported"
+            self.rope = VisionRotaryEmbeddingVE(
+                dim=self.head_dim // 2,
+                seq_len=self.input_size[0],
+                pt_seq_len=self.rope_pt_size[0],
+            )
+            return
+
         # initialize 2d rope freqs
         self.compute_cis = partial(
             compute_axial_cis,
@@ -437,16 +503,40 @@ class Attention(nn.Module):
             theta=self.rope_theta,
         )
 
-        # interpolate rope
-        scale_pos = 1.0
-        if self.rope_interp:
-            scale_pos = self.rope_pt_size[0] / self.input_size[0]
-        # get scaled freqs_cis
-        freqs_cis = self.compute_cis(
-            end_x=self.input_size[0],
-            end_y=self.input_size[1],
-            scale_pos=scale_pos,
-        )
+        if self.rope_pt_size != self.input_size and self.rope_tiled:
+            assert not self.rope_interp
+            # window/tiled rope
+            freqs_cis = self.compute_cis(
+                end_x=self.rope_pt_size[0], end_y=self.rope_pt_size[1]
+            )
+            # check dims are tileable
+            rh, rw = (
+                self.input_size[0] // self.rope_pt_size[0],
+                self.input_size[1] // self.rope_pt_size[1],
+            )
+            assert rh >= 1, rw >= 1
+            assert (
+                self.input_size[0] % self.rope_pt_size[0] == 0
+                and self.input_size[1] % self.rope_pt_size[1] == 0
+            )
+
+            # restore spatial shape, tile and then flatten spatial dims
+            freqs_cis = (
+                freqs_cis.reshape(self.rope_pt_size[0], self.rope_pt_size[1], -1)
+                .tile(rh, rw, 1)
+                .reshape(-1, freqs_cis.shape[-1])
+            )
+        else:
+            # interpolate rope
+            scale_pos = 1.0
+            if self.rope_interp:
+                scale_pos = self.rope_pt_size[0] / self.input_size[0]
+            # get scaled freqs_cis
+            freqs_cis = self.compute_cis(
+                end_x=self.input_size[0],
+                end_y=self.input_size[1],
+                scale_pos=scale_pos,
+            )
         if self.cls_token:
             t = torch.zeros(
                 self.head_dim // 2,
@@ -457,12 +547,27 @@ class Attention(nn.Module):
             freqs_cis = torch.cat([cls_freqs_cis, freqs_cis], dim=0)
 
         self.register_buffer("freqs_cis", freqs_cis)
+        if self.use_rope_real:
+            self.register_buffer("freqs_cis_real", freqs_cis.real)
+            self.register_buffer("freqs_cis_imag", freqs_cis.imag)
 
     def _apply_rope(self, q, k) -> Tuple[Tensor, Tensor]:
         if not self.use_rope:
             return q, k
 
+        if self.use_ve_rope:
+            dtype = q.dtype
+            return self.rope(q).to(dtype), self.rope(k).to(dtype)
+
         assert self.freqs_cis is not None
+
+        if self.use_rope_real:
+            return apply_rotary_enc_real(
+                q,
+                k,
+                freqs_cis_imag=self.freqs_cis_imag,
+                freqs_cis_real=self.freqs_cis_real,
+            )
         return apply_rotary_enc(q, k, freqs_cis=self.freqs_cis)
 
     def forward(self, x: Tensor) -> Tensor:
@@ -501,7 +606,17 @@ class Attention(nn.Module):
             q = q.reshape(B, self.num_heads, H * W, -1)
             k = k.reshape(B, self.num_heads, H * W, -1)
 
-        x = F.scaled_dot_product_attention(q, k, v)
+        if self.attn_type == AttentionType.Vanilla:
+            if self.use_fa3:
+                from sam3.perflib.fa3 import flash_attn_func
+
+                x = flash_attn_func(
+                    q.transpose(1, 2), k.transpose(1, 2), v.transpose(1, 2)
+                ).transpose(1, 2)
+            else:
+                x = F.scaled_dot_product_attention(q, k, v)
+        else:
+            raise NotImplementedError
 
         if ndim == 4:
             x = (
@@ -541,6 +656,9 @@ class Block(nn.Module):
         cls_token: bool = False,
         dropout: float = 0.0,
         init_values: Optional[float] = None,
+        attn_type: AttentionType = AttentionType.Vanilla,
+        use_fa3: bool = False,
+        use_rope_real: bool = False,
     ):
         """
         Args:
@@ -561,8 +679,10 @@ class Block(nn.Module):
             cls_token: whether a cls_token is present.
             use_rope: whether to use rope 2d (indep of use_rel_pos, as it can be used together)
             rope_pt_size: size of rope in previous stage of training, needed for interpolation or tiling
+            rope_tiled: whether to tile rope or not; tile expected to be of size rope_pt_size x rope_pt_size
             rope_interp: whether to interpolate (or extrapolate) rope to match target input size,
                 expected to specify source size as rope_pt_size.
+            use_ve_rope: use ve orig rope implementation, if small numerical differences are important (normally not)
         """
         super().__init__()
         self.norm1 = norm_layer(dim)
@@ -573,10 +693,15 @@ class Block(nn.Module):
             use_rel_pos=use_rel_pos,
             rel_pos_zero_init=rel_pos_zero_init,
             input_size=input_size if window_size == 0 else (window_size, window_size),
+            attn_type=attn_type,
             use_rope=use_rope,
             rope_pt_size=rope_pt_size,
+            rope_tiled=rope_tiled,
             rope_interp=rope_interp,
+            use_ve_rope=use_ve_rope,
             cls_token=cls_token,
+            use_fa3=use_fa3,
+            use_rope_real=use_rope_real,
         )
         self.ls1 = (
             LayerScale(dim, init_values=init_values) if init_values else nn.Identity()
@@ -642,19 +767,24 @@ class ViT(nn.Module):
         window_size: int = 14,
         global_att_blocks: Tuple[int, ...] = (2, 5, 8, 11),
         use_rope: bool = False,
+        use_tiled_rope: bool = False,
         rope_pt_size: Optional[int] = None,
         use_interp_rope: bool = False,
+        use_ve_rope: bool = False,
+        use_act_checkpoint: bool = True,
         pretrain_img_size: int = 224,
         pretrain_use_cls_token: bool = True,
         retain_cls_token: bool = True,
         dropout: float = 0.0,
         return_interm_layers: bool = False,
         init_values: Optional[float] = None,  # for layerscale
+        attn_type: AttentionType = AttentionType.Vanilla,
         ln_pre: bool = False,
         ln_post: bool = False,
         bias_patch_embed: bool = True,
         compile_mode: Optional[str] = None,
-        use_act_checkpoint: bool = True,
+        use_fa3: bool = False,
+        use_rope_real: bool = False,
     ):
         """
         Args:
@@ -768,10 +898,15 @@ class ViT(nn.Module):
                     if rope_pt_size is None
                     else (rope_pt_size, rope_pt_size)
                 ),
+                rope_tiled=use_tiled_rope,
+                use_ve_rope=use_ve_rope,
                 rope_interp=use_interp_rope,
                 cls_token=self.retain_cls_token,
                 dropout=dropout,
                 init_values=init_values,
+                attn_type=attn_type,
+                use_fa3=use_fa3,
+                use_rope_real=use_rope_real,
             )
 
             if i not in window_block_indexes:
@@ -812,7 +947,14 @@ class ViT(nn.Module):
             nn.init.constant_(m.bias, 0)
             nn.init.constant_(m.weight, 1.0)
 
-    def forward(self, x: torch.Tensor) -> List[torch.Tensor]:
+    def forward(self, tensor_list):
+        if isinstance(tensor_list, NestedTensor):
+            x = tensor_list.tensors
+            mask = tensor_list.mask
+        else:
+            x = tensor_list
+            mask = None
+
         x = self.patch_embed(x)
         h, w = x.shape[1], x.shape[2]
 
@@ -835,6 +977,7 @@ class ViT(nn.Module):
         x = self.ln_pre(x)
 
         outputs = []
+        masks = None
         for i, blk in enumerate(self.blocks):
             if self.use_act_checkpoint and self.training:
                 x = checkpoint.checkpoint(blk, x, use_reentrant=False)
@@ -856,7 +999,15 @@ class ViT(nn.Module):
                         feats.shape[0], h, w, feats.shape[-1]
                     ).permute(0, 3, 1, 2)
 
-                outputs.append(feats)
+                if isinstance(tensor_list, NestedTensor):
+                    # Optimization, if the mask is all False, just ignore it
+                    if mask is not None and mask.any() and masks is None:
+                        masks = F.interpolate(
+                            mask[None].float(), size=feats.shape[-2:]
+                        ).bool()[0]
+                    outputs.append(NestedTensor(feats, masks))
+                else:
+                    outputs.append(feats)
 
         return outputs
 

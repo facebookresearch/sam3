@@ -36,6 +36,23 @@ def instance_masks_to_semantic_masks(
     return torch.stack([torch.any(masks, dim=0) for masks in masks_per_query], dim=0)
 
 
+def mask_intersection_vectorized(masks1, masks2):
+    """
+    Vectorized computation of mask intersection using Matrix Multiplication.
+
+    Args:
+        masks1: tensor of shape (N, H, W)
+        masks2: tensor of shape (M, H, W)
+    Returns:
+        tensor of shape (N, M)
+    """
+    # Cast to float for Tensor Core acceleration via torch.mm
+    m1_flat = masks1.flatten(1).float()
+    m2_flat = masks2.flatten(1).float()
+    intersection = torch.mm(m1_flat, m2_flat.t())
+    return intersection.long()
+
+
 def mask_intersection(masks1, masks2, block_size=16):
     """Compute the intersection of two sets of masks, without blowing the memory"""
 
@@ -63,8 +80,7 @@ def mask_iom(masks1, masks2):
     assert masks1.shape[1:] == masks2.shape[1:]
     assert masks1.dtype == torch.bool and masks2.dtype == torch.bool
 
-    # intersection = (masks1[:, None] * masks2[None]).flatten(-2).sum(-1)
-    intersection = mask_intersection(masks1, masks2)
+    intersection = mask_intersection_vectorized(masks1, masks2)
     area1 = masks1.flatten(-2).sum(-1)
     area2 = masks2.flatten(-2).sum(-1)
     min_area = torch.min(area1[:, None], area2[None, :])

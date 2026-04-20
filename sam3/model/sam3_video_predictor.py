@@ -17,14 +17,12 @@ from typing import List, Optional
 import psutil
 import torch
 from sam3.logger import get_logger
+from sam3.model.sam3_base_predictor import Sam3BasePredictor
 
 logger = get_logger(__name__)
 
 
-class Sam3VideoPredictor:
-    # a global dictionary that holds all inference states for this model (key is session_id)
-    _ALL_INFERENCE_STATES = {}
-
+class Sam3VideoPredictor(Sam3BasePredictor):
     def __init__(
         self,
         checkpoint_path=None,
@@ -37,6 +35,7 @@ class Sam3VideoPredictor:
         apply_temporal_disambiguation: bool = True,
         compile: bool = False,
     ):
+        super().__init__()
         self.async_loading_frames = async_loading_frames
         self.video_loader_type = video_loader_type
         from sam3.model_builder import build_sam3_video_model
@@ -55,124 +54,14 @@ class Sam3VideoPredictor:
             .eval()
         )
 
-    @torch.inference_mode()
-    def handle_request(self, request):
-        """Dispatch a request based on its type."""
-        request_type = request["type"]
-        if request_type == "start_session":
-            return self.start_session(
-                resource_path=request["resource_path"],
-                session_id=request.get("session_id", None),
-            )
-        elif request_type == "add_prompt":
-            return self.add_prompt(
-                session_id=request["session_id"],
-                frame_idx=request["frame_index"],
-                text=request.get("text", None),
-                points=request.get("points", None),
-                point_labels=request.get("point_labels", None),
-                bounding_boxes=request.get("bounding_boxes", None),
-                bounding_box_labels=request.get("bounding_box_labels", None),
-                obj_id=request.get("obj_id", None),
-            )
-        elif request_type == "remove_object":
-            return self.remove_object(
-                session_id=request["session_id"],
-                obj_id=request["obj_id"],
-                is_user_action=request.get("is_user_action", True),
-            )
-        elif request_type == "reset_session":
-            return self.reset_session(session_id=request["session_id"])
-        elif request_type == "close_session":
-            return self.close_session(session_id=request["session_id"])
-        else:
-            raise RuntimeError(f"invalid request type: {request_type}")
-
-    @torch.inference_mode()
-    def handle_stream_request(self, request):
-        """Dispatch a stream request based on its type."""
-        request_type = request["type"]
-        if request_type == "propagate_in_video":
-            yield from self.propagate_in_video(
-                session_id=request["session_id"],
-                propagation_direction=request.get("propagation_direction", "both"),
-                start_frame_idx=request.get("start_frame_index", None),
-                max_frame_num_to_track=request.get("max_frame_num_to_track", None),
-            )
-        else:
-            raise RuntimeError(f"invalid request type: {request_type}")
-
-    def start_session(self, resource_path, session_id=None):
-        """
-        Start a new inference session on an image or a video. Here `resource_path`
-        can be either a path to an image file (for image inference) or an MP4 file
-        or directory with JPEG video frames (for video inference).
-
-        If `session_id` is defined, it will be used as identifier for the
-        session. If it is not defined, the start_session function will create
-        a session id and return it.
-        """
-        # get an initial inference_state from the model
-        inference_state = self.model.init_state(
-            resource_path=resource_path,
-            async_loading_frames=self.async_loading_frames,
-            video_loader_type=self.video_loader_type,
-        )
-        if not session_id:
-            session_id = str(uuid.uuid4())
-        self._ALL_INFERENCE_STATES[session_id] = {
-            "state": inference_state,
-            "session_id": session_id,
-            "start_time": time.time(),
-        }
-        logger.debug(
-            f"started new session {session_id}; {self._get_session_stats()}; "
-            f"{self._get_torch_and_gpu_properties()}"
-        )
-        return {"session_id": session_id}
-
-    def add_prompt(
-        self,
-        session_id: str,
-        frame_idx: int,
-        text: Optional[str] = None,
-        points: Optional[List[List[float]]] = None,
-        point_labels: Optional[List[int]] = None,
-        bounding_boxes: Optional[List[List[float]]] = None,
-        bounding_box_labels: Optional[List[int]] = None,
-        obj_id: Optional[int] = None,
-    ):
-        """Add text, box and/or point prompt on a specific video frame."""
-        logger.debug(
-            f"add prompt on frame {frame_idx} in session {session_id}: "
-            f"{text=}, {points=}, {point_labels=}, "
-            f"{bounding_boxes=}, {bounding_box_labels=}"
-        )
-        session = self._get_session(session_id)
-        inference_state = session["state"]
-
-        frame_idx, outputs = self.model.add_prompt(
-            inference_state=inference_state,
-            frame_idx=frame_idx,
-            text_str=text,
-            points=points,
-            point_labels=point_labels,
-            boxes_xywh=bounding_boxes,
-            box_labels=bounding_box_labels,
-            obj_id=obj_id,
-        )
-        return {"frame_index": frame_idx, "outputs": outputs}
-
     def remove_object(
         self,
         session_id: str,
-        obj_id: int,
+        frame_idx: int = 0,
+        obj_id: int = 0,
         is_user_action: bool = True,
     ):
-        """Remove an object from tracking."""
-        logger.debug(
-            f"remove object {obj_id} in session {session_id}: {is_user_action=}"
-        )
+        """Remove an object from tracking (SAM3 uses a simpler remove_object API)."""
         session = self._get_session(session_id)
         inference_state = session["state"]
 
@@ -183,111 +72,29 @@ class Sam3VideoPredictor:
         )
         return {"is_success": True}
 
-    def propagate_in_video(
-        self,
-        session_id,
-        propagation_direction,
-        start_frame_idx,
-        max_frame_num_to_track,
-    ):
-        """Propagate the added prompts to get grounding results on all video frames."""
-        logger.debug(
-            f"propagate in video in session {session_id}: "
-            f"{propagation_direction=}, {start_frame_idx=}, {max_frame_num_to_track=}"
-        )
-        try:
-            session = self._get_session(session_id)
-            inference_state = session["state"]
-            if propagation_direction not in ["both", "forward", "backward"]:
-                raise ValueError(
-                    f"invalid propagation direction: {propagation_direction}"
-                )
-
-            # First doing the forward propagation
-            if propagation_direction in ["both", "forward"]:
-                for frame_idx, outputs in self.model.propagate_in_video(
-                    inference_state=inference_state,
-                    start_frame_idx=start_frame_idx,
-                    max_frame_num_to_track=max_frame_num_to_track,
-                    reverse=False,
-                ):
-                    yield {"frame_index": frame_idx, "outputs": outputs}
-            # Then doing the backward propagation (reverse in time)
-            if propagation_direction in ["both", "backward"]:
-                for frame_idx, outputs in self.model.propagate_in_video(
-                    inference_state=inference_state,
-                    start_frame_idx=start_frame_idx,
-                    max_frame_num_to_track=max_frame_num_to_track,
-                    reverse=True,
-                ):
-                    yield {"frame_index": frame_idx, "outputs": outputs}
-        finally:
-            # Log upon completion (so that e.g. we can see if two propagations happen in parallel).
-            # Using `finally` here to log even when the tracking is aborted with GeneratorExit.
-            logger.debug(
-                f"propagation ended in session {session_id}; {self._get_session_stats()}"
-            )
-
-    def reset_session(self, session_id):
-        """Reset the session to its initial state (as when it's initial opened)."""
-        logger.debug(f"reset session {session_id}")
-        session = self._get_session(session_id)
-        inference_state = session["state"]
-        self.model.reset_state(inference_state)
-        return {"is_success": True}
-
-    def close_session(self, session_id):
-        """
-        Close a session. This method is idempotent and can be called multiple
-        times on the same "session_id".
-        """
-        session = self._ALL_INFERENCE_STATES.pop(session_id, None)
-        if session is None:
-            logger.warning(
-                f"cannot close session {session_id} as it does not exist (it might have expired); "
-                f"{self._get_session_stats()}"
-            )
-        else:
-            del session
-            gc.collect()
-            logger.info(f"removed session {session_id}; {self._get_session_stats()}")
-        return {"is_success": True}
-
-    def _get_session(self, session_id):
-        session = self._ALL_INFERENCE_STATES.get(session_id, None)
-        if session is None:
-            raise RuntimeError(
-                f"Cannot find session {session_id}; it might have expired"
-            )
-        return session
-
     def _get_session_stats(self):
         """Get a statistics string for live sessions and their GPU usage."""
-        # print both the session ids and their video frame numbers
-        live_session_strs = [
-            f"'{session_id}' ({session['state']['num_frames']} frames)"
-            for session_id, session in self._ALL_INFERENCE_STATES.items()
-        ]
-        session_stats_str = (
-            f"live sessions: [{', '.join(live_session_strs)}], GPU memory: "
-            f"{torch.cuda.memory_allocated() // 1024**2} MiB used and "
-            f"{torch.cuda.memory_reserved() // 1024**2} MiB reserved"
-            f" (max over time: {torch.cuda.max_memory_allocated() // 1024**2} MiB used "
-            f"and {torch.cuda.max_memory_reserved() // 1024**2} MiB reserved)"
+        live_session_strs = []
+        for sid, s in self._all_inference_states.items():
+            nf = s["state"]["num_frames"]
+            live_session_strs.append(f"'{sid}' ({nf} frames)")
+        joined = ", ".join(live_session_strs)
+        mem_alloc = torch.cuda.memory_allocated() // 1024**2
+        mem_res = torch.cuda.memory_reserved() // 1024**2
+        max_alloc = torch.cuda.max_memory_allocated() // 1024**2
+        max_res = torch.cuda.max_memory_reserved() // 1024**2
+        return (
+            f"live sessions: [{joined}], GPU memory: "
+            f"{mem_alloc} MiB used and {mem_res} MiB reserved"
+            f" (max over time: {max_alloc} MiB used and {max_res} MiB reserved)"
         )
-        return session_stats_str
 
     def _get_torch_and_gpu_properties(self):
-        """Get a string for PyTorch and GPU properties (for logging and debugging)."""
-        torch_and_gpu_str = (
+        """Get a string for PyTorch and GPU properties."""
+        return (
             f"torch: {torch.__version__} with CUDA arch {torch.cuda.get_arch_list()}, "
             f"GPU device: {torch.cuda.get_device_properties(torch.cuda.current_device())}"
         )
-        return torch_and_gpu_str
-
-    def shutdown(self):
-        """Shutdown the predictor and clear all sessions."""
-        self._ALL_INFERENCE_STATES.clear()
 
 
 class Sam3VideoPredictorMultiGPU(Sam3VideoPredictor):

@@ -50,6 +50,8 @@ def masks_to_boxes(masks: torch.Tensor, obj_ids: list[int]):
 def mask_iou(pred_masks: torch.Tensor, gt_masks: torch.Tensor) -> torch.Tensor:
     """
     Compute the IoU (Intersection over Union) between predicted masks and ground truth masks.
+    Uses matmul-based vectorized intersection for Tensor Core acceleration.
+
     Args:
       - pred_masks: (N, H, W) bool Tensor, containing binary predicted segmentation masks
       - gt_masks: (M, H, W) bool Tensor, containing binary ground truth segmentation masks
@@ -57,15 +59,14 @@ def mask_iou(pred_masks: torch.Tensor, gt_masks: torch.Tensor) -> torch.Tensor:
       - ious: (N, M) float Tensor, containing IoUs for each pair of predicted and ground truth masks
     """
     assert pred_masks.dtype == gt_masks.dtype == torch.bool
-    N, H, W = pred_masks.shape
-    M, _, _ = gt_masks.shape
+    assert pred_masks.shape[1:] == gt_masks.shape[1:]
 
-    # Flatten masks: (N, 1, H*W) and (1, M, H*W)
-    pred_flat = pred_masks.view(N, 1, H * W)
-    gt_flat = gt_masks.view(1, M, H * W)
+    # Matmul-based intersection (uses Tensor Cores via float mm)
+    m1_flat = pred_masks.flatten(1).float()
+    m2_flat = gt_masks.flatten(1).float()
+    intersection = torch.mm(m1_flat, m2_flat.t())
 
-    # Compute intersection and union: (N, M)
-    intersection = (pred_flat & gt_flat).sum(dim=2).float()
-    union = (pred_flat | gt_flat).sum(dim=2).float()
-    ious = intersection / union.clamp(min=1)
-    return ious  # shape: (N, M)
+    area1 = m1_flat.sum(dim=1)
+    area2 = m2_flat.sum(dim=1)
+    union = area1[:, None] + area2[None, :] - intersection
+    return intersection / union.clamp(min=1)
