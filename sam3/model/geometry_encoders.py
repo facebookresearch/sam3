@@ -590,6 +590,15 @@ class SequenceGeometryEncoder(nn.Module):
         points_embed = None
         n_points, bs = points.shape[:2]
 
+        # 兼容 mmgp 卸载：将输入统一到权重所在设备
+        _dev = self.label_embed.weight.device
+        if points.device != _dev:
+            points = points.to(_dev)
+        if points_mask is not None and points_mask.device != _dev:
+            points_mask = points_mask.to(_dev)
+        if points_labels is not None and points_labels.device != _dev:
+            points_labels = points_labels.to(_dev)
+
         if self.points_direct_project is not None:
             proj = self.points_direct_project(points)
             assert points_embed is None
@@ -632,6 +641,15 @@ class SequenceGeometryEncoder(nn.Module):
     def _encode_boxes(self, boxes, boxes_mask, boxes_labels, img_feats):
         boxes_embed = None
         n_boxes, bs = boxes.shape[:2]
+
+        # 兼容 mmgp 卸载：将输入统一到权重所在设备
+        _dev = self.label_embed.weight.device
+        if boxes.device != _dev:
+            boxes = boxes.to(_dev)
+        if boxes_mask is not None and boxes_mask.device != _dev:
+            boxes_mask = boxes_mask.to(_dev)
+        if boxes_labels is not None and boxes_labels.device != _dev:
+            boxes_labels = boxes_labels.to(_dev)
 
         if self.boxes_direct_project is not None:
             proj = self.boxes_direct_project(boxes)
