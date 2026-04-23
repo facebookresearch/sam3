@@ -2491,7 +2491,8 @@ class VideoTrackingMultiplex(nn.Module):
                 "object_score_logits": past_out["object_score_logits"],
                 # Why would this be current_out?
                 # "multistep_point_inputs": current_out["multistep_point_inputs"],
-                "multistep_point_inputs": past_out["multistep_point_inputs"],
+                # Use .get() because compact_current_out stored by demo.py omits this key
+                "multistep_point_inputs": past_out.get("multistep_point_inputs"),
             }
             if self.use_obj_ptrs_in_encoder:
                 trimmed_past_out["obj_ptr"] = past_out["obj_ptr"]
