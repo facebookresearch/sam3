@@ -53,6 +53,10 @@ class Sam3Processor:
 
         image = v2.functional.to_image(image).to(self.device)
         image = self.transform(image).unsqueeze(0)
+        # Match the model's dtype (e.g. float16 for MPS)
+        model_dtype = next(self.model.parameters()).dtype
+        if image.dtype != model_dtype:
+            image = image.to(model_dtype)
 
         state["original_height"] = height
         state["original_width"] = width

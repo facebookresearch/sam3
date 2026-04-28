@@ -6,7 +6,15 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from numpy.typing import NDArray
-from sam3.model.edt import edt_triton
+try:
+    from sam3.model.edt import edt_triton
+except ImportError:
+    from scipy.ndimage import distance_transform_edt as _scipy_edt
+
+    def edt_triton(data: torch.Tensor) -> torch.Tensor:
+        """CPU fallback for the Triton EDT kernel, using scipy."""
+        result = np.stack([_scipy_edt(d.cpu().numpy() != 0) for d in data])
+        return torch.from_numpy(result).float().to(data.device)
 
 
 def sample_box_points(
