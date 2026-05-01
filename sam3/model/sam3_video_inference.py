@@ -56,6 +56,7 @@ class Sam3VideoInference(Sam3VideoBase):
         self,
         resource_path,
         offload_video_to_cpu=False,
+        offload_state_to_cpu=False,
         async_loading_frames=False,
         video_loader_type="cv2",
     ):
@@ -71,6 +72,7 @@ class Sam3VideoInference(Sam3VideoBase):
         )
         inference_state = {}
         inference_state["image_size"] = self.image_size
+        inference_state["offload_state_to_cpu"] = offload_state_to_cpu
         inference_state["num_frames"] = len(images)
         # the original video height and width, used for resizing final output scores
         inference_state["orig_height"] = orig_height
@@ -551,17 +553,14 @@ class Sam3VideoInference(Sam3VideoBase):
     def _build_tracker_output(
         self, inference_state, frame_idx, refined_obj_id_to_mask=None
     ):
-        assert (
+        if (
             "cached_frame_outputs" in inference_state
             and frame_idx in inference_state["cached_frame_outputs"]
-        ), (
-            "No cached outputs found. Ensure normal propagation has run first to populate the cache."
-        )
-        cached_outputs = inference_state["cached_frame_outputs"][frame_idx]
+        ):
+            obj_id_to_mask = inference_state["cached_frame_outputs"][frame_idx].copy()
+        else:
+            obj_id_to_mask = {}
 
-        obj_id_to_mask = cached_outputs.copy()
-
-        # Update with refined masks if provided
         if refined_obj_id_to_mask is not None:
             for obj_id, refined_mask in refined_obj_id_to_mask.items():
                 assert refined_mask is not None, (
@@ -990,6 +989,7 @@ class Sam3VideoInferenceWithInstanceInteractivity(Sam3VideoInference):
             video_height=inference_state["orig_height"],
             video_width=inference_state["orig_width"],
             num_frames=inference_state["num_frames"],
+            offload_state_to_cpu=inference_state.get("offload_state_to_cpu", False),
         )
 
     @torch.inference_mode()
