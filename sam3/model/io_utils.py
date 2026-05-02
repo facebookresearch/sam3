@@ -9,7 +9,7 @@ import re
 import time
 import types
 from threading import Condition, get_ident, Lock, Thread
-from typing import Optional
+from typing import Any, Optional, Union
 
 import numpy as np
 import torch
@@ -29,14 +29,14 @@ VIDEO_EXTS = [".mp4", ".mov", ".avi", ".mkv", ".webm"]
 
 
 def load_resource_as_video_frames(
-    resource_path,
-    image_size,
-    offload_video_to_cpu,
-    img_mean=(0.5, 0.5, 0.5),
-    img_std=(0.5, 0.5, 0.5),
-    async_loading_frames=False,
-    video_loader_type="cv2",
-):
+    resource_path: Union[str, list],
+    image_size: int,
+    offload_video_to_cpu: bool,
+    img_mean: tuple[float, float, float] = (0.5, 0.5, 0.5),
+    img_std: tuple[float, float, float] = (0.5, 0.5, 0.5),
+    async_loading_frames: bool = False,
+    video_loader_type: str = "cv2",
+) -> tuple[Any, int, int]:
     """
     Load video frames from either a video or an image (as a single-frame video).
     Alternatively, if input is a list of PIL images, convert its format
