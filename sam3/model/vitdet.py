@@ -68,7 +68,12 @@ class Mlp(nn.Module):
         self.drop2 = nn.Dropout(drop_probs[1])
 
     def forward(self, x):
-        x = addmm_act(type(self.act), self.fc1, x)
+        # The fused path is inference-only and CUDA-only.
+        if torch.is_grad_enabled() or x.device.type != "cuda":
+            x = self.fc1(x)
+            x = self.act(x)
+        else:
+            x = addmm_act(type(self.act), self.fc1, x)
         x = self.drop1(x)
         x = self.norm(x)
         x = self.fc2(x)

@@ -219,6 +219,7 @@ class TransformerDecoder(nn.Module):
         separate_norm_instance: bool = False,
         resolution: Optional[int] = None,
         stride: Optional[int] = None,
+        init_device: Optional[torch.device] = None,
     ):
         super().__init__()
         self.d_model = d_model
@@ -280,7 +281,7 @@ class TransformerDecoder(nn.Module):
             if resolution is not None and stride is not None:
                 feat_size = resolution // stride
                 coords_h, coords_w = self._get_coords(
-                    feat_size, feat_size, device="cuda" if torch.cuda.is_available() else "cpu"
+                    feat_size, feat_size, device=init_device
                 )
                 self.compilable_cord_cache = (coords_h, coords_w)
                 self.compilable_stored_size = (feat_size, feat_size)
@@ -330,11 +331,18 @@ class TransformerDecoder(nn.Module):
         coords_w = torch.arange(0, W, device=device, dtype=torch.float32) / W
         return coords_h, coords_w
 
+    @staticmethod
+    def _coord_cache_key(feat_size, device):
+        return (feat_size, device.type, device.index)
+
     def _get_rpb_matrix(self, reference_boxes, feat_size):
         H, W = feat_size
         boxes_xyxy = box_cxcywh_to_xyxy(reference_boxes).transpose(0, 1)
         bs, num_queries, _ = boxes_xyxy.shape
-        if self.compilable_cord_cache is None:
+        if (
+            self.compilable_cord_cache is None
+            or self.compilable_cord_cache[0].device != reference_boxes.device
+        ):
             self.compilable_cord_cache = self._get_coords(H, W, reference_boxes.device)
             self.compilable_stored_size = (H, W)
 
@@ -347,11 +355,12 @@ class TransformerDecoder(nn.Module):
         else:
             # cache miss, will create compilation issue
             # In case we're not compiling, we'll still rely on the dict-based cache
-            if feat_size not in self.coord_cache:
-                self.coord_cache[feat_size] = self._get_coords(
+            cache_key = self._coord_cache_key(feat_size, reference_boxes.device)
+            if cache_key not in self.coord_cache:
+                self.coord_cache[cache_key] = self._get_coords(
                     H, W, reference_boxes.device
                 )
-            coords_h, coords_w = self.coord_cache[feat_size]
+            coords_h, coords_w = self.coord_cache[cache_key]
 
             assert coords_h.shape == (H,)
             assert coords_w.shape == (W,)
@@ -1037,6 +1046,7 @@ class SimpleRoPEAttention(nn.Module):
         feat_sizes=(64, 64),  # [w, h] for stride 16 feats at 1024 resolution
         use_fa3: bool = False,
         use_rope_real: bool = False,
+        init_device: Optional[torch.device] = None,
     ):
         super().__init__()
 
@@ -1045,17 +1055,20 @@ class SimpleRoPEAttention(nn.Module):
         self.compute_cis = partial(
             compute_axial_cis, dim=d_model // num_heads, theta=rope_theta
         )
-        device = torch.device("cuda") if torch.cuda.is_available() else None
-        self.freqs_cis = self.compute_cis(
-            end_x=feat_sizes[0], end_y=feat_sizes[1], device=device
-        )
-
         self.use_fa3 = use_fa3
         self.use_rope_real = use_rope_real
-        if self.use_rope_real:
-            self.freqs_cis_real = self.freqs_cis.real
-            self.freqs_cis_imag = self.freqs_cis.imag
+        self.register_buffer("freqs_cis", None, persistent=False)
+        self.register_buffer("freqs_cis_real", None, persistent=False)
+        self.register_buffer("freqs_cis_imag", None, persistent=False)
+        self._set_freqs_cis(end_x=feat_sizes[0], end_y=feat_sizes[1], device=init_device)
         self.rope_k_repeat = rope_k_repeat
+
+    def _set_freqs_cis(self, end_x: int, end_y: int, device: Optional[torch.device] = None):
+        freqs_cis = self.compute_cis(end_x=end_x, end_y=end_y, device=device)
+        self.freqs_cis = freqs_cis
+        if self.use_rope_real:
+            self.freqs_cis_real = freqs_cis.real
+            self.freqs_cis_imag = freqs_cis.imag
 
     def forward(
         self,
@@ -1066,12 +1079,8 @@ class SimpleRoPEAttention(nn.Module):
     ) -> Union[Tensor, tuple[Tensor, Tensor]]:
         # Apply rotary position encoding
         w = h = math.sqrt(q.shape[-2])
-        self.freqs_cis = self.freqs_cis.to(q.device)
-        if self.freqs_cis.shape[0] != q.shape[-2]:
-            self.freqs_cis = self.compute_cis(end_x=w, end_y=h, device=q.device)
-            if self.use_rope_real:
-                self.freqs_cis_real = self.freqs_cis.real
-                self.freqs_cis_imag = self.freqs_cis.imag
+        if self.freqs_cis.shape[0] != q.shape[-2] or self.freqs_cis.device != q.device:
+            self._set_freqs_cis(end_x=w, end_y=h, device=q.device)
         if q.shape[-2] != k.shape[-2]:
             assert self.rope_k_repeat
 

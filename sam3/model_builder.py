@@ -63,7 +63,7 @@ def _setup_tf32() -> None:
 _setup_tf32()
 
 
-def _create_position_encoding(precompute_resolution=None):
+def _create_position_encoding(precompute_resolution=None, init_device=None):
     """Create position encoding for visual backbone."""
     return PositionEmbeddingSine(
         num_pos_feats=256,
@@ -71,6 +71,7 @@ def _create_position_encoding(precompute_resolution=None):
         scale=None,
         temperature=10000,
         precompute_resolution=precompute_resolution,
+        init_device=init_device,
     )
 
 
@@ -162,7 +163,7 @@ def _create_transformer_encoder(use_fa3=False) -> TransformerEncoderFusion:
     return encoder
 
 
-def _create_transformer_decoder(use_fa3=False) -> TransformerDecoder:
+def _create_transformer_decoder(use_fa3=False, init_device=None) -> TransformerDecoder:
     """Create transformer decoder with its layer."""
     decoder_layer = TransformerDecoderLayer(
         activation="relu",
@@ -196,6 +197,7 @@ def _create_transformer_decoder(use_fa3=False) -> TransformerDecoder:
         stride=14,
         use_act_checkpoint=True,
         presence_token=True,
+        init_device=init_device,
     )
     return decoder
 
@@ -243,10 +245,10 @@ def _create_segmentation_head(compile_mode=None, use_fa3=False):
     return segmentation_head
 
 
-def _create_geometry_encoder():
+def _create_geometry_encoder(init_device=None):
     """Create geometry encoder with all its components."""
     # Create position encoding for geometry encoder
-    geo_pos_enc = _create_position_encoding()
+    geo_pos_enc = _create_position_encoding(init_device=init_device)
     # Create CX block for fuser
     cx_block = CXBlock(
         dim=256,
@@ -341,7 +343,7 @@ def _create_sam3_model(
     return model
 
 
-def _create_tracker_maskmem_backbone():
+def _create_tracker_maskmem_backbone(init_device=None):
     """Create the SAM3 Tracker memory encoder."""
     # Position encoding for mask memory backbone
     position_encoding = PositionEmbeddingSine(
@@ -350,6 +352,7 @@ def _create_tracker_maskmem_backbone():
         scale=None,
         temperature=10000,
         precompute_resolution=1008,
+        init_device=init_device,
     )
 
     # Mask processing components
@@ -377,7 +380,7 @@ def _create_tracker_maskmem_backbone():
     return maskmem_backbone
 
 
-def _create_tracker_transformer():
+def _create_tracker_transformer(init_device=None):
     """Create the SAM3 Tracker transformer components."""
     # Self attention
     self_attention = RoPEAttention(
@@ -389,6 +392,7 @@ def _create_tracker_transformer():
         feat_sizes=[72, 72],
         use_fa3=False,
         use_rope_real=False,
+        init_device=init_device,
     )
 
     # Cross attention
@@ -403,6 +407,7 @@ def _create_tracker_transformer():
         rope_k_repeat=True,
         use_fa3=False,
         use_rope_real=False,
+        init_device=init_device,
     )
 
     # Encoder layer
@@ -443,7 +448,10 @@ def _create_tracker_transformer():
 
 
 def build_tracker(
-    apply_temporal_disambiguation: bool, with_backbone: bool = False, compile_mode=None
+    apply_temporal_disambiguation: bool,
+    with_backbone: bool = False,
+    compile_mode=None,
+    init_device=None,
 ) -> Sam3TrackerPredictor:
     """
     Build the SAM3 Tracker module for video tracking.
@@ -453,11 +461,13 @@ def build_tracker(
     """
 
     # Create model components
-    maskmem_backbone = _create_tracker_maskmem_backbone()
-    transformer = _create_tracker_transformer()
+    maskmem_backbone = _create_tracker_maskmem_backbone(init_device=init_device)
+    transformer = _create_tracker_transformer(init_device=init_device)
     backbone = None
     if with_backbone:
-        vision_backbone = _create_vision_backbone(compile_mode=compile_mode)
+        vision_backbone = _create_vision_backbone(
+            compile_mode=compile_mode, init_device=init_device
+        )
         backbone = SAM3VLBackbone(scalp=1, visual=vision_backbone, text=None)
     # Create the Tracker module
     model = Sam3TrackerPredictor(
@@ -510,11 +520,13 @@ def _create_text_encoder(bpe_path: str) -> VETextEncoder:
 
 
 def _create_vision_backbone(
-    compile_mode=None, enable_inst_interactivity=True
+    compile_mode=None, enable_inst_interactivity=True, init_device=None
 ) -> Sam3DualViTDetNeck:
     """Create SAM3 visual backbone with ViT and neck."""
     # Position encoding
-    position_encoding = _create_position_encoding(precompute_resolution=1008)
+    position_encoding = _create_position_encoding(
+        precompute_resolution=1008, init_device=init_device
+    )
     # ViT backbone
     vit_backbone: ViT = _create_vit_backbone(compile_mode=compile_mode)
     vit_neck: Sam3DualViTDetNeck = _create_vit_neck(
@@ -527,11 +539,15 @@ def _create_vision_backbone(
 
 
 def _create_sam3_transformer(
-    has_presence_token: bool = True, use_fa3: bool = False
+    has_presence_token: bool = True,
+    use_fa3: bool = False,
+    init_device=None,
 ) -> TransformerWrapper:
     """Create SAM3 transformer encoder and decoder."""
     encoder: TransformerEncoderFusion = _create_transformer_encoder(use_fa3=use_fa3)
-    decoder: TransformerDecoder = _create_transformer_decoder(use_fa3=use_fa3)
+    decoder: TransformerDecoder = _create_transformer_decoder(
+        use_fa3=use_fa3, init_device=init_device
+    )
 
     return TransformerWrapper(encoder=encoder, decoder=decoder, d_model=256)
 
@@ -563,8 +579,7 @@ def _load_checkpoint(model, checkpoint_path):
 
 def _setup_device_and_mode(model, device, eval_mode):
     """Setup model device and evaluation mode."""
-    if device == "cuda":
-        model = model.cuda()
+    model = model.to(device=device)
     if eval_mode:
         model.eval()
     return model
@@ -595,6 +610,7 @@ def build_sam3_image_model(
     Returns:
         A SAM3 image model
     """
+    device = torch.device(device)
     if bpe_path is None:
         bpe_path = pkg_resources.resource_filename(
             "sam3", "assets/bpe_simple_vocab_16e6.txt.gz"
@@ -603,7 +619,9 @@ def build_sam3_image_model(
     # Create visual components
     compile_mode = "default" if compile else None
     vision_encoder = _create_vision_backbone(
-        compile_mode=compile_mode, enable_inst_interactivity=enable_inst_interactivity
+        compile_mode=compile_mode,
+        enable_inst_interactivity=enable_inst_interactivity,
+        init_device=device,
     )
 
     # Create text components
@@ -613,7 +631,7 @@ def build_sam3_image_model(
     backbone = _create_vl_backbone(vision_encoder, text_encoder)
 
     # Create transformer components
-    transformer = _create_sam3_transformer()
+    transformer = _create_sam3_transformer(init_device=device)
 
     # Create dot product scoring
     dot_prod_scoring = _create_dot_product_scoring()
@@ -626,9 +644,11 @@ def build_sam3_image_model(
     )
 
     # Create geometry encoder
-    input_geometry_encoder = _create_geometry_encoder()
+    input_geometry_encoder = _create_geometry_encoder(init_device=device)
     if enable_inst_interactivity:
-        sam3_pvs_base = build_tracker(apply_temporal_disambiguation=False)
+        sam3_pvs_base = build_tracker(
+            apply_temporal_disambiguation=False, init_device=device
+        )
         inst_predictor = SAM3InteractiveImagePredictor(sam3_pvs_base)
     else:
         inst_predictor = None

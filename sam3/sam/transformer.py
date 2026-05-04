@@ -4,7 +4,7 @@
 
 import math
 from functools import partial
-from typing import Tuple, Type
+from typing import Optional, Tuple, Type
 
 import torch
 import torch.nn.functional as F
@@ -276,6 +276,7 @@ class RoPEAttention(Attention):
         rope_k_repeat=False,
         feat_sizes=(64, 64),  # [w, h] for stride 16 feats at 1024 resolution
         use_rope_real=False,
+        init_device: Optional[torch.device] = None,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
@@ -283,14 +284,22 @@ class RoPEAttention(Attention):
         self.compute_cis = partial(
             compute_axial_cis, dim=self.internal_dim // self.num_heads, theta=rope_theta
         )
-        device = torch.device("cuda") if torch.cuda.is_available() else None
-        self.freqs_cis = self.compute_cis(
-            end_x=feat_sizes[0], end_y=feat_sizes[1], device=device
+        self.register_buffer("freqs_cis", None, persistent=False)
+        self.register_buffer("freqs_cis_real", None, persistent=False)
+        self.register_buffer("freqs_cis_imag", None, persistent=False)
+        self._set_freqs_cis(
+            end_x=feat_sizes[0],
+            end_y=feat_sizes[1],
+            device=init_device,
         )
-        if self.use_rope_real:
-            self.freqs_cis_real = self.freqs_cis.real
-            self.freqs_cis_imag = self.freqs_cis.imag
         self.rope_k_repeat = rope_k_repeat
+
+    def _set_freqs_cis(self, end_x: int, end_y: int, device: Optional[torch.device] = None):
+        freqs_cis = self.compute_cis(end_x=end_x, end_y=end_y, device=device)
+        self.freqs_cis = freqs_cis
+        if self.use_rope_real:
+            self.freqs_cis_real = freqs_cis.real
+            self.freqs_cis_imag = freqs_cis.imag
 
     def forward(
         self, q: Tensor, k: Tensor, v: Tensor, num_k_exclude_rope: int = 0
@@ -307,10 +316,8 @@ class RoPEAttention(Attention):
 
         # Apply rotary position encoding
         w = h = math.sqrt(q.shape[-2])
-        if self.freqs_cis.shape[0] != q.shape[-2]:
-            self.freqs_cis = self.compute_cis(end_x=w, end_y=h, device=q.device)
-            self.freqs_cis_real = self.freqs_cis.real
-            self.freqs_cis_imag = self.freqs_cis.imag
+        if self.freqs_cis.shape[0] != q.shape[-2] or self.freqs_cis.device != q.device:
+            self._set_freqs_cis(end_x=w, end_y=h, device=q.device)
         if q.shape[-2] != k.shape[-2]:
             assert self.rope_k_repeat
 
