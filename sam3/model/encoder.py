@@ -173,6 +173,15 @@ class TransformerEncoderLayer(nn.Module):
         Returns:
             Processed tensor
         """
+
+        if query_pos is not None:
+            query_pos = query_pos.to(tgt)
+
+        if pos is not None:
+            pos = pos.to(tgt)
+
+        memory = memory.to(tgt)
+
         if dac:
             # we only apply self attention to the first half of the queries
             assert tgt.shape[0] % 2 == 0

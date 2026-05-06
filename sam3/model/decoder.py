@@ -70,7 +70,7 @@ class TransformerDecoderLayer(nn.Module):
 
     @staticmethod
     def with_pos_embed(tensor, pos):
-        return tensor if pos is None else tensor + pos
+        return tensor if pos is None else tensor + pos.to(device=tensor.device)
 
     def forward_ffn(self, tgt):
         with torch.amp.autocast(device_type="cuda", enabled=False):
@@ -355,6 +355,9 @@ class TransformerDecoder(nn.Module):
 
             assert coords_h.shape == (H,)
             assert coords_w.shape == (W,)
+
+        coords_h = coords_h.to(device=reference_boxes.device)
+        coords_w = coords_w.to(device=reference_boxes.device)
 
         deltas_y = coords_h.view(1, -1, 1) - boxes_xyxy.reshape(-1, 1, 4)[:, :, 1:4:2]
         deltas_y = deltas_y.view(bs, num_queries, -1, 2)
