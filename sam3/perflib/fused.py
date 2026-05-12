@@ -10,6 +10,16 @@ addmm_act_op = torch.ops.aten._addmm_activation
 def addmm_act(activation, linear, mat1):
     if torch.is_grad_enabled():
         raise ValueError("Expected grad to be disabled.")
+
+    # Fused bfloat16 path only works on CUDA
+    if mat1.device.type != "cuda":
+        x = torch.nn.functional.linear(mat1, linear.weight, linear.bias)
+        if activation in [torch.nn.functional.relu, torch.nn.ReLU]:
+            return torch.nn.functional.relu(x)
+        if activation in [torch.nn.functional.gelu, torch.nn.GELU]:
+            return torch.nn.functional.gelu(x)
+        raise ValueError(f"Unexpected activation {activation}")
+
     self = linear.bias.detach()
     mat2 = linear.weight.detach()
     self = self.to(torch.bfloat16)
