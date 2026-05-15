@@ -361,7 +361,9 @@ def load_dummy_video(image_size, offload_video_to_cpu, num_frames=60, do_zeros=F
     return images, video_height, video_width
 
 
-def _load_img_as_tensor(img_path, image_size):
+def _load_img_as_tensor(
+    img_path: str, image_size: int
+) -> tuple[torch.Tensor, int, int]:
     """Load and resize an image and convert it into a PyTorch tensor."""
     img = Image.open(img_path).convert("RGB")
     orig_width, orig_height = img.width, img.height
@@ -430,7 +432,7 @@ class AsyncImageFrameLoader:
         self.images[index] = img
         return img
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self.images)
 
 
@@ -440,7 +442,13 @@ class TorchCodecDecoder:
     which are not supported by `torchcodec.decoders.SimpleVideoDecoder` yet.
     """
 
-    def __init__(self, source, dimension_order="NCHW", device="cpu", num_threads=1):
+    def __init__(
+        self,
+        source: Union[str, bytes],
+        dimension_order: str = "NCHW",
+        device: str = "cpu",
+        num_threads: int = 1,
+    ) -> None:
         from torchcodec import _core as core
 
         self._source = source  # hold a reference to the source to prevent it from GC
@@ -510,7 +518,7 @@ class FIFOLock:
             self._waiters.get()
             self._condition.notify_all()
 
-    def __enter__(self):
+    def __enter__(self) -> None:
         self.acquire()
 
     def __exit__(
@@ -532,15 +540,15 @@ class AsyncVideoFileLoaderWithTorchCodec:
 
     def __init__(
         self,
-        video_path,
-        image_size,
-        offload_video_to_cpu,
-        img_mean,
-        img_std,
-        gpu_acceleration=True,
-        gpu_device=None,
-        use_rand_seek_in_loading=False,
-    ):
+        video_path: str,
+        image_size: int,
+        offload_video_to_cpu: bool,
+        img_mean: Union[tuple[float, float, float], torch.Tensor],
+        img_std: Union[tuple[float, float, float], torch.Tensor],
+        gpu_acceleration: bool = True,
+        gpu_device: Optional[torch.device] = None,
+        use_rand_seek_in_loading: bool = False,
+    ) -> None:
         # Check and possibly infer the output device (and also get its GPU id when applicable)
         assert gpu_device is None or gpu_device.type == "cuda"
         gpu_id = (
@@ -702,7 +710,7 @@ class AsyncVideoFileLoaderWithTorchCodec:
             frame_resized = frame_resized.to(device=self.out_device, non_blocking=True)
         return frame_resized
 
-    def __getitem__(self, index):
+    def __getitem__(self, index: int) -> torch.Tensor:
         if self.exception is not None:
             raise RuntimeError("Failure in frame loading thread") from self.exception
 
@@ -724,10 +732,10 @@ class AsyncVideoFileLoaderWithTorchCodec:
 
         raise RuntimeError(f"Failed to load frame {index} after {max_tries} tries")
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self.images)
 
-    def __getstate__(self):
+    def __getstate__(self) -> dict[str, Any]:
         """
         Remove a few attributes during pickling, so that this async video loader can be
         saved and loaded as a part of the model session.

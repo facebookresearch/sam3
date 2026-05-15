@@ -162,7 +162,7 @@ class VideoGroundingDataset(Sam3ImageDataset):
     def _sample_stage_ids(self, queries, num_stages_sample, stage_stride):
         """Sample a subset of stage ids from all queries."""
         # Later we can perhaps turn it into a Sampler class to be more flexible.
-        all_stage_ids = sorted(set(q["query_processing_order"] for q in queries))
+        all_stage_ids = sorted({q["query_processing_order"] for q in queries})
         num_stages_total = len(all_stage_ids)
         if num_stages_total < num_stages_sample:
             raise ValueError("Not enough stages to sample")
