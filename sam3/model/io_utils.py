@@ -512,7 +512,7 @@ class FIFOLock:
                 self._condition.wait()
                 # got the lock and it's our turn
 
-    def release(self):
+    def release(self) -> None:
         with self._condition:
             self._lock.release()
             self._waiters.get()
