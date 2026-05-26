@@ -1,5 +1,6 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates. All Rights Reserved
 
+import functools
 import logging
 from collections import OrderedDict
 
@@ -9,6 +10,22 @@ from sam3.model.sam3_tracker_base import concat_points, NO_OBJ_SCORE, Sam3Tracke
 from sam3.model.sam3_tracker_utils import fill_holes_in_mask_scores
 from sam3.model.utils.sam2_utils import load_video_frames
 from tqdm.auto import tqdm
+
+
+def _bf16_cuda_autocast(method):
+    """Run `method` under CUDA bf16 autocast.
+
+    Replaces the previous pattern of entering a process-global autocast in
+    __init__ without ever exiting it, which leaked bf16 semantics to every
+    other torch model sharing the process.
+    """
+
+    @functools.wraps(method)
+    def wrapper(self, *args, **kwargs):
+        with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+            return method(self, *args, **kwargs)
+
+    return wrapper
 
 
 class Sam3TrackerPredictor(Sam3TrackerBase):
@@ -46,13 +63,11 @@ class Sam3TrackerPredictor(Sam3TrackerBase):
         self.max_point_num_in_prompt_enc = max_point_num_in_prompt_enc
         self.non_overlap_masks_for_output = non_overlap_masks_for_output
 
-        self.bf16_context = torch.autocast(device_type="cuda", dtype=torch.bfloat16)
-        self.bf16_context.__enter__()  # keep using for the entire model process
-
         self.iter_use_prev_mask_pred = True
         self.add_all_frames_to_correct_as_cond = True
 
     @torch.inference_mode()
+    @_bf16_cuda_autocast
     def init_state(
         self,
         video_height=None,
@@ -176,6 +191,7 @@ class Sam3TrackerPredictor(Sam3TrackerBase):
         return len(inference_state["obj_idx_to_id"])
 
     @torch.inference_mode()
+    @_bf16_cuda_autocast
     def add_new_points_or_box(
         self,
         inference_state,
@@ -339,6 +355,7 @@ class Sam3TrackerPredictor(Sam3TrackerBase):
         return frame_idx, obj_ids, low_res_masks, video_res_masks
 
     @torch.inference_mode()
+    @_bf16_cuda_autocast
     def add_new_mask(
         self,
         inference_state,
@@ -671,6 +688,7 @@ class Sam3TrackerPredictor(Sam3TrackerBase):
         return current_out["obj_ptr"]
 
     @torch.inference_mode()
+    @_bf16_cuda_autocast
     def propagate_in_video_preflight(self, inference_state, run_mem_encoder=True):
         """Prepare inference_state and consolidate temporary outputs before tracking."""
         # Tracking has started and we don't allow adding new objects until session is reset.
@@ -788,6 +806,7 @@ class Sam3TrackerPredictor(Sam3TrackerBase):
         return processing_order
 
     @torch.inference_mode()
+    @_bf16_cuda_autocast
     def propagate_in_video(
         self,
         inference_state,
@@ -905,6 +924,7 @@ class Sam3TrackerPredictor(Sam3TrackerBase):
             obj_output_dict[storage_key][frame_idx] = obj_out
 
     @torch.inference_mode()
+    @_bf16_cuda_autocast
     def clear_all_points_in_frame(
         self, inference_state, frame_idx, obj_id, need_output=True
     ):
@@ -977,6 +997,7 @@ class Sam3TrackerPredictor(Sam3TrackerBase):
         return frame_idx, obj_ids, low_res_masks, video_res_masks
 
     @torch.inference_mode()
+    @_bf16_cuda_autocast
     def clear_all_points_in_video(self, inference_state):
         """Remove all input points or mask in all frames throughout the video."""
         self._reset_tracking_results(inference_state)
@@ -1180,6 +1201,7 @@ class Sam3TrackerPredictor(Sam3TrackerBase):
         return expanded_maskmem_pos_enc
 
     @torch.inference_mode()
+    @_bf16_cuda_autocast
     def remove_object(self, inference_state, obj_id, strict=False, need_output=True):
         """
         Remove an object id from the tracking state. If strict is True, we check whether
