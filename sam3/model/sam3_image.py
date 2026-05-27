@@ -211,12 +211,12 @@ class Sam3Image(torch.nn.Module):
 
     def _run_encoder(
         self,
-        backbone_out,
-        find_input,
-        prompt,
-        prompt_mask,
+        backbone_out: Dict,
+        find_input: FindStage,
+        prompt: torch.Tensor,
+        prompt_mask: torch.Tensor,
         encoder_extra_kwargs: Optional[Dict] = None,
-    ):
+    ) -> Tuple[Dict, Dict, Tuple]:
         feat_tuple = self._get_img_feats(backbone_out, find_input.img_ids)
         backbone_out, img_feats, img_pos_embeds, vis_feat_sizes = feat_tuple
 
@@ -725,22 +725,22 @@ class Sam3ImageOnVideoMultiGPU(Sam3Image):
 
     def forward_video_grounding_multigpu(
         self,
-        backbone_out,
-        find_inputs,
+        backbone_out: Dict,
+        find_inputs: List,
         geometric_prompt: Prompt,
-        frame_idx,
-        num_frames,
+        frame_idx: int,
+        num_frames: int,
         # `multigpu_buffer` is a dict to cache detector's outputs in a chunk between different calls
-        multigpu_buffer,
-        track_in_reverse=False,
+        multigpu_buffer: Dict,
+        track_in_reverse: bool = False,
         # whether to also return the SAM2 backbone features
-        return_sam2_backbone_feats=False,
+        return_sam2_backbone_feats: bool = False,
         # whether to perform NMS and suppress the scores of those detections removed by NMS
-        run_nms=False,
-        nms_prob_thresh=None,
-        nms_iou_thresh=None,
+        run_nms: bool = False,
+        nms_prob_thresh: Optional[float] = None,
+        nms_iou_thresh: Optional[float] = None,
         **kwargs,
-    ):
+    ) -> Tuple[Dict, Dict]:
         """
         Compute the detector's detection outputs in a distributed manner, where all GPUs process
         a chunk of frames (equal to the number of GPUs) at once and store them in cache.
