@@ -42,7 +42,9 @@ def load_resource_as_video_frames(
     Alternatively, if input is a list of PIL images, convert its format
     """
     if isinstance(resource_path, list):
+        # pyre-fixme[9]: Unable to unpack `Tensor`, expected a tuple.
         img_mean = torch.tensor(img_mean, dtype=torch.float16)[:, None, None]
+        # pyre-fixme[9]: Unable to unpack `Tensor`, expected a tuple.
         img_std = torch.tensor(img_std, dtype=torch.float16)[:, None, None]
         assert all(isinstance(img_pil, Image.Image) for img_pil in resource_path)
         assert len(resource_path) is not None
@@ -60,6 +62,8 @@ def load_resource_as_video_frames(
             # float16 precision should be sufficient for image tensor storage
             img = img.to(dtype=torch.float16)
             # normalize by mean and std
+            # pyre-fixme[6]: For 1st argument expected `Union[bool, complex, float,
+            #  int, Tensor]` but got `Tuple[float, float, float]`.
             img -= img_mean
             img /= img_std
             images.append(img)
@@ -103,10 +107,13 @@ def load_image_as_single_frame_video(
     images, image_height, image_width = _load_img_as_tensor(image_path, image_size)
     images = images.unsqueeze(0).half()
 
+    # pyre-fixme[9]: Unable to unpack `Tensor`, expected a tuple.
     img_mean = torch.tensor(img_mean, dtype=torch.float16)[:, None, None]
+    # pyre-fixme[9]: Unable to unpack `Tensor`, expected a tuple.
     img_std = torch.tensor(img_std, dtype=torch.float16)[:, None, None]
     if not offload_video_to_cpu:
         images = images.cuda()
+        # pyre-fixme[16]: `Tuple` has no attribute `cuda`.
         img_mean = img_mean.cuda()
         img_std = img_std.cuda()
     # normalize by mean and std
@@ -335,15 +342,19 @@ def load_video_frames_from_video_file_using_cv2(
     frames_np = np.stack(frames, axis=0).astype(np.float32)  # (T, H, W, C)
     video_tensor = torch.from_numpy(frames_np).permute(0, 3, 1, 2)  # (T, C, H, W)
 
+    # pyre-fixme[9]: Unable to unpack `Tensor`, expected a tuple.
     img_mean = torch.tensor(img_mean, dtype=torch.float16).view(1, 3, 1, 1)
+    # pyre-fixme[9]: Unable to unpack `Tensor`, expected a tuple.
     img_std = torch.tensor(img_std, dtype=torch.float16).view(1, 3, 1, 1)
     if not offload_video_to_cpu:
         video_tensor = video_tensor.cuda()
+        # pyre-fixme[16]: `tuple` has no attribute `cuda`.
         img_mean = img_mean.cuda()
         img_std = img_std.cuda()
     # normalize by mean and std
     video_tensor -= img_mean
     video_tensor /= img_std
+    # pyre-fixme[7]: Expected `Tensor` but got `Tuple[Any, int, int]`.
     return video_tensor, original_height, original_width
 
 
@@ -367,7 +378,9 @@ def _load_img_as_tensor(
     """Load and resize an image and convert it into a PyTorch tensor."""
     img = Image.open(img_path).convert("RGB")
     orig_width, orig_height = img.width, img.height
+    # pyre-fixme[6]: For 2nd argument expected `List[int]` but got `Tuple[int, int]`.
     img = TF.resize(img, size=(image_size, image_size))
+    # pyre-fixme[6]: For 1st argument expected `Union[Image, ndarray]` but got `Tensor`.
     img = TF.to_tensor(img)
     return img, orig_height, orig_width
 
@@ -449,6 +462,7 @@ class TorchCodecDecoder:
         device: str = "cpu",
         num_threads: int = 1,
     ) -> None:
+        # pyre-fixme[21]: Could not find module `torchcodec`.
         from torchcodec import _core as core
 
         self._source = source  # hold a reference to the source to prevent it from GC
@@ -573,16 +587,26 @@ class AsyncVideoFileLoaderWithTorchCodec:
         self.img_std = img_std
 
         if gpu_acceleration:
+            # pyre-fixme[16]: Item `Tuple` of `Tensor | Tuple[float, float, float]`
+            #  has no attribute `to`.
             self.img_mean = self.img_mean.to(f"cuda:{self.gpu_id}")
+            # pyre-fixme[16]: Item `Tuple` of `Tensor | Tuple[float, float, float]`
+            #  has no attribute `to`.
             self.img_std = self.img_std.to(f"cuda:{self.gpu_id}")
             decoder_option = {"device": f"cuda:{self.gpu_id}"}
         else:
+            # pyre-fixme[16]: Item `Tuple` of `Tensor | Tuple[float, float, float]`
+            #  has no attribute `cpu`.
             self.img_mean = self.img_mean.cpu()
+            # pyre-fixme[16]: Item `Tuple` of `Tensor | Tuple[float, float, float]`
+            #  has no attribute `cpu`.
             self.img_std = self.img_std.cpu()
             decoder_option = {"num_threads": 1}  # use a single thread to save memory
 
         self.rank = int(os.environ.get("RANK", "0"))
         self.world_size = int(os.environ.get("WORLD_SIZE", "1"))
+        # pyre-fixme[6]: For 2nd argument expected `int` but got `Union[int, str]`.
+        # pyre-fixme[6]: For 2nd argument expected `str` but got `Union[int, str]`.
         self.async_reader = TorchCodecDecoder(video_path, **decoder_option)
 
         # `num_frames_from_content` is the true number of frames in the video content
@@ -747,10 +771,14 @@ class AsyncVideoFileLoaderWithTorchCodec:
         # release a few objects that cannot be pickled
         reader = self.async_reader
         if reader is not None:
+            # pyre-fixme[8]: Attribute has type `Union[bytes, str]`; used as `None`.
             reader._source = None
+        # pyre-fixme[8]: Attribute has type `TorchCodecDecoder`; used as `None`.
         self.async_reader = None
+        # pyre-fixme[16]: `AsyncVideoFileLoaderWithTorchCodec` has no attribute `pbar`.
         self.pbar = None
         self.thread = None
         self.rand_seek_idx_queue = None
+        # pyre-fixme[8]: Attribute has type `FIFOLock`; used as `nullcontext[None]`.
         self.torchcodec_access_lock = contextlib.nullcontext()
         return self.__dict__.copy()

@@ -19,6 +19,7 @@ from pycocotools.cocoeval import COCOeval
 from sam3.train.utils.distributed import is_main_process
 
 try:
+    # pyre-fixme[21]: Could not find module `tidecv`.
     from tidecv import datasets, TIDE
 
     HAS_TIDE = True

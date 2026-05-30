@@ -150,6 +150,7 @@ class BitMasks:
 
     @torch.jit.unused
     def __iter__(self) -> torch.Tensor:
+        # pyre-fixme[7]: Expected `Tensor` but got `Generator[Any, None, Any]`.
         yield from self.tensor
 
     @torch.jit.unused
@@ -197,6 +198,7 @@ class BitMasks:
             roi_masks:
             height, width (int):
         """
+        # pyre-fixme[20]: Argument `width` expected.
         return roi_masks.to_bitmasks(height, width)
 
     def crop_and_resize(self, boxes: torch.Tensor, mask_size: int) -> torch.Tensor:
@@ -241,7 +243,11 @@ class BitMasks:
             If a mask is empty, it's bounding box will be all zero.
         """
         boxes = torch.zeros(self.tensor.shape[0], 4, dtype=torch.float32)
+        # pyre-fixme[6]: For 1st argument expected `Tensor` but got `Union[ndarray,
+        #  Tensor]`.
         x_any = torch.any(self.tensor, dim=1)
+        # pyre-fixme[6]: For 1st argument expected `Tensor` but got `Union[ndarray,
+        #  Tensor]`.
         y_any = torch.any(self.tensor, dim=2)
         for idx in range(self.tensor.shape[0]):
             x = torch.where(x_any[idx, :])[0]
@@ -268,6 +274,8 @@ class BitMasks:
         assert all(isinstance(bitmask, BitMasks) for bitmask in bitmasks_list)
 
         cat_bitmasks = type(bitmasks_list[0])(
+            # pyre-fixme[6]: For 1st argument expected `Union[List[Tensor],
+            #  tuple[Tensor, ...]]` but got `List[Union[ndarray, Tensor]]`.
             torch.cat([bm.tensor for bm in bitmasks_list], dim=0)
         )
         return cat_bitmasks
@@ -395,6 +403,9 @@ class PolygonMasks:
                     "Unsupported tensor dtype={} for indexing!".format(item.dtype)
                 )
             selected_polygons = [self.polygons[i] for i in item]
+        # pyre-fixme[6]: For 1st argument expected `List[List[Union[ndarray,
+        #  Tensor]]]` but got `List[List[ndarray]]`.
+        # pyre-fixme[61]: `selected_polygons` is undefined, or not always defined.
         return PolygonMasks(selected_polygons)
 
     def __iter__(self) -> Iterator[List[np.ndarray]]:
@@ -480,6 +491,8 @@ class PolygonMasks:
         assert all(isinstance(polymask, PolygonMasks) for polymask in polymasks_list)
 
         cat_polymasks = type(polymasks_list[0])(
+            # pyre-fixme[6]: For 1st argument expected `List[List[Union[ndarray,
+            #  Tensor]]]` but got `List[List[ndarray]]`.
             list(itertools.chain.from_iterable(pm.polygons for pm in polymasks_list))
         )
         return cat_polymasks
@@ -543,6 +556,7 @@ class ROIMasks:
         """
         Args: see documentation of :func:`paste_masks_in_image`.
         """
+        # pyre-fixme[21]: Could not find module `detectron2.layers.mask_ops`.
         from detectron2.layers.mask_ops import (
             _paste_masks_tensor_shape,
             paste_masks_in_image,
@@ -556,6 +570,11 @@ class ROIMasks:
         else:
             paste_func = retry_if_cuda_oom(paste_masks_in_image)
         bitmasks = paste_func(
-            self.tensor, boxes.tensor, (height, width), threshold=threshold
+            # pyre-fixme[16]: `Tensor` has no attribute `tensor`.
+            self.tensor,
+            # pyre-fixme[16]: `Tensor` has no attribute `tensor`.
+            boxes.tensor,
+            (height, width),
+            threshold=threshold,
         )
         return BitMasks(bitmasks)

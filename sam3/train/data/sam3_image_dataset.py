@@ -157,6 +157,7 @@ class CustomCocoDetectionAPI(VisionDataset):
         zstd_dict_path=None,
         filter_query=None,
         coco_json_loader: Callable = COCO_FROM_JSON,
+        # pyre-fixme[9]: limit_ids has type `int`; used as `None`.
         limit_ids: int = None,
     ) -> None:
         super().__init__(root)
@@ -191,6 +192,8 @@ class CustomCocoDetectionAPI(VisionDataset):
             path = current_meta["file_name"]
             if self.blurring_masks_path is not None:
                 mask_fname = os.path.basename(path).replace(".jpg", "-mask.json")
+                # pyre-fixme[6]: For 1st argument expected `LiteralString` but got
+                #  `Optional[str]`.
                 mask_path = os.path.join(self.blurring_masks_path, mask_fname)
                 if os.path.exists(mask_path):
                     with open(mask_path, "r") as fopen:
@@ -454,6 +457,7 @@ class Sam3ImageDataset(CustomCocoDetectionAPI):
         zstd_dict_path=None,
         filter_query=None,
         coco_json_loader: Callable = COCO_FROM_JSON,
+        # pyre-fixme[9]: limit_ids has type `int`; used as `None`.
         limit_ids: int = None,
     ):
         super(Sam3ImageDataset, self).__init__(

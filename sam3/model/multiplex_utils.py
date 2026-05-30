@@ -322,6 +322,8 @@ class MultiplexState:
             self.object_ids = new_object_ids
 
         # Reinitialize the state to update all internal structures
+        # pyre-fixme[6]: For 2nd argument expected `Optional[List[int]]` but got
+        #  `Optional[List[None]]`.
         self._initialize_assignments(self.assignments, object_ids=self.object_ids)
 
         logger.info(f"Removed these buckets: {buckets_to_remove}")
@@ -338,6 +340,8 @@ class MultiplexState:
         Note that these should be partial permutation matrices.
         """
         # Create a transition matrix for muxing
+        # pyre-fixme[16]: `MultiplexState` has no attribute `mux_matrix`.
+        # pyre-fixme[19]: Expected 1 positional argument.
         self.mux_matrix = torch.zeros(
             self.num_buckets * self.multiplex_count,
             self.total_valid_entries,
@@ -346,6 +350,7 @@ class MultiplexState:
         )
 
         # Create a transition matrix for demuxing
+        # pyre-fixme[16]: `MultiplexState` has no attribute `demux_matrix`.
         self.demux_matrix = torch.zeros(
             self.total_valid_entries,
             self.num_buckets * self.multiplex_count,
@@ -383,6 +388,7 @@ class MultiplexState:
 
         # Apply mux matrix: (num_buckets * multiplex_count, batch_size) @ (batch_size, features)
         # Result: (num_buckets * multiplex_count, features)
+        # pyre-fixme[16]: `MultiplexState` has no attribute `mux_matrix`.
         result_flat = self.mux_matrix @ x_flat
 
         result = result_flat.view(output_shape)
@@ -405,6 +411,7 @@ class MultiplexState:
 
         # Apply demux matrix: (total_valid_entries, num_buckets*multiplex_count) @ (num_buckets*multiplex_count, features)
         # Result: (total_valid_entries, features)
+        # pyre-fixme[16]: `MultiplexState` has no attribute `demux_matrix`.
         result_flat = self.demux_matrix @ x_flat
 
         result = result_flat.view(output_shape)
@@ -414,6 +421,7 @@ class MultiplexState:
         """
         Returns a (num_buckets, multiplex_count) tensor with 1 for valid entries and 0 for padding entries
         """
+        # pyre-fixme[16]: `MultiplexState` has no attribute `mux_matrix`.
         valid_mask = self.mux_matrix.sum(dim=1) > 0
         valid_mask = valid_mask.reshape(self.num_buckets, self.multiplex_count)
 

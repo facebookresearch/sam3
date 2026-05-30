@@ -37,6 +37,7 @@ class Sam3DualViTDetNeck(nn.Module):
 
         self.scale_factors = scale_factors
         use_bias = True
+        # pyre-fixme[29]: `Union[(TensorBase, Union[None, slice[Any, Any, Any], _Nest...
         dim: int = self.trunk.channel_list[-1]
 
         for _, scale in enumerate(scale_factors):
@@ -122,6 +123,7 @@ class Sam3DualViTDetNeck(nn.Module):
             if self.sam2_convs is not None:
                 sam2_x_out = self.sam2_convs[i](x)
                 sam2_pos_out = self.position_encoding(sam2_x_out).to(sam2_x_out.dtype)
+                # pyre-fixme[16]: `Optional` has no attribute `append`.
                 sam2_out.append(sam2_x_out)
                 sam2_pos.append(sam2_pos_out)
         return sam3_out, sam3_pos, sam2_out, sam2_pos
@@ -146,6 +148,7 @@ class Sam3TriViTDetNeck(nn.Module):
 
         self.scale_factors = scale_factors
         use_bias = neck_norm is None
+        # pyre-fixme[29]: `Union[(TensorBase, Union[None, slice[Any, Any, Any], _Nest...
         dim = self.trunk.channel_list[-1]
 
         for _, scale in enumerate(scale_factors):

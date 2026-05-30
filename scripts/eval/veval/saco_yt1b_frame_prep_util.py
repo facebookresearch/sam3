@@ -7,6 +7,8 @@ import os
 import subprocess
 
 import pandas as pd
+
+# pyre-fixme[21]: Could not find module `yt_dlp`.
 import yt_dlp
 
 logger = logging.getLogger(__name__)

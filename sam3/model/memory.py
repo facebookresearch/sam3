@@ -206,4 +206,5 @@ class SimpleMaskEncoder(nn.Module):
 
         pos = self.position_encoding(x).to(x.dtype)
 
+        # pyre-fixme[7]: Expected `Tuple[Tensor, Tensor]` but got `Dict[str, Any]`.
         return {"vision_features": x, "vision_pos_enc": [pos]}

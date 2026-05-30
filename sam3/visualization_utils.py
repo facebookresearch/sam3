@@ -15,6 +15,9 @@ import pycocotools.mask as mask_utils
 import torch
 from matplotlib.colors import to_rgb
 from PIL import Image
+
+# pyre-fixme[21]: Could not find name `lab2rgb` in `skimage.color` (stubbed).
+# pyre-fixme[21]: Could not find name `rgb2lab` in `skimage.color` (stubbed).
 from skimage.color import lab2rgb, rgb2lab
 from sklearn.cluster import KMeans
 from torchvision.ops import masks_to_boxes
@@ -636,6 +639,7 @@ def draw_masks_to_frame(
                 cv2.CHAIN_APPROX_NONE,
             )
         else:
+            # pyre-fixme[23]: Unable to unpack 2 values, 3 were expected.
             _, contours, _ = cv2.findContours(
                 np.array(mask, dtype=np.uint8).copy(),
                 cv2.RETR_TREE,

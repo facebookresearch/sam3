@@ -432,7 +432,9 @@ def connected_components_triton(input_tensor: torch.Tensor):
     _init_labels_kernel[grid_init](
         input_tensor,
         labels,
+        # pyre-fixme[6]: For 3rd argument expected `constexpr` but got `int`.
         numel,
+        # pyre-fixme[6]: For 4th argument expected `constexpr` but got `int`.
         BLOCK_SIZE=BLOCK_SIZE,
     )
 
@@ -446,6 +448,8 @@ def connected_components_triton(input_tensor: torch.Tensor):
     # --- Phase 3 ---
     BLOCK_SIZE = 256
     grid_jump = lambda meta: (triton.cdiv(numel, meta["BLOCK_SIZE"]),)
+    # pyre-fixme[6]: For 3rd argument expected `constexpr` but got `int`.
+    # pyre-fixme[6]: For 4th argument expected `constexpr` but got `int`.
     _pointer_jump_kernel[grid_jump](labels, output, numel, BLOCK_SIZE=BLOCK_SIZE)
 
     # --- Phase 4 ---
@@ -459,12 +463,23 @@ def connected_components_triton(input_tensor: torch.Tensor):
     # 4.1: Count the occurrences of each label
     grid_count = (triton.cdiv(numel, BLOCK_SIZE),)
     _count_labels_kernel[grid_count](
-        output, sizes_histogram, numel, BLOCK_SIZE=BLOCK_SIZE
+        # pyre-fixme[6]: For 4th argument expected `constexpr` but got `int`.
+        output,
+        sizes_histogram,
+        numel,
+        # pyre-fixme[6]: For 4th argument expected `constexpr` but got `int`.
+        BLOCK_SIZE=BLOCK_SIZE,
     )
 
     # 2.2: Broadcast the counts to the final output tensor
     grid_broadcast = (triton.cdiv(numel, BLOCK_SIZE),)
     _broadcast_sizes_kernel[grid_broadcast](
-        output, sizes_histogram, component_sizes_out, numel, BLOCK_SIZE=BLOCK_SIZE
+        # pyre-fixme[6]: For 5th argument expected `constexpr` but got `int`.
+        output,
+        sizes_histogram,
+        component_sizes_out,
+        numel,
+        # pyre-fixme[6]: For 5th argument expected `constexpr` but got `int`.
+        BLOCK_SIZE=BLOCK_SIZE,
     )
     return output.view(out_shape) + 1, component_sizes_out.view(out_shape)

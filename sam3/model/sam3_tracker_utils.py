@@ -52,6 +52,7 @@ def sample_box_points(
 
     box_coords = box_coords.reshape(-1, 2, 2)  # always 2 points
     box_labels = box_labels.reshape(-1, 2)
+    # pyre-fixme[7]: Expected `Tuple[ndarray, ndarray]` but got `Tuple[Any, Tensor]`.
     return box_coords, box_labels
 
 

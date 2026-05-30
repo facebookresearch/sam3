@@ -279,6 +279,8 @@ class UniversalSegmentationHead(SegmentationHead):
             self.pixel_decoder.out_dim, self.d_model, kernel_size=1
         )
 
+    # pyre-fixme[15]: `forward` overrides method defined in `SegmentationHead`
+    #  inconsistently.
     def forward(
         self,
         backbone_feats: List[torch.Tensor],

@@ -461,6 +461,7 @@ class RotatedBoxes(Boxes):
         # For example,
         # when angle = 0 or 180, |c| = 1, s = 0, scale_factor_w == scale_factor_x;
         # when |angle| = 90, c = 0, |s| = 1, scale_factor_w == scale_factor_y
+        # pyre-fixme[58]: `**` is not supported for operand types `Tensor` and `int`.
         self.tensor[:, 2] *= torch.sqrt((scale_x * c) ** 2 + (scale_y * s) ** 2)
 
         # h(new) = |F(new) - O| * 2
@@ -471,6 +472,7 @@ class RotatedBoxes(Boxes):
         # For example,
         # when angle = 0 or 180, |c| = 1, s = 0, scale_factor_h == scale_factor_y;
         # when |angle| = 90, c = 0, |s| = 1, scale_factor_h == scale_factor_x
+        # pyre-fixme[58]: `**` is not supported for operand types `Tensor` and `int`.
         self.tensor[:, 3] *= torch.sqrt((scale_x * s) ** 2 + (scale_y * c) ** 2)
 
         # The angle is the rotation angle from y-axis in image space to the height
@@ -486,6 +488,7 @@ class RotatedBoxes(Boxes):
         self.tensor[:, 4] = torch.atan2(scale_x * s, scale_y * c) * 180 / math.pi
 
     @classmethod
+    # pyre-fixme[14]: `cat` overrides method defined in `Boxes` inconsistently.
     def cat(cls, boxes_list: List["RotatedBoxes"]) -> "RotatedBoxes":
         """
         Concatenates a list of RotatedBoxes into a single RotatedBoxes

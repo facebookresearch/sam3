@@ -211,9 +211,13 @@ def collate_fn_api(
 
         for q in data.find_queries:
             stage_id = q.query_processing_order
+            # pyre-fixme[16]: Item `Tensor` of `List[Any] | Tensor` has no attribute
+            #  `append`.
             stages[stage_id].img_ids.append(q.image_id + offset_img_id)
             if q.query_text not in text_batch:
                 text_batch.append(q.query_text)
+            # pyre-fixme[16]: Item `Tensor` of `List[Any] | Tensor` has no attribute
+            #  `append`.
             stages[stage_id].text_ids.append(text_batch.index(q.query_text))
 
             assert q.inference_metadata is not None, (
@@ -227,54 +231,91 @@ def collate_fn_api(
             if q.input_bbox is not None:
                 assert q.input_bbox.numel() % 4 == 0
                 assert q.input_bbox_label is not None
+                # pyre-fixme[16]: Optional type has no attribute `numel`.
                 nb_boxes = q.input_bbox.numel() // 4
+                # pyre-fixme[6]: For 1st argument expected
+                #  `pyre_extensions.PyreReadOnly[Sized]` but got `Optional[Tensor]`.
                 assert len(q.input_bbox_label) == nb_boxes
+                # pyre-fixme[16]: Item `Tensor` of `List[Any] | Tensor` has no
+                #  attribute `append`.
+                # pyre-fixme[16]: Optional type has no attribute `view`.
                 stages[stage_id].input_boxes.append(q.input_bbox.view(nb_boxes, 4))
+                # pyre-fixme[16]: Item `Tensor` of `List[Any] | Tensor` has no
+                #  attribute `append`.
                 stages[stage_id].input_boxes_label.append(
                     q.input_bbox_label.view(nb_boxes)
                 )
+                # pyre-fixme[16]: Item `Tensor` of `List[Any] | Tensor` has no
+                #  attribute `append`.
                 stages[stage_id].input_boxes_mask.append(
                     torch.zeros(nb_boxes, dtype=torch.bool)
                 )
             else:
+                # pyre-fixme[16]: Item `Tensor` of `List[Any] | Tensor` has no
+                #  attribute `append`.
                 stages[stage_id].input_boxes.append(torch.zeros(0, 4))
+                # pyre-fixme[16]: Item `Tensor` of `List[Any] | Tensor` has no
+                #  attribute `append`.
                 stages[stage_id].input_boxes_label.append(
                     torch.zeros(0, dtype=torch.bool)
                 )
+                # pyre-fixme[16]: Item `Tensor` of `List[Any] | Tensor` has no
+                #  attribute `append`.
                 stages[stage_id].input_boxes_mask.append(
                     torch.ones(0, dtype=torch.bool)
                 )
 
             if q.input_points is not None:
+                # pyre-fixme[16]: Item `Tensor` of `List[Any] | Tensor` has no
+                #  attribute `append`.
                 stages[stage_id].input_points.append(
+                    # pyre-fixme[16]: Optional type has no attribute `squeeze`.
                     q.input_points.squeeze(0)  # Strip a trivial batch index
                 )
                 # All masks will be padded up to the longest length
                 # with 1s before final conversion to batchd tensors
+                # pyre-fixme[16]: Item `Tensor` of `List[Any] | Tensor` has no
+                #  attribute `append`.
                 stages[stage_id].input_points_mask.append(
+                    # pyre-fixme[16]: Optional type has no attribute `shape`.
                     torch.zeros(q.input_points.shape[1])
                 )
             else:
+                # pyre-fixme[16]: Item `Tensor` of `List[Any] | Tensor` has no
+                #  attribute `append`.
                 stages[stage_id].input_points.append(
                     torch.empty(0, input_points_embedding_dim)
                 )
+                # pyre-fixme[16]: Item `Tensor` of `List[Any] | Tensor` has no
+                #  attribute `append`.
                 stages[stage_id].input_points_mask.append(torch.empty(0))
 
             current_out_boxes = []
             current_out_object_ids = []
             # Set the object ids referred to by this query
+            # pyre-fixme[16]: Optional type has no attribute `append`.
             stages[stage_id].object_ids.append(q.object_ids_output)
             for object_id in q.object_ids_output:
                 current_out_boxes.append(
                     data.images[q.image_id].objects[object_id].bbox
                 )
                 current_out_object_ids.append(object_id)
+            # pyre-fixme[16]: Item `Tensor` of `List[Any] | Tensor` has no attribute
+            #  `extend`.
             find_targets[stage_id].boxes.extend(current_out_boxes)
+            # pyre-fixme[16]: Item `Tensor` of `List[Any] | Tensor` has no attribute
+            #  `extend`.
             find_targets[stage_id].object_ids.extend(current_out_object_ids)
             if repeats > 0:
                 for _ in range(repeats):
+                    # pyre-fixme[16]: Item `Tensor` of `List[Any] | Tensor` has no
+                    #  attribute `extend`.
                     find_targets[stage_id].repeated_boxes.extend(current_out_boxes)
+            # pyre-fixme[16]: Item `Tensor` of `List[Any] | Tensor` has no attribute
+            #  `append`.
             find_targets[stage_id].num_boxes.append(len(current_out_boxes))
+            # pyre-fixme[16]: Item `Tensor` of `List[Any] | Tensor` has no attribute
+            #  `append`.
             find_targets[stage_id].is_exhaustive.append(q.is_exhaustive)
 
             if with_seg_masks:
@@ -291,7 +332,11 @@ def collate_fn_api(
                         )
                         current_seg_mask.append(dummy_mask)
                         current_is_valid_segment.append(0)
+                # pyre-fixme[16]: Item `None` of `None | List[Any] | Tensor` has no
+                #  attribute `extend`.
                 find_targets[stage_id].segments.extend(current_seg_mask)
+                # pyre-fixme[16]: Item `None` of `None | List[Any] | Tensor` has no
+                #  attribute `extend`.
                 find_targets[stage_id].is_valid_segment.extend(current_is_valid_segment)
             else:
                 # We are not loading segmentation masks
@@ -299,6 +344,8 @@ def collate_fn_api(
                 find_targets[stage_id].is_valid_segment = None
 
             if q.semantic_target is not None:
+                # pyre-fixme[16]: Item `None` of `None | List[Any] | Tensor` has no
+                #  attribute `append`.
                 find_targets[stage_id].semantic_segments.append(q.semantic_target)
 
         offset_img_id += len(data.images)
@@ -306,24 +353,44 @@ def collate_fn_api(
     # Pad input points to equal sequence lengths
     for i in range(len(stages)):
         stages[i].input_points = pad_tensor_list_to_longest(
-            stages[i].input_points, dim=0, pad_val=0
+            # pyre-fixme[6]: For 1st argument expected `List[Tensor]` but got
+            #  `Union[List[Any], Tensor]`.
+            stages[i].input_points,
+            dim=0,
+            pad_val=0,
         )
         # Masked-out regions indicated by 1s.
         stages[i].input_points_mask = pad_tensor_list_to_longest(
-            stages[i].input_points_mask, dim=0, pad_val=1
+            # pyre-fixme[6]: For 1st argument expected `List[Tensor]` but got
+            #  `Union[List[Any], Tensor]`.
+            stages[i].input_points_mask,
+            dim=0,
+            pad_val=1,
         )
 
     # Pad input boxes to equal sequence lengths
     for i in range(len(stages)):
         stages[i].input_boxes = pad_tensor_list_to_longest(
-            stages[i].input_boxes, dim=0, pad_val=0
+            # pyre-fixme[6]: For 1st argument expected `List[Tensor]` but got
+            #  `Union[List[Any], Tensor]`.
+            stages[i].input_boxes,
+            dim=0,
+            pad_val=0,
         )
         stages[i].input_boxes_label = pad_tensor_list_to_longest(
-            stages[i].input_boxes_label, dim=0, pad_val=0
+            # pyre-fixme[6]: For 1st argument expected `List[Tensor]` but got
+            #  `Union[List[Any], Tensor]`.
+            stages[i].input_boxes_label,
+            dim=0,
+            pad_val=0,
         )
         # Masked-out regions indicated by 1s.
         stages[i].input_boxes_mask = pad_tensor_list_to_longest(
-            stages[i].input_boxes_mask, dim=0, pad_val=1
+            # pyre-fixme[6]: For 1st argument expected `List[Tensor]` but got
+            #  `Union[List[Any], Tensor]`.
+            stages[i].input_boxes_mask,
+            dim=0,
+            pad_val=1,
         )
 
     # Convert to tensors
@@ -333,7 +400,10 @@ def collate_fn_api(
         find_metadatas[i] = convert_my_tensors(find_metadatas[i])
         # get padded representation for the boxes
         find_targets[i].boxes_padded = packed_to_padded_naive(
-            find_targets[i].boxes.view(-1, 4), find_targets[i].num_boxes
+            # pyre-fixme[16]: Item `List` of `List[Any] | Tensor` has no attribute
+            #  `view`.
+            find_targets[i].boxes.view(-1, 4),
+            find_targets[i].num_boxes,
         )
         find_targets[i].object_ids_padded = packed_to_padded_naive(
             find_targets[i].object_ids, find_targets[i].num_boxes, fill_value=-1

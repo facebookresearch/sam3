@@ -10,7 +10,10 @@ import sys
 from concurrent.futures import as_completed, ThreadPoolExecutor
 from pathlib import Path
 
+# pyre-fixme[21]: Could not find module `yt_dlp`.
 import yt_dlp
+
+# pyre-fixme[21]: Could not find module `utils`.
 from utils import (
     annotation_files,
     config,

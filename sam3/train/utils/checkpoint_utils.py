@@ -61,6 +61,7 @@ def filter_params_matching_unix_pattern(
 
     all_keys = list(state_dict.keys())
     included_keys = unix_pattern_to_parameter_names(patterns, all_keys)
+    # pyre-fixme[16]: `Optional` has no attribute `__iter__`.
     return {k: state_dict[k] for k in included_keys}
 
 
@@ -82,6 +83,8 @@ def exclude_params_matching_unix_pattern(
 
     all_keys = list(state_dict.keys())
     excluded_keys = unix_pattern_to_parameter_names(patterns, all_keys)
+    # pyre-fixme[58]: `not in` is not supported for right operand type
+    #  `Optional[Set[str]]`.
     return {k: v for k, v in state_dict.items() if k not in excluded_keys}
 
 
@@ -180,8 +183,15 @@ class CkptExcludeKernel:
         if len(self.key_pattern) == 0:
             return state_dict
         exclude_keys = unix_pattern_to_parameter_names(
-            self.key_pattern, state_dict.keys()
+            # pyre-fixme[6]: For 2nd argument expected `Sequence[str]` but got
+            #  `dict_keys[Any, Any]`.
+            self.key_pattern,
+            # pyre-fixme[6]: For 2nd argument expected `Sequence[str]` but got
+            #  `dict_keys[Any, Any]`.
+            state_dict.keys(),
         )
+        # pyre-fixme[58]: `not in` is not supported for right operand type
+        #  `Optional[Set[str]]`.
         return {k: v for k, v in state_dict.items() if k not in exclude_keys}
 
 
@@ -213,9 +223,11 @@ def load_checkpoint(
     if not path_exists:
         raise ValueError(f"No path exists in {path_list}")
 
+    # pyre-fixme[61]: `path` is undefined, or not always defined.
     with g_pathmgr.open(path, "rb") as f:
         checkpoint = torch.load(f, map_location=map_location)
 
+    # pyre-fixme[61]: `path` is undefined, or not always defined.
     logging.info(f"Loaded checkpoint from {path}")
     if pick_recursive_keys is not None:
         for key in pick_recursive_keys:
@@ -245,6 +257,7 @@ def get_state_dict(checkpoint, ckpt_state_dict_keys):
 
 def load_checkpoint_and_apply_kernels(
     checkpoint_path: str,
+    # pyre-fixme[9]: checkpoint_kernels has type `List[(...) -> Any]`; used as `None`.
     checkpoint_kernels: List[Callable] = None,
     ckpt_state_dict_keys: Tuple[str] = ("state_dict",),
     map_location: str = "cpu",
@@ -297,13 +310,17 @@ def check_load_state_dict_errors(
     missing_keys,
     unexpected_keys,
     strict: bool,
+    # pyre-fixme[9]: ignore_missing_keys has type `List[str]`; used as `None`.
     ignore_missing_keys: List[str] = None,
+    # pyre-fixme[9]: ignore_unexpected_keys has type `List[str]`; used as `None`.
     ignore_unexpected_keys: List[str] = None,
 ):
     if ignore_missing_keys is not None and len(ignore_missing_keys) > 0:
         ignored_keys = unix_pattern_to_parameter_names(
             ignore_missing_keys, missing_keys
         )
+        # pyre-fixme[58]: `not in` is not supported for right operand type
+        #  `Optional[Set[str]]`.
         missing_keys = [key for key in missing_keys if key not in ignored_keys]
 
     if ignore_unexpected_keys is not None and len(ignore_unexpected_keys) > 0:
@@ -311,7 +328,13 @@ def check_load_state_dict_errors(
             ignore_unexpected_keys, unexpected_keys
         )
         unexpected_keys = [
-            key for key in unexpected_keys if key not in ignored_unexpected_keys
+            # pyre-fixme[58]: `not in` is not supported for right operand type
+            #  `Optional[Set[str]]`.
+            key
+            for key in unexpected_keys
+            # pyre-fixme[58]: `not in` is not supported for right operand type
+            #  `Optional[Set[str]]`.
+            if key not in ignored_unexpected_keys
         ]
 
     err = "State key mismatch."
@@ -330,8 +353,11 @@ def load_state_dict_into_model(
     state_dict: Dict,
     model: nn.Module,
     strict: bool = True,
+    # pyre-fixme[9]: ignore_missing_keys has type `List[str]`; used as `None`.
     ignore_missing_keys: List[str] = None,
+    # pyre-fixme[9]: ignore_unexpected_keys has type `List[str]`; used as `None`.
     ignore_unexpected_keys: List[str] = None,
+    # pyre-fixme[9]: checkpoint_kernels has type `List[(...) -> Any]`; used as `None`.
     checkpoint_kernels: List[Callable] = None,
 ):
     """

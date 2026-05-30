@@ -10,6 +10,7 @@ from sam3.perflib.masks_ops import mask_iou
 
 
 try:
+    # pyre-fixme[21]: Could not find module `torch_generic_nms`.
     from torch_generic_nms import generic_nms as generic_nms_cuda
 
     GENERIC_NMS_AVAILABLE = True

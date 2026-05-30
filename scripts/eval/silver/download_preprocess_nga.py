@@ -10,6 +10,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import requests
+
+# pyre-fixme[21]: Could not find module `utils`.
 import utils
 from PIL import Image
 from tqdm import tqdm

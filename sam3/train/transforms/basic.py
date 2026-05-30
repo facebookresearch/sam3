@@ -284,6 +284,7 @@ class RandomSizeCrop:
         else:
             w = random.randint(self.min_size, min(img.width, self.max_size))
             h = random.randint(self.min_size, min(img.height, self.max_size))
+            # pyre-fixme[6]: For 1st argument expected `Tensor` but got `Image`.
             region = T.RandomCrop.get_params(img, (h, w))
             result_img, result_target = crop(img, target, region)
             return result_img, result_target

@@ -39,13 +39,19 @@ class Keypoints:
         self.tensor = keypoints
 
     def __len__(self) -> int:
+        # pyre-fixme[16]: Item `List` of `List[List[float]] | ndarray | Tensor` has
+        #  no attribute `size`.
         return self.tensor.size(0)
 
     def to(self, *args: Any, **kwargs: Any) -> "Keypoints":
+        # pyre-fixme[16]: Item `List` of `List[List[float]] | ndarray | Tensor` has
+        #  no attribute `to`.
         return type(self)(self.tensor.to(*args, **kwargs))
 
     @property
     def device(self) -> torch.device:
+        # pyre-fixme[16]: Item `List` of `List[List[float]] | ndarray | Tensor` has
+        #  no attribute `device`.
         return self.tensor.device
 
     def to_heatmap(self, boxes: torch.Tensor, heatmap_size: int) -> torch.Tensor:
@@ -63,6 +69,9 @@ class Keypoints:
             valid:
                 A tensor of shape (N, K) containing whether each keypoint is in the roi or not.
         """
+        # pyre-fixme[7]: Expected `Tensor` but got `Tuple[Tensor, Tensor]`.
+        # pyre-fixme[6]: For 1st argument expected `Tensor` but got
+        #  `Union[List[List[float]], ndarray, Tensor]`.
         return _keypoints_to_heatmap(self.tensor, boxes, heatmap_size)
 
     def __getitem__(self, item: Union[int, slice, torch.BoolTensor]) -> "Keypoints":
@@ -81,6 +90,10 @@ class Keypoints:
         """
         if isinstance(item, int):
             return Keypoints([self.tensor[item]])
+        # pyre-fixme[6]: For 1st argument expected `Union[List[List[float]],
+        #  ndarray, Tensor]` but got `List[float]`.
+        # pyre-fixme[6]: For 1st argument expected `SupportsIndex` but got
+        #  `Union[slice[Any, Any, Any], BoolTensor]`.
         return Keypoints(self.tensor[item])
 
     def __repr__(self) -> str:
@@ -104,6 +117,9 @@ class Keypoints:
         assert all(isinstance(keypoints, Keypoints) for keypoints in keypoints_list)
 
         cat_kpts = type(keypoints_list[0])(
+            # pyre-fixme[6]: For 1st argument expected `Union[List[Tensor],
+            #  tuple[Tensor, ...]]` but got `List[Union[List[List[float]], ndarray,
+            #  Tensor]]`.
             torch.cat([kpts.tensor for kpts in keypoints_list], dim=0)
         )
         return cat_kpts
@@ -136,11 +152,14 @@ def _keypoints_to_heatmap(
         return rois.new().long(), rois.new().long()
     offset_x = rois[:, 0]
     offset_y = rois[:, 1]
+    # pyre-fixme[58]: `/` is not supported for operand types `int` and `Tensor`.
     scale_x = heatmap_size / (rois[:, 2] - rois[:, 0])
+    # pyre-fixme[58]: `/` is not supported for operand types `int` and `Tensor`.
     scale_y = heatmap_size / (rois[:, 3] - rois[:, 1])
 
     offset_x = offset_x[:, None]
     offset_y = offset_y[:, None]
+    # pyre-fixme[16]: `float` has no attribute `__getitem__`.
     scale_x = scale_x[:, None]
     scale_y = scale_y[:, None]
 

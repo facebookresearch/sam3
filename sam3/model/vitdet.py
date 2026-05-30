@@ -93,11 +93,15 @@ def compute_axial_cis(
     scale_pos: float = 1.0,
     offset: int = 0,
 ) -> torch.Tensor:
+    # pyre-fixme[58]: `/` is not supported for operand types `float` and `Tensor`.
     freqs_x = 1.0 / (theta ** (torch.arange(0, dim, 4)[: (dim // 4)].float() / dim))
+    # pyre-fixme[58]: `/` is not supported for operand types `float` and `Tensor`.
     freqs_y = 1.0 / (theta ** (torch.arange(0, dim, 4)[: (dim // 4)].float() / dim))
 
     t_x, t_y = init_t_xy(end_x, end_y, scale_pos, offset)
+    # pyre-fixme[6]: For 2nd argument expected `Tensor` but got `float`.
     freqs_x = torch.outer(t_x, freqs_x)
+    # pyre-fixme[6]: For 2nd argument expected `Tensor` but got `float`.
     freqs_y = torch.outer(t_y, freqs_y)
     freqs_cis_x = torch.polar(torch.ones_like(freqs_x), freqs_x)
     freqs_cis_y = torch.polar(torch.ones_like(freqs_y), freqs_y)
@@ -271,6 +275,7 @@ def get_abs_pos(
             # add cls_token back, flatten spatial dims
             assert has_cls_token
             return torch.cat(
+                # pyre-fixme[61]: `cls_pos` is undefined, or not always defined.
                 [cls_pos, new_abs_pos.permute(0, 2, 3, 1).reshape(1, h * w, -1)],
                 dim=1,
             )
@@ -280,6 +285,7 @@ def get_abs_pos(
             return abs_pos.reshape(1, h, w, -1)
         else:
             assert has_cls_token
+            # pyre-fixme[61]: `cls_pos` is undefined, or not always defined.
             return torch.cat([cls_pos, abs_pos], dim=1)
 
 
@@ -394,6 +400,7 @@ class Attention(nn.Module):
         use_rel_pos: bool = False,
         rel_pos_zero_init: bool = True,
         input_size: Optional[Tuple[int, int]] = None,
+        # pyre-fixme[9]: attn_type has type `AttentionType`; used as `str`.
         attn_type: AttentionType = AttentionType.Vanilla,
         cls_token: bool = False,
         use_rope: bool = False,
@@ -463,6 +470,7 @@ class Attention(nn.Module):
             torch.zeros(2 * self.input_size[0] - 1, self.head_dim)
         )
         self.rel_pos_w = nn.Parameter(
+            # pyre-fixme[16]: `Optional` has no attribute `__getitem__`.
             torch.zeros(2 * self.input_size[1] - 1, self.head_dim)
         )
 
@@ -471,6 +479,7 @@ class Attention(nn.Module):
             trunc_normal_(self.rel_pos_w, std=0.02)
 
         # Precompute the relative coords
+        # pyre-fixme[23]: Unable to unpack `tuple[int, int] | None` into 2 values.
         H, W = self.input_size
         q_coords = torch.arange(H)[:, None]
         k_coords = torch.arange(W)[None, :]
@@ -479,6 +488,7 @@ class Attention(nn.Module):
 
     def _setup_rope_freqs(self) -> None:
         if not self.use_rope:
+            # pyre-fixme[16]: `Attention` has no attribute `freqs_cis`.
             self.freqs_cis = None
             return
 
@@ -489,8 +499,10 @@ class Attention(nn.Module):
 
         if self.use_ve_rope:
             assert not self.rope_tiled, "not supported"
+            # pyre-fixme[16]: `Attention` has no attribute `rope`.
             self.rope = VisionRotaryEmbeddingVE(
                 dim=self.head_dim // 2,
+                # pyre-fixme[16]: `Optional` has no attribute `__getitem__`.
                 seq_len=self.input_size[0],
                 pt_seq_len=self.rope_pt_size[0],
             )
@@ -557,6 +569,7 @@ class Attention(nn.Module):
 
         if self.use_ve_rope:
             dtype = q.dtype
+            # pyre-fixme[29]: `Union[Module, Tensor]` is not a function.
             return self.rope(q).to(dtype), self.rope(k).to(dtype)
 
         assert self.freqs_cis is not None
@@ -565,9 +578,15 @@ class Attention(nn.Module):
             return apply_rotary_enc_real(
                 q,
                 k,
+                # pyre-fixme[6]: For 3rd argument expected `Tensor` but got
+                #  `Union[Module, Tensor]`.
                 freqs_cis_imag=self.freqs_cis_imag,
+                # pyre-fixme[6]: For 4th argument expected `Tensor` but got
+                #  `Union[Module, Tensor]`.
                 freqs_cis_real=self.freqs_cis_real,
             )
+        # pyre-fixme[6]: For 3rd argument expected `Tensor` but got `Union[Module,
+        #  Tensor]`.
         return apply_rotary_enc(q, k, freqs_cis=self.freqs_cis)
 
     def forward(self, x: Tensor) -> Tensor:
@@ -594,16 +613,26 @@ class Attention(nn.Module):
             q, k = concat_rel_pos(
                 q.flatten(0, 1),
                 k.flatten(0, 1),
+                # pyre-fixme[6]: For 3rd argument expected `Tuple[int, int]` but got
+                #  `Tuple[float, float]`.
                 (H, W),
+                # pyre-fixme[6]: For 4th argument expected `Tuple[int, int]` but got
+                #  `Size`.
                 x.shape[1:3],
                 self.rel_pos_h,
                 self.rel_pos_w,
                 rescale=True,
+                # pyre-fixme[6]: For 8th argument expected `Optional[Tensor]` but
+                #  got `Union[Module, Tensor]`.
                 relative_coords=self.relative_coords,
             )
 
             # sdpa expects [B, nheads, H*W, C] so we transpose back
+            # pyre-fixme[6]: For 3rd argument expected `Union[int, SymInt]` but got
+            #  `float`.
             q = q.reshape(B, self.num_heads, H * W, -1)
+            # pyre-fixme[6]: For 3rd argument expected `Union[int, SymInt]` but got
+            #  `float`.
             k = k.reshape(B, self.num_heads, H * W, -1)
 
         if self.attn_type == AttentionType.Vanilla:
@@ -656,6 +685,7 @@ class Block(nn.Module):
         cls_token: bool = False,
         dropout: float = 0.0,
         init_values: Optional[float] = None,
+        # pyre-fixme[9]: attn_type has type `AttentionType`; used as `str`.
         attn_type: AttentionType = AttentionType.Vanilla,
         use_fa3: bool = False,
         use_rope_real: bool = False,
@@ -732,6 +762,9 @@ class Block(nn.Module):
         x = self.ls1(self.attn(x))
         # Reverse window partition
         if self.window_size > 0:
+            # pyre-fixme[61]: `pad_hw` is undefined, or not always defined.
+            # pyre-fixme[61]: `H` is undefined, or not always defined.
+            # pyre-fixme[61]: `W` is undefined, or not always defined.
             x = window_unpartition(x, self.window_size, pad_hw, (H, W))
 
         x = shortcut + self.dropout(self.drop_path(x))
@@ -778,6 +811,7 @@ class ViT(nn.Module):
         dropout: float = 0.0,
         return_interm_layers: bool = False,
         init_values: Optional[float] = None,  # for layerscale
+        # pyre-fixme[9]: attn_type has type `AttentionType`; used as `str`.
         attn_type: AttentionType = AttentionType.Vanilla,
         ln_pre: bool = False,
         ln_post: bool = False,
@@ -832,6 +866,8 @@ class ViT(nn.Module):
         if isinstance(rel_pos_blocks, bool) and rel_pos_blocks:
             self.rel_pos_blocks = [True] * depth
         else:
+            # pyre-fixme[16]: Item `bool` of `Literal[False] | tuple[int, ...]` has
+            #  no attribute `__iter__`.
             for i in rel_pos_blocks:
                 self.rel_pos_blocks[i] = True
 

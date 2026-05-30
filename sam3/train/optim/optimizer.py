@@ -103,6 +103,8 @@ def set_default_parameters(
     if default_count == 0:
         # No default scheduler specified, add a default, but without any scheduler
         # for that option
+        # pyre-fixme[6]: For 1st argument expected `DictConfig` but got `Dict[str,
+        #  Set[str]]`.
         scheduler_cfgs.append({"parameter_names": default_params})
 
 
@@ -122,6 +124,7 @@ def name_constraints_to_parameters(
         param_constraints.
     """
     matching_names = set.intersection(*param_constraints)
+    # pyre-fixme[7]: Expected `List[Parameter]` but got `List[Tensor]`.
     return [value for name, value in named_parameters.items() if name in matching_names]
 
 
@@ -260,8 +263,14 @@ def _unix_pattern_to_parameter_names(
     """
     if "param_names" not in scheduler_cfg and "module_cls_names" not in scheduler_cfg:
         return None
+    # pyre-fixme[16]: `Optional` has no attribute `union`.
     return unix_param_pattern_to_parameter_names(
-        scheduler_cfg.get("param_names"), parameter_names
+        # pyre-fixme[6]: For 2nd argument expected `Dict[str, Tensor]` but got
+        #  `Set[str]`.
+        scheduler_cfg.get("param_names"),
+        # pyre-fixme[6]: For 2nd argument expected `Dict[str, Tensor]` but got
+        #  `Set[str]`.
+        parameter_names,
     ).union(
         unix_module_cls_pattern_to_parameter_names(
             scheduler_cfg.get("module_cls_names"), module_cls_to_param_names
@@ -270,7 +279,10 @@ def _unix_pattern_to_parameter_names(
 
 
 def get_module_cls_to_param_names(
-    model: nn.Module, param_allowlist: Set[str] = None
+    # pyre-fixme[9]: param_allowlist has type `Set[str]`; used as `None`.
+    model: nn.Module,
+    # pyre-fixme[9]: param_allowlist has type `Set[str]`; used as `None`.
+    param_allowlist: Set[str] = None,
 ) -> Dict[Type, str]:
     """Produce a mapping from all the modules classes to the names of parames they own.
 
@@ -296,7 +308,10 @@ def get_module_cls_to_param_names(
 def construct_optimizer(
     model: torch.nn.Module,
     optimizer_conf: Any,
+    # pyre-fixme[9]: options_conf has type `Mapping[str, List[Any]]`; used as `None`.
     options_conf: Mapping[str, List] = None,
+    # pyre-fixme[9]: param_group_modifiers_conf has type `List[(...) -> Any]`; used
+    #  as `None`.
     param_group_modifiers_conf: List[Callable] = None,
     param_allowlist: Optional[Set[str]] = None,
     validate_param_groups=True,
@@ -360,7 +375,12 @@ def construct_optimizer(
                 scheduler_cfgs=all_scheduler_cfgs, model=model
             )
     schedulers, param_groups = map_scheduler_cfgs_to_param_groups(
-        all_scheduler_cfgs, named_parameters
+        # pyre-fixme[6]: For 2nd argument expected `Dict[str, Tensor]` but got
+        #  `Dict[str, Parameter]`.
+        all_scheduler_cfgs,
+        # pyre-fixme[6]: For 2nd argument expected `Dict[str, Tensor]` but got
+        #  `Dict[str, Parameter]`.
+        named_parameters,
     )
     if validate_param_groups:
         validate_param_group_params(param_groups, model)
@@ -403,6 +423,7 @@ class ValueScaler:
         return val * self.mult_val
 
 
+# pyre-fixme[9]: rattrs has type `str`; used as `None`.
 def rgetattr(obj, rattrs: str = None):
     """
     Like getattr(), but supports dotted notation for nested objects.
@@ -422,6 +443,7 @@ def layer_decay_param_modifier(
     layer_decay_value: float,
     layer_decay_min: Optional[float] = None,
     apply_to: Optional[str] = None,
+    # pyre-fixme[9]: overrides has type `List[Dict[Any, Any]]`; used as `Tuple[]`.
     overrides: List[Dict] = (),
 ) -> List[List[Dict]]:
     """
@@ -443,6 +465,7 @@ def layer_decay_param_modifier(
     Returns
     - scheduler_configs: same structure as the input, elements can be modified
     """
+    # pyre-fixme[6]: For 2nd argument expected `str` but got `Optional[str]`.
     model = rgetattr(model, apply_to)
     num_layers = model.get_num_layers() + 1
     layer_decays = [

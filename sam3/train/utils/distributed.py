@@ -271,6 +271,7 @@ def all_reduce_max(tensor: torch.Tensor) -> torch.Tensor:
 def all_reduce_op(
     tensor: torch.Tensor,
     op: torch.distributed.ReduceOp,
+    # pyre-fixme[9]: after_op_func has type `(Tensor) -> Tensor`; used as `None`.
     after_op_func: Callable[[torch.Tensor], torch.Tensor] = None,
 ) -> torch.Tensor:
     """
@@ -436,6 +437,8 @@ def broadcast_object(obj: Any, src: int = _PRIMARY_RANK, use_disk: bool = True) 
         # Fetch from the source
         length_tensor = torch.LongTensor([0])
         length_tensor = broadcast(length_tensor, src=src)
+        # pyre-fixme[6]: For 1st argument expected `Sequence[Union[int, SymInt]]`
+        #  but got `Sequence[Union[bool, float, int]]`.
         data_tensor = torch.empty([length_tensor.item()], dtype=torch.uint8)
         data_tensor = broadcast(data_tensor, src=src)
         if use_disk:

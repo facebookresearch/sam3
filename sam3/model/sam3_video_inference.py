@@ -911,7 +911,9 @@ class Sam3VideoInference(Sam3VideoBase):
         # set the model to single GPU for benchmark evaluation (to be compatible with trainer)
         orig_rank = self.rank
         orig_world_size = self.world_size
+        # pyre-fixme[16]: `Module` has no attribute `rank`.
         self.rank = self.detector.rank = 0
+        # pyre-fixme[16]: `Module` has no attribute `world_size`.
         self.world_size = self.detector.world_size = 1
 
         # get data

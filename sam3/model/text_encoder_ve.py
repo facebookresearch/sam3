@@ -77,9 +77,11 @@ class ResidualAttentionBlock(nn.Module):
         attn_mask: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         k_x = (
+            # pyre-fixme[29]: `Union[Module, Tensor]` is not a function.
             self.ln_1_kv(k_x) if hasattr(self, "ln_1_kv") and k_x is not None else None
         )
         v_x = (
+            # pyre-fixme[29]: `Union[Module, Tensor]` is not a function.
             self.ln_1_kv(v_x) if hasattr(self, "ln_1_kv") and v_x is not None else None
         )
         x = q_x + self.ls_1(
@@ -121,6 +123,9 @@ class Transformer(nn.Module):
         )
 
         if compile_mode is not None:
+            # pyre-fixme[8]: Attribute has type `(self: Transformer, x: Tensor,
+            #  attn_mask: Optional[Tensor] = ...) -> Tensor`; used as `(x: Tensor,
+            #  attn_mask: Optional[Tensor] = ...) -> Tensor`.
             self.forward = torch.compile(
                 self.forward, mode=compile_mode, fullgraph=True
             )
@@ -209,6 +214,7 @@ class TextTransformer(nn.Module):
         )
         self.ln_final = norm_layer(width) if use_ln_post else nn.Identity()
         if no_causal_mask:
+            # pyre-fixme[8]: Attribute has type `Tensor`; used as `None`.
             self.attn_mask = None
         else:
             self.register_buffer(
@@ -289,6 +295,7 @@ class VETextEncoder(nn.Module):
         self,
         text: Union[List[str], Tuple[torch.Tensor, torch.Tensor, dict]],
         input_boxes: Optional[List] = None,
+        # pyre-fixme[9]: device has type `device`; used as `None`.
         device: torch.device = None,
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         if isinstance(text[0], str):
@@ -317,6 +324,8 @@ class VETextEncoder(nn.Module):
         else:
             # The text is already encoded, use as is.
             text_attention_mask, text_memory_resized, tokenized = text
+            # pyre-fixme[6]: For 1st argument expected `Union[slice[Any, Any, Any],
+            #  SupportsIndex]` but got `str`.
             inputs_embeds = tokenized["inputs_embeds"]
             assert input_boxes is None or len(input_boxes) == 0, (
                 "Can't replace boxes in text if it's already encoded"

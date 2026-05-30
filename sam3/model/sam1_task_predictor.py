@@ -166,9 +166,13 @@ class SAM3InteractiveImagePredictor(nn.Module):
 
     def predict_batch(
         self,
+        # pyre-fixme[9]: point_coords_batch has type `List[ndarray]`; used as `None`.
         point_coords_batch: List[np.ndarray] = None,
+        # pyre-fixme[9]: point_labels_batch has type `List[ndarray]`; used as `None`.
         point_labels_batch: List[np.ndarray] = None,
+        # pyre-fixme[9]: box_batch has type `List[ndarray]`; used as `None`.
         box_batch: List[np.ndarray] = None,
+        # pyre-fixme[9]: mask_input_batch has type `List[ndarray]`; used as `None`.
         mask_input_batch: List[np.ndarray] = None,
         multimask_output: bool = True,
         return_logits: bool = False,
@@ -389,6 +393,8 @@ class SAM3InteractiveImagePredictor(nn.Module):
             # boxes are added at the beginning) to sam_prompt_encoder
             if concat_points is not None:
                 concat_coords = torch.cat([box_coords, concat_points[0]], dim=1)
+                # pyre-fixme[6]: For 1st argument expected `Union[List[Tensor],
+                #  tuple[Tensor, ...]]` but got `List[Optional[Tensor]]`.
                 concat_labels = torch.cat([box_labels, concat_points[1]], dim=1)
                 concat_points = (concat_coords, concat_labels)
             else:

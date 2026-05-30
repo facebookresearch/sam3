@@ -252,4 +252,5 @@ class SimpleTokenizer(object):
                 tokens = tokens[:context_length]  # Truncate
                 tokens[-1] = self.eot_token_id
             result[i, : len(tokens)] = torch.tensor(tokens)
+        # pyre-fixme[7]: Expected `LongTensor` but got `Tensor`.
         return result

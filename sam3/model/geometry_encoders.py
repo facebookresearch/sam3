@@ -445,6 +445,8 @@ class FusedMaskEncoder(MaskEncoder):
         self.pix_feat_proj = nn.Conv2d(in_dim, in_dim, kernel_size=1)
 
     @override
+    # pyre-fixme[14]: `forward` overrides method defined in `MaskEncoder`
+    #  inconsistently.
     def forward(
         self,
         masks: torch.Tensor,
@@ -504,6 +506,7 @@ class SequenceGeometryEncoder(nn.Module):
         roi_size: int = 7,  # for boxes pool
         add_cls: bool = True,
         add_post_encode_proj: bool = True,
+        # pyre-fixme[9]: mask_encoder has type `MaskEncoder`; used as `None`.
         mask_encoder: MaskEncoder = None,
         add_mask_label: bool = False,
         use_act_ckpt: bool = False,
@@ -685,6 +688,7 @@ class SequenceGeometryEncoder(nn.Module):
         masks: torch.Tensor,
         attn_mask: torch.Tensor,
         mask_labels: torch.Tensor,
+        # pyre-fixme[9]: img_feats has type `Tensor`; used as `None`.
         img_feats: torch.Tensor = None,
     ):
         n_masks, bs = masks.shape[:2]
@@ -762,6 +766,7 @@ class SequenceGeometryEncoder(nn.Module):
             points_labels, points_mask = concat_padded_sequences(
                 points_labels.unsqueeze(-1),
                 points_mask,
+                # pyre-fixme[16]: `int` has no attribute `unsqueeze`.
                 labels_tl.unsqueeze(-1),
                 boxes_mask,
             )
@@ -833,6 +838,11 @@ class SequenceGeometryEncoder(nn.Module):
         # Finally, concat mask embeddings if any
         if masks is not None and self.mask_encoder is not None:
             final_embeds, final_mask = concat_padded_sequences(
-                final_embeds, final_mask, masks_embed, masks_mask
+                # pyre-fixme[61]: `masks_embed` is undefined, or not always defined.
+                final_embeds,
+                final_mask,
+                # pyre-fixme[61]: `masks_embed` is undefined, or not always defined.
+                masks_embed,
+                masks_mask,
             )
         return final_embeds, final_mask

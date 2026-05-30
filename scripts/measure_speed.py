@@ -153,9 +153,11 @@ def run_test(
     height: int,
     n_frames: int,
     synthesize_data: bool = True,
+    # pyre-fixme[9]: profile_save_dir has type `str`; used as `None`.
     profile_save_dir: str = None,
     profile_end_frame: int = -1,
     do_compile: bool = True,
+    # pyre-fixme[9]: checkpoint_path has type `str`; used as `None`.
     checkpoint_path: str = None,
 ) -> float:
     torch.autocast(device_type="cuda", dtype=torch.bfloat16).__enter__()
@@ -183,8 +185,14 @@ def run_test(
         build_kwargs["checkpoint_path"] = checkpoint_path
     if version == "sam3.1":
         build_kwargs["warm_up"] = do_compile
+        # pyre-fixme[6]: For 2nd argument expected `Union[bool, str]` but got `int`.
         build_kwargs["max_num_objects"] = num_objects
 
+    # pyre-fixme[6]: For 1st argument expected `Optional[str]` but got `Union[bool,
+    #  str]`.
+    # pyre-fixme[6]: For 1st argument expected `bool` but got `Union[bool, str]`.
+    # pyre-fixme[6]: For 1st argument expected `int` but got `Union[bool, str]`.
+    # pyre-fixme[6]: For 1st argument expected `str` but got `Union[bool, str]`.
     model_wrapper = build_sam3_predictor(**build_kwargs)
 
     # Initialize session

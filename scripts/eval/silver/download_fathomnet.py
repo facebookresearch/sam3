@@ -8,6 +8,8 @@ from multiprocessing import Pool
 from pathlib import Path
 
 import requests
+
+# pyre-fixme[21]: Could not find module `fathomnet.api`.
 from fathomnet.api import images
 from tqdm import tqdm
 

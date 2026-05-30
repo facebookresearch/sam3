@@ -404,6 +404,8 @@ class Sam3BasePredictor:
                         f"{post_gpu_mem['reserved_bytes']} bytes)"
                     )
                     gpu_mem = post_gpu_mem
+                # pyre-fixme[6]: For 2nd argument expected `bool` but got `Dict[Any,
+                #  Any]`.
                 result["gpu_mem"] = gpu_mem
             logger.info(f"removed session {session_id}")
         return result

@@ -36,6 +36,7 @@ class TensorBoardWriterWrapper:
         self,
         path: str,
         *args: Any,
+        # pyre-fixme[9]: filename_suffix has type `str`; used as `None`.
         filename_suffix: str = None,
         summary_writer_method: Any = SummaryWriter,
         **kwargs: Any,

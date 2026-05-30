@@ -33,14 +33,18 @@ def compute_axial_cis(
     device=None,
 ):
     freqs_x = 1.0 / (
+        # pyre-fixme[58]: `/` is not supported for operand types `float` and `Tensor`.
         theta ** (torch.arange(0, dim, 4, device=device)[: (dim // 4)].float() / dim)
     )
     freqs_y = 1.0 / (
+        # pyre-fixme[58]: `/` is not supported for operand types `float` and `Tensor`.
         theta ** (torch.arange(0, dim, 4, device=device)[: (dim // 4)].float() / dim)
     )
 
     t_x, t_y = init_t_xy(end_x, end_y, scale_pos, offset, device=device)
+    # pyre-fixme[6]: For 2nd argument expected `Tensor` but got `float`.
     freqs_x = torch.outer(t_x, freqs_x)
+    # pyre-fixme[6]: For 2nd argument expected `Tensor` but got `float`.
     freqs_y = torch.outer(t_y, freqs_y)
     freqs_cis_x = torch.polar(torch.ones_like(freqs_x), freqs_x)
     freqs_cis_y = torch.polar(torch.ones_like(freqs_y), freqs_y)
@@ -140,6 +144,7 @@ class VisionRotaryEmbeddingVE(nn.Module):
     ):
         super().__init__()
 
+        # pyre-fixme[58]: `/` is not supported for operand types `float` and `Tensor`.
         freqs = 1.0 / (theta ** (torch.arange(0, dim, 2)[: (dim // 2)].float() / dim))
         scale = 1.0
         if pt_seq_len is not None:

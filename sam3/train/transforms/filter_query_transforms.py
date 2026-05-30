@@ -12,8 +12,11 @@ from sam3.train.data.sam3_image_dataset import Datapoint, FindQuery, Object
 
 
 class FilterDataPointQueries:
+    # pyre-fixme[8]: Attribute has type `Set[Any]`; used as `None`.
     find_ids_to_filter: set = None
+    # pyre-fixme[8]: Attribute has type `Set[Any]`; used as `None`.
     get_ids_to_filter: set = None
+    # pyre-fixme[8]: Attribute has type `Set[Any]`; used as `None`.
     obj_ids_to_filter: set = None  # stored as pairs (img_id, obj_id)
 
     def identify_queries_to_filter(self, datapoint: Datapoint) -> None:
@@ -34,7 +37,13 @@ class FilterQueryWithText(FilterDataPointQueries):
     """
 
     def __init__(
-        self, exclude_find_keys: List[str] = None, exclude_get_keys: List[str] = None
+        # pyre-fixme[9]: exclude_find_keys has type `List[str]`; used as `None`.
+        # pyre-fixme[9]: exclude_get_keys has type `List[str]`; used as `None`.
+        self,
+        # pyre-fixme[9]: exclude_find_keys has type `List[str]`; used as `None`.
+        exclude_find_keys: List[str] = None,
+        # pyre-fixme[9]: exclude_get_keys has type `List[str]`; used as `None`.
+        exclude_get_keys: List[str] = None,
     ):
         self.find_filter_keys = exclude_find_keys if exclude_find_keys else []
         self.get_filter_keys = exclude_get_keys if exclude_get_keys else []
@@ -219,7 +228,11 @@ class FilterZeroBoxQueries(FilterDataPointQueries):
     def _is_zero_area_object(obj: Object):
         # Check if height or width of bounding box is zero
         bbox = obj.bbox  # Assume in XYXY format
+        # pyre-fixme[6]: For 1st argument expected `int` but got `Union[bool, float,
+        #  int]`.
         height = bbox[..., 3].item() - bbox[..., 1].item()
+        # pyre-fixme[6]: For 1st argument expected `int` but got `Union[bool, float,
+        #  int]`.
         width = bbox[..., 2].item() - bbox[..., 0].item()
 
         return height == 0 or width == 0

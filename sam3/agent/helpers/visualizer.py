@@ -674,6 +674,7 @@ class Visualizer:
             with PathManager.open(dic["pan_seg_file_name"], "rb") as f:
                 pan_seg = Image.open(f)
                 pan_seg = np.asarray(pan_seg)
+                # pyre-fixme[21]: Could not find module `panopticapi.utils`.
                 from panopticapi.utils import rgb2id
 
                 pan_seg = rgb2id(pan_seg)

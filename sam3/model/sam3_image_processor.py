@@ -210,6 +210,8 @@ class Sam3Processor:
 
         out_masks = interpolate(
             out_masks.unsqueeze(1),
+            # pyre-fixme[6]: For 2nd argument expected `Optional[List[int]]` but got
+            #  `Tuple[Any, Any]`.
             (img_h, img_w),
             mode="bilinear",
             align_corners=False,

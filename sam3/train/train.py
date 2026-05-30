@@ -10,6 +10,7 @@ import traceback
 from argparse import ArgumentParser
 from copy import deepcopy
 
+# pyre-fixme[21]: Could not find module `submitit`.
 import submitit
 import torch
 from hydra import compose, initialize_config_module
@@ -82,6 +83,7 @@ def format_exception(e: Exception, limit=20):
     return f"{type(e).__name__}: {e}\nTraceback:\n{traceback_str}"
 
 
+# pyre-fixme[11]: Annotation `Checkpointable` is not defined as a type.
 class SubmititRunner(submitit.helpers.Checkpointable):
     """A callable which is passed to submitit to launch the jobs."""
 

@@ -9,6 +9,7 @@ import numpy as np
 # Check if Numba is available
 HAS_NUMBA = False
 try:
+    # pyre-fixme[21]: Could not find module `numba`.
     import numba as nb
 
     HAS_NUMBA = True

@@ -22,6 +22,7 @@ from sam3.train.utils import distributed as dist
 from typing_extensions import override
 
 try:
+    # pyre-fixme[21]: Could not find module `rapidjson`.
     import rapidjson as json
 except ModuleNotFoundError:
     import json
@@ -270,6 +271,7 @@ class YTVISResultsWriter:
         return ytvis_results
 
     def set_sync_device(self, device: torch.device):
+        # pyre-fixme[16]: `YTVISResultsWriter` has no attribute `_sync_device`.
         self._sync_device = device
 
     def update(self, *args, **kwargs):

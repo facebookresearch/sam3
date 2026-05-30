@@ -2734,6 +2734,8 @@ class VideoTrackingMultiplexDemo(VideoTrackingDynamicMultiplex):
                         propagation_vision_feats=propagation_vision_feats,
                         propagation_feat_sizes=propagation_feat_sizes,
                         new_masks=mask_inputs,
+                        # pyre-fixme[6]: For 6th argument expected `List[int]` but
+                        #  got `Optional[List[int]]`.
                         obj_idxs_in_mask=new_obj_idxs,
                         obj_ids_in_mask=new_obj_ids,
                         prev_output=existing_out,
@@ -2772,6 +2774,8 @@ class VideoTrackingMultiplexDemo(VideoTrackingDynamicMultiplex):
                             if mask_inputs is not None
                             else new_masks_from_points
                         ),
+                        # pyre-fixme[6]: For 6th argument expected `List[int]` but
+                        #  got `Optional[List[int]]`.
                         obj_idxs_in_mask=new_obj_idxs,
                         obj_ids_in_mask=new_obj_ids,
                         prev_output=existing_out,

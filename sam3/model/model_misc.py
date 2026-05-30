@@ -21,6 +21,7 @@ from torch.overrides import handle_torch_function, has_torch_function
 from typing_extensions import override
 
 try:
+    # pyre-fixme[21]: Could not find module `xformers`.
     import xformers
 except ImportError:
     xformers = None
@@ -112,6 +113,7 @@ def multi_head_attention_forward(
     static_v: Optional[Tensor] = None,
     average_attn_weights: bool = True,
     is_causal: bool = False,
+    # pyre-fixme[9]: attn_type has type `AttentionType`; used as `str`.
     attn_type: AttentionType = AttentionType.Vanilla,
     attn_sparsity: float = 0.0,
     attn_bias: Optional[Tensor] = None,
@@ -208,6 +210,7 @@ def multi_head_attention_forward(
         assert in_proj_weight is not None, (
             "use_separate_proj_weight is False but in_proj_weight is None"
         )
+        # pyre-fixme[16]: Module `functional` has no attribute `_in_projection_packed`.
         q, k, v = F._in_projection_packed(
             query, key, value, in_proj_weight, in_proj_bias
         )
@@ -225,6 +228,7 @@ def multi_head_attention_forward(
             b_q = b_k = b_v = None
         else:
             b_q, b_k, b_v = in_proj_bias.chunk(3)
+        # pyre-fixme[16]: Module `functional` has no attribute `_in_projection`.
         q, k, v = F._in_projection(
             query,
             key,
@@ -468,6 +472,7 @@ class MultiheadAttention(nn.Module):
         batch_first=False,
         device=None,
         dtype=None,
+        # pyre-fixme[9]: attn_type has type `AttentionType`; used as `str`.
         attn_type: AttentionType = AttentionType.Vanilla,
         sparsity: float = 0.0,
         use_act_checkpoint: bool = False,
@@ -992,6 +997,7 @@ class SAM3Output(list):
 
     def __init__(
         self,
+        # pyre-fixme[9]: output has type `List[List[Dict[Any, Any]]]`; used as `None`.
         output: List[List[Dict]] = None,
         iter_mode: IterMode = IterMode.ALL_STEPS_PER_STAGE,
         loss_stages: Optional[List[int]] = None,
@@ -1025,6 +1031,7 @@ class SAM3Output(list):
         self.loss_stages = loss_stages
 
     @override
+    # pyre-fixme[14]: `__iter__` overrides method defined in `list` inconsistently.
     def __iter__(self) -> Iterator:
         return self._mode2iter[self.iter_mode]()
 

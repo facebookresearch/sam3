@@ -2287,6 +2287,8 @@ class Sam3MultiplexTrackingWithInteractivity(Sam3MultiplexTracking):
         )
 
     @torch.inference_mode()
+    # pyre-fixme[14]: `propagate_in_video` overrides method defined in
+    #  `Sam3MultiplexTracking` inconsistently.
     def propagate_in_video(
         self,
         inference_state,
@@ -2367,6 +2369,8 @@ class Sam3MultiplexTrackingWithInteractivity(Sam3MultiplexTracking):
                 self._prepare_backbone_feats(inference_state, frame_idx, reverse)
                 obj_ids_local, low_res_masks_local, sam2_scores_local = (
                     self._propogate_tracker_one_frame_local_gpu(
+                        # pyre-fixme[61]: `tracker_states_local` is undefined, or
+                        #  not always defined.
                         tracker_states_local,
                         frame_idx=frame_idx,
                         reverse=reverse,

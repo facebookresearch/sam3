@@ -88,6 +88,7 @@ class PostProcessImage(nn.Module):
             )  # NOTE: It's possible but we don't support it.
             assert self.detection_threshold <= 0.0, "TODO: implement?"
             try:
+                # pyre-fixme[21]: Could not find module `tensordict`.
                 from tensordict import TensorDict
             except ImportError:
                 logging.info(
@@ -265,11 +266,15 @@ class PostProcessImage(nn.Module):
             img_size_for_boxes = (
                 meta.original_size
                 if self.use_original_sizes_box
+                # pyre-fixme[6]: For 1st argument expected `Tensor` but got
+                #  `Union[List[Any], Tensor]`.
                 else torch.ones_like(meta.original_size)
             )
             img_size_for_masks = (
                 meta.original_size
                 if self.use_original_sizes_mask
+                # pyre-fixme[6]: For 1st argument expected `Tensor` but got
+                #  `Union[List[Any], Tensor]`.
                 else torch.ones_like(meta.original_size)
             )
             detection_results = self(
@@ -401,6 +406,7 @@ class PostProcessAPIVideo(PostProcessImage):
         tracked_objects_frame_idx = defaultdict(list)
         total_num_preds = 0
         # This will hold the packed representation of predictions.
+        # pyre-fixme[11]: Annotation `TensorDict` is not defined as a type.
         vid_preds_packed: List[TensorDict] = []
         vid_masklets_rle_packed: List[Optional[Dict]] = []
         video_id = -1  # We assume single video postprocessing, this ID should be unique in the datapoint.
@@ -415,6 +421,8 @@ class PostProcessAPIVideo(PostProcessImage):
             meta_td = TensorDict(
                 dataclasses.asdict(meta)
             ).auto_batch_size_()  # Shape is [P,...]
+            # pyre-fixme[16]: Item `List` of `List[Any] | Tensor` has no attribute
+            #  `unique`.
             unique_vid_id = meta.original_image_id.unique()
             assert unique_vid_id.size(0) == 1
             if video_id == -1:
@@ -491,6 +499,7 @@ class PostProcessAPIVideo(PostProcessImage):
             logging.debug(f"Video {video_id} has no predictions")
             return {video_id: []}
 
+        # pyre-fixme[9]: vid_preds_packed has type `List[_T]`; used as `Tensor`.
         vid_preds_packed = torch.cat(vid_preds_packed, dim=0)
         ############### Construct a padded representation of the predictions ###############
         num_preds = len(tracked_objects_packed_idx)
@@ -502,6 +511,7 @@ class PostProcessAPIVideo(PostProcessImage):
                 k: torch.zeros(
                     num_preds, num_frames, *v.shape[1:], device=v.device, dtype=v.dtype
                 )
+                # pyre-fixme[16]: `List` has no attribute `items`.
                 for k, v in vid_preds_packed.items()
             },
             batch_size=[
@@ -521,11 +531,17 @@ class PostProcessAPIVideo(PostProcessImage):
         for o_idx, oid in enumerate(tracked_objects_packed_idx):
             oid2packed_idx = tracked_objects_packed_idx[oid]
             oid2padded_idx = tracked_objects_frame_idx[oid]
+            # pyre-fixme[6]: For 1st argument expected `SupportsIndex` but got
+            #  `List[Any]`.
             obj_packed_results = vid_preds_packed[oid2packed_idx]
             padded_frames_results[o_idx][oid2padded_idx] = obj_packed_results
             if self.convert_mask_to_rle_for_video:
                 for packed_idx, padded_idx in zip(oid2packed_idx, oid2padded_idx):
+                    # pyre-fixme[61]: `vid_masklets_rle_padded` is undefined, or not
+                    #  always defined.
                     vid_masklets_rle_padded[o_idx][padded_idx] = (
+                        # pyre-fixme[6]: For 2nd argument expected `None` but got
+                        #  `Optional[Dict[Any, Any]]`.
                         vid_masklets_rle_packed[packed_idx]
                     )
             # NOTE: We need a single confidence score per tracklet for the mAP metric.
@@ -539,6 +555,8 @@ class PostProcessAPIVideo(PostProcessImage):
         results["scores"] = torch.stack(tracklet_scores, dim=0)
         results["labels"] = torch.stack(tracklet_labels, dim=0)
         if self.convert_mask_to_rle_for_video:
+            # pyre-fixme[61]: `vid_masklets_rle_padded` is undefined, or not always
+            #  defined.
             results["masks_rle"] = vid_masklets_rle_padded
         # we keep the frame-level scores since it's needed by some evaluation scripts
         results["per_frame_scores"] = padded_frames_results["scores"]
@@ -559,11 +577,17 @@ class PostProcessTracking(PostProcessImage):
         super().__init__(max_dets_per_img=max_dets_per_img, iou_type=iou_type, **kwargs)
         self.force_single_mask = force_single_mask
 
+    # pyre-fixme[14]: `process_results` overrides method defined in
+    #  `PostProcessImage` inconsistently.
     def process_results(
         self, find_stages, find_metadatas: BatchedInferenceMetadata, **kwargs
     ):
+        # pyre-fixme[6]: For 1st argument expected
+        #  `pyre_extensions.PyreReadOnly[Sized]` but got `BatchedInferenceMetadata`.
         assert len(find_stages) == len(find_metadatas)
         results = {}
+        # pyre-fixme[6]: For 2nd argument expected `Iterable[_T2]` but got
+        #  `BatchedInferenceMetadata`.
         for outputs, meta in zip(find_stages, find_metadatas):
             if self.force_single_mask:
                 scores, labels = outputs["pred_logits"].max(-1)

@@ -871,10 +871,14 @@ class ToTensorAPI:
     def __call__(self, datapoint: Datapoint, **kwargs):
         for img in datapoint.images:
             if self.v2:
+                # pyre-fixme[16]: Module `functional` has no attribute
+                #  `to_image_tensor`.
                 img.data = Fv2.to_image_tensor(img.data)
                 # img.data = Fv2.to_dtype(img.data, torch.uint8, scale=True)
                 # img.data = Fv2.convert_image_dtype(img.data, torch.uint8)
             else:
+                # pyre-fixme[6]: For 1st argument expected `Union[Image, ndarray]`
+                #  but got `Union[Image, Tensor]`.
                 img.data = F.to_tensor(img.data)
         return datapoint
 
@@ -888,9 +892,13 @@ class NormalizeAPI:
     def __call__(self, datapoint: Datapoint, **kwargs):
         for img in datapoint.images:
             if self.v2:
+                # pyre-fixme[6]: For 1st argument expected `Tensor` but got
+                #  `Union[Image, Tensor]`.
                 img.data = Fv2.convert_image_dtype(img.data, torch.float32)
                 img.data = Fv2.normalize(img.data, mean=self.mean, std=self.std)
             else:
+                # pyre-fixme[6]: For 1st argument expected `Tensor` but got
+                #  `Union[Image, Tensor]`.
                 img.data = F.normalize(img.data, mean=self.mean, std=self.std)
             for obj in img.objects:
                 boxes = obj.bbox
@@ -999,13 +1007,34 @@ class ColorJitter:
                     self.brightness, self.contrast, self.saturation, self.hue
                 )
             for fn_id in fn_idx:
+                # pyre-fixme[61]: `brightness_factor` is undefined, or not always
+                #  defined.
                 if fn_id == 0 and brightness_factor is not None:
+                    # pyre-fixme[6]: For 1st argument expected `Tensor` but got
+                    #  `Union[Image, Tensor]`.
+                    # pyre-fixme[61]: `brightness_factor` is undefined, or not
+                    #  always defined.
                     img.data = F.adjust_brightness(img.data, brightness_factor)
+                # pyre-fixme[61]: `contrast_factor` is undefined, or not always defined.
                 elif fn_id == 1 and contrast_factor is not None:
+                    # pyre-fixme[6]: For 1st argument expected `Tensor` but got
+                    #  `Union[Image, Tensor]`.
+                    # pyre-fixme[61]: `contrast_factor` is undefined, or not always
+                    #  defined.
                     img.data = F.adjust_contrast(img.data, contrast_factor)
+                # pyre-fixme[61]: `saturation_factor` is undefined, or not always
+                #  defined.
                 elif fn_id == 2 and saturation_factor is not None:
+                    # pyre-fixme[6]: For 1st argument expected `Tensor` but got
+                    #  `Union[Image, Tensor]`.
+                    # pyre-fixme[61]: `saturation_factor` is undefined, or not
+                    #  always defined.
                     img.data = F.adjust_saturation(img.data, saturation_factor)
+                # pyre-fixme[61]: `hue_factor` is undefined, or not always defined.
                 elif fn_id == 3 and hue_factor is not None:
+                    # pyre-fixme[6]: For 1st argument expected `Tensor` but got
+                    #  `Union[Image, Tensor]`.
+                    # pyre-fixme[61]: `hue_factor` is undefined, or not always defined.
                     img.data = F.adjust_hue(img.data, hue_factor)
         return datapoint
 
@@ -1058,6 +1087,8 @@ class RandomAffine:
         return datapoint
 
     def transform_datapoint(self, datapoint: Datapoint):
+        # pyre-fixme[6]: For 1st argument expected `Tensor` but got `Union[Image,
+        #  Tensor]`.
         _, height, width = F.get_dimensions(datapoint.images[0].data)
         img_size = [width, height]
 
@@ -1073,6 +1104,8 @@ class RandomAffine:
 
         for img_idx, img in enumerate(datapoint.images):
             this_masks = [
+                # pyre-fixme[16]: Item `dict` of `dict[Any, Any] | Tensor` has no
+                #  attribute `unsqueeze`.
                 obj.segment.unsqueeze(0) if obj.segment is not None else None
                 for obj in img.objects
             ]
@@ -1093,10 +1126,18 @@ class RandomAffine:
                     # Dummy bbox for a dummy target
                     transformed_bboxes.append(torch.tensor([[0, 0, 0, 0]]))
                 else:
+                    # pyre-fixme[6]: For 3rd argument expected `List[int]` but got
+                    #  `Tuple[int, int]`.
+                    # pyre-fixme[6]: For 5th argument expected `List[float]` but got
+                    #  `Tuple[float, float]`.
                     transformed_mask = F.affine(
                         this_masks[i],
+                        # pyre-fixme[61]: `affine_params` is undefined, or not
+                        #  always defined.
                         *affine_params,
                         interpolation=InterpolationMode.NEAREST,
+                        # pyre-fixme[6]: For 7th argument expected
+                        #  `Optional[List[float]]` but got `float`.
                         fill=0.0,
                     )
                     if img_idx == 0 and transformed_mask.max() == 0:
@@ -1111,8 +1152,15 @@ class RandomAffine:
                 img.objects[i].bbox = transformed_bboxes[i]
                 img.objects[i].segment = transformed_masks[i]
 
+            # pyre-fixme[6]: For 3rd argument expected `List[int]` but got
+            #  `Tuple[int, int]`.
+            # pyre-fixme[6]: For 5th argument expected `List[float]` but got
+            #  `Tuple[float, float]`.
             img.data = F.affine(
+                # pyre-fixme[6]: For 1st argument expected `Tensor` but got
+                #  `Union[Image, Tensor]`.
                 img.data,
+                # pyre-fixme[61]: `affine_params` is undefined, or not always defined.
                 *affine_params,
                 interpolation=self.image_interpolation,
                 fill=self.fill_img,
@@ -1174,6 +1222,8 @@ class RandomResizedCrop:
         if self.consistent_transform:
             # Create a random crop transformation
             crop_params = T.RandomResizedCrop.get_params(
+                # pyre-fixme[6]: For 1st argument expected `Tensor` but got
+                #  `Union[Image, Tensor]`.
                 img=datapoint.images[0].data,
                 scale=self.scale,
                 ratio=ratio,
@@ -1183,12 +1233,16 @@ class RandomResizedCrop:
             if not self.consistent_transform:
                 # Create a random crop transformation
                 crop_params = T.RandomResizedCrop.get_params(
+                    # pyre-fixme[6]: For 1st argument expected `Tensor` but got
+                    #  `Union[Image, Tensor]`.
                     img=img.data,
                     scale=self.scale,
                     ratio=ratio,
                 )
 
             this_masks = [
+                # pyre-fixme[16]: Item `dict` of `dict[Any, Any] | Tensor` has no
+                #  attribute `unsqueeze`.
                 obj.segment.unsqueeze(0) if obj.segment is not None else None
                 for obj in img.objects
             ]
@@ -1202,6 +1256,8 @@ class RandomResizedCrop:
                 else:
                     transformed_mask = F.resized_crop(
                         this_masks[i],
+                        # pyre-fixme[61]: `crop_params` is undefined, or not always
+                        #  defined.
                         *crop_params,
                         size=self.size,
                         interpolation=InterpolationMode.NEAREST,
@@ -1220,7 +1276,10 @@ class RandomResizedCrop:
                 img.objects[i].segment = transformed_masks[i]
 
             img.data = F.resized_crop(
+                # pyre-fixme[6]: For 1st argument expected `Tensor` but got
+                #  `Union[Image, Tensor]`.
                 img.data,
+                # pyre-fixme[61]: `crop_params` is undefined, or not always defined.
                 *crop_params,
                 size=self.size,
                 interpolation=InterpolationMode.BILINEAR,
@@ -1237,6 +1296,8 @@ class ResizeToMaxIfAbove:
         self.max_size = max_size
 
     def __call__(self, datapoint: Datapoint, **kwargs):
+        # pyre-fixme[6]: For 1st argument expected `Tensor` but got `Union[Image,
+        #  Tensor]`.
         _, height, width = F.get_dimensions(datapoint.images[0].data)
 
         if height <= self.max_size and width <= self.max_size:
@@ -1252,10 +1313,14 @@ class ResizeToMaxIfAbove:
         size = new_height, new_width
 
         for index in range(len(datapoint.images)):
+            # pyre-fixme[6]: For 1st argument expected `Tensor` but got
+            #  `Union[Image, Tensor]`.
             datapoint.images[index].data = F.resize(datapoint.images[index].data, size)
 
             for obj in datapoint.images[index].objects:
                 obj.segment = F.resize(
+                    # pyre-fixme[16]: Item `None` of `None | dict[Any, Any] |
+                    #  Tensor` has no attribute `__getitem__`.
                     obj.segment[None, None],
                     size,
                     interpolation=InterpolationMode.NEAREST,
@@ -1302,6 +1367,7 @@ class MotionBlur:
             if not self.consistent_transform:
                 # Generate a new motion blur kernel for each image
                 kernel = self._generate_motion_blur_kernel()
+            # pyre-fixme[61]: `kernel` is undefined, or not always defined.
             img.data = self._apply_motion_blur(img.data, kernel)
 
         return datapoint
@@ -1364,6 +1430,8 @@ class LargeScaleJitter:
         log_ratio = torch.log(torch.tensor(self.aspect_ratio_range))
         scale_factor = torch.empty(1).uniform_(*self.scale_range).item()
         aspect_ratio = torch.exp(
+            # pyre-fixme[6]: For 1st argument expected `float` but got `Tensor`.
+            # pyre-fixme[6]: For 2nd argument expected `float` but got `Tensor`.
             torch.empty(1).uniform_(log_ratio[0], log_ratio[1])
         ).item()
 
@@ -1373,6 +1441,8 @@ class LargeScaleJitter:
                 log_ratio = torch.log(torch.tensor(self.aspect_ratio_range))
                 scale_factor = torch.empty(1).uniform_(*self.scale_range).item()
                 aspect_ratio = torch.exp(
+                    # pyre-fixme[6]: For 1st argument expected `float` but got `Tensor`.
+                    # pyre-fixme[6]: For 2nd argument expected `float` but got `Tensor`.
                     torch.empty(1).uniform_(log_ratio[0], log_ratio[1])
                 ).item()
 

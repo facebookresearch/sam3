@@ -38,8 +38,10 @@ class TorchDataset:
         if self.sampler:
             self.sampler.set_epoch(epoch)
         if hasattr(self.dataset, "epoch"):
+            # pyre-fixme[16]: `Dataset` has no attribute `epoch`.
             self.dataset.epoch = epoch
         if hasattr(self.dataset, "set_epoch"):
+            # pyre-fixme[16]: `Dataset` has no attribute `set_epoch`.
             self.dataset.set_epoch(epoch)
 
         return DataLoader(

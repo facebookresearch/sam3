@@ -115,8 +115,10 @@ class TransformerDecoderLayer(nn.Module):
         if self.self_attn is not None:
             if dac:
                 # we only apply self attention to the first half of the queries
+                # pyre-fixme[16]: `Optional` has no attribute `shape`.
                 assert tgt.shape[0] % 2 == 0
                 num_o2o_queries = tgt.shape[0] // 2
+                # pyre-fixme[16]: `Optional` has no attribute `__getitem__`.
                 tgt_o2o = tgt[:num_o2o_queries]
                 tgt_query_pos_o2o = tgt_query_pos[:num_o2o_queries]
                 tgt_o2m = tgt[num_o2o_queries:]
@@ -130,7 +132,10 @@ class TransformerDecoderLayer(nn.Module):
                     [torch.zeros_like(presence_token), tgt_query_pos_o2o], dim=0
                 )
                 tgt_query_pos = torch.cat(
-                    [torch.zeros_like(presence_token), tgt_query_pos], dim=0
+                    # pyre-fixme[6]: For 1st argument expected `Union[List[Tensor],
+                    #  tuple[Tensor, ...]]` but got `List[Optional[Tensor]]`.
+                    [torch.zeros_like(presence_token), tgt_query_pos],
+                    dim=0,
                 )
 
             q = k = self.with_pos_embed(tgt_o2o, tgt_query_pos_o2o)
@@ -139,6 +144,7 @@ class TransformerDecoderLayer(nn.Module):
             if dac:
                 if not dac_use_selfatt_ln:
                     tgt_o2o = self.norm2(tgt_o2o)
+                # pyre-fixme[61]: `tgt_o2m` is undefined, or not always defined.
                 tgt = torch.cat((tgt_o2o, tgt_o2m), dim=0)  # Recombine
                 if dac_use_selfatt_ln:
                     tgt = self.norm2(tgt)
@@ -159,7 +165,10 @@ class TransformerDecoderLayer(nn.Module):
         if presence_token is not None:
             presence_token_mask = torch.zeros_like(cross_attn_mask[:, :1, :])
             cross_attn_mask = torch.cat(
-                [presence_token_mask, cross_attn_mask], dim=1
+                # pyre-fixme[6]: For 1st argument expected `Union[List[Tensor],
+                #  tuple[Tensor, ...]]` but got `List[Optional[Tensor]]`.
+                [presence_token_mask, cross_attn_mask],
+                dim=1,
             )  # (bs*nheads, 1+nq, hw)
 
         # Cross attention to image
@@ -505,6 +514,8 @@ class TransformerDecoder(nn.Module):
         for layer_idx, layer in enumerate(self.layers):
             reference_points_input = (
                 reference_boxes[:, :, None]
+                # pyre-fixme[6]: For 1st argument expected `Union[List[Tensor],
+                #  tuple[Tensor, ...]]` but got `List[Optional[Tensor]]`.
                 * torch.cat([valid_ratios, valid_ratios], -1)[None, :]
             )  # nq, bs, nlevel, 4
 
@@ -516,11 +527,13 @@ class TransformerDecoder(nn.Module):
             query_pos = self.ref_point_head(query_sine_embed)  # nq, bs, d_model
 
             if self.boxRPB != "none" and reference_boxes is not None:
+                # pyre-fixme[16]: `Optional` has no attribute `shape`.
                 assert spatial_shapes.shape[0] == 1, (
                     "only single scale support implemented"
                 )
                 memory_mask = self._get_rpb_matrix(
                     reference_boxes,
+                    # pyre-fixme[16]: `Optional` has no attribute `__getitem__`.
                     (spatial_shapes[0, 0], spatial_shapes[0, 1]),
                 )
                 memory_mask = memory_mask.flatten(0, 1)  # (bs*n_heads, nq, H*W)
@@ -564,6 +577,7 @@ class TransformerDecoder(nn.Module):
                         delta_unsig = box_head(out_norm(output))
                 else:
                     # box_head_trk use a separate box head for tracking queries
+                    # pyre-fixme[16]: `Optional` has no attribute `__getitem__`.
                     Q_det = decoder_extra_kwargs["Q_det"]
                     assert output.size(0) >= Q_det
                     delta_unsig_det = self.bbox_embed(output[:Q_det])
@@ -574,6 +588,7 @@ class TransformerDecoder(nn.Module):
 
                 reference_boxes = new_reference_points.detach()
                 if layer_idx != self.num_layers - 1:
+                    # pyre-fixme[16]: `Optional` has no attribute `append`.
                     intermediate_ref_boxes.append(new_reference_points)
             else:
                 raise NotImplementedError("not implemented yet")
@@ -603,6 +618,8 @@ class TransformerDecoder(nn.Module):
 
         return (
             torch.stack(intermediate),
+            # pyre-fixme[6]: For 1st argument expected `Union[List[Tensor],
+            #  tuple[Tensor, ...]]` but got `Optional[List[Any]]`.
             torch.stack(intermediate_ref_boxes),
             (
                 torch.stack(intermediate_presence_logits)
@@ -688,6 +705,7 @@ class TransformerEncoderCrossAttention(nn.Module):
         if self.batch_first:
             # Convert to batch first
             output = output.transpose(0, 1)
+            # pyre-fixme[16]: `Optional` has no attribute `transpose`.
             src_pos = src_pos.transpose(0, 1)
             prompt = prompt.transpose(0, 1)
             prompt_pos = prompt_pos.transpose(0, 1)
@@ -719,6 +737,7 @@ class TransformerEncoderCrossAttention(nn.Module):
             src_pos = src_pos.transpose(0, 1)
 
         return {
+            # pyre-fixme[61]: `normed_output` is undefined, or not always defined.
             "memory": normed_output,
             "pos_embed": src_pos,
             "padding_mask": src_key_padding_mask,
@@ -839,6 +858,7 @@ class TransformerDecoderLayerv1(nn.Module):
         tgt = tgt + self.dropout1(tgt2)
         if dac:
             # Recombine
+            # pyre-fixme[61]: `other_tgt` is undefined, or not always defined.
             tgt = torch.cat((tgt, other_tgt), dim=0)
         tgt2 = self.norm2(tgt)
         tgt2 = self.cross_attn_image(
@@ -918,6 +938,8 @@ class TransformerDecoderLayerv2(TransformerDecoderLayerv1):
         tgt = tgt + self.dropout2(tgt2)
         return tgt
 
+    # pyre-fixme[14]: `forward_pre` overrides method defined in
+    #  `TransformerDecoderLayerv1` inconsistently.
     def forward_pre(
         self,
         tgt,
@@ -993,7 +1015,11 @@ def functional_attention(
             q, k[:, :, :num_k_rope] = apply_rotary_enc_real(
                 q,
                 k[:, :, :num_k_rope],
+                # pyre-fixme[6]: For 3rd argument expected `Tensor` but got
+                #  `Optional[Tensor]`.
                 freqs_cis_real=freqs_cis_real,
+                # pyre-fixme[6]: For 4th argument expected `Tensor` but got
+                #  `Optional[Tensor]`.
                 freqs_cis_imag=freqs_cis_imag,
                 repeat_freqs_k=rope_k_repeat,
             )
@@ -1306,6 +1332,7 @@ class TransformerEncoderDecoupledCrossAttention(nn.Module):
         if self.batch_first:
             # Convert to batch first
             output = output.transpose(0, 1)
+            # pyre-fixme[16]: `Optional` has no attribute `transpose`.
             src_pos = src_pos.transpose(0, 1)
             image = image.transpose(0, 1)
             memory = memory.transpose(0, 1)

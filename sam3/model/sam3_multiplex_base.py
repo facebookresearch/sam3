@@ -427,6 +427,8 @@ class Sam3MultiplexBase(Sam3VideoBase):
             self._profiling_enabled = False
             os.environ["ENABLE_PROFILING"] = "0"
 
+    # pyre-fixme[14]: `_det_track_one_frame` overrides method defined in
+    #  `Sam3VideoBase` inconsistently.
     def _det_track_one_frame(
         self,
         frame_idx: int,
@@ -636,6 +638,8 @@ class Sam3MultiplexBase(Sam3VideoBase):
             tracker_obj_scores_global,  # a dict: obj_id --> sam2 frame-level scores
         )
 
+    # pyre-fixme[14]: `run_backbone_and_detection` overrides method defined in
+    #  `Sam3VideoBase` inconsistently.
     def run_backbone_and_detection(
         self,
         frame_idx: int,
@@ -786,6 +790,7 @@ class Sam3MultiplexBase(Sam3VideoBase):
 
         with torch.profiler.record_function("run_backbone_and_detection.feature_cache"):
             feature_cache[frame_idx] = (
+                # pyre-fixme[16]: `Tensor` has no attribute `tensors`.
                 input_batch.img_batch.tensors[frame_idx],
                 backbone_cache,
             )
@@ -847,6 +852,8 @@ class Sam3MultiplexBase(Sam3VideoBase):
                 obj_scores_global = obj_scores_local
         return low_res_masks_global, obj_scores_global
 
+    # pyre-fixme[14]: `_recondition_masklets` overrides method defined in
+    #  `Sam3VideoBase` inconsistently.
     def _recondition_masklets(
         self,
         frame_idx,
@@ -991,6 +998,8 @@ class Sam3MultiplexBase(Sam3VideoBase):
             return x
         return deepcopy(x)
 
+    # pyre-fixme[14]: `run_tracker_update_planning_phase` overrides method defined
+    #  in `Sam3VideoBase` inconsistently.
     def run_tracker_update_planning_phase(
         self,
         frame_idx: int,
@@ -1041,6 +1050,8 @@ class Sam3MultiplexBase(Sam3VideoBase):
                         reverse=reverse,
                         adt_result=adt_result,  # Still lazy - no sync!
                         tracker_metadata_prev=tracker_metadata_prev,
+                        # pyre-fixme[6]: For 5th argument expected `Dict[str,
+                        #  Tensor]` but got `ndarray`.
                         gpu_metadata_prev=tracker_metadata_prev["gpu_metadata"],
                     )
                 )
@@ -1384,6 +1395,8 @@ class Sam3MultiplexBase(Sam3VideoBase):
         }
         return sam2_update_plan, tracker_metadata_new
 
+    # pyre-fixme[14]: `_suppress_overlapping_based_on_recent_occlusion` overrides
+    #  method defined in `Sam3VideoBase` inconsistently.
     def _suppress_overlapping_based_on_recent_occlusion(
         self,
         frame_idx: int,
@@ -1502,6 +1515,8 @@ class Sam3MultiplexBase(Sam3VideoBase):
                 total_buckets += state["multiplex_state"].num_buckets
         return total_buckets
 
+    # pyre-fixme[14]: `build_outputs` overrides method defined in `Sam3VideoBase`
+    #  inconsistently.
     def build_outputs(
         self,
         frame_idx: int,
@@ -1516,7 +1531,10 @@ class Sam3MultiplexBase(Sam3VideoBase):
         sam2_update_plan: Dict[str, np.ndarray],
         orig_vid_height: int,
         orig_vid_width: int,
+        # pyre-fixme[9]: reconditioned_obj_ids has type `Set[Any]`; used as `None`.
         reconditioned_obj_ids: set = None,
+        # pyre-fixme[9]: det_to_matched_trk_obj_ids has type `Dict[Any, Any]`; used
+        #  as `None`.
         det_to_matched_trk_obj_ids: dict = None,
     ):
         new_det_fa_inds: np.ndarray = sam2_update_plan["new_det_fa_inds"]
@@ -1588,11 +1606,14 @@ class Sam3MultiplexBase(Sam3VideoBase):
 
         return obj_id_to_mask
 
+    # pyre-fixme[14]: `_get_objects_to_suppress_based_on_most_recently_occluded`
+    #  overrides method defined in `Sam3VideoBase` inconsistently.
     def _get_objects_to_suppress_based_on_most_recently_occluded(
         self,
         binary_low_res_masks: Tensor,
         last_occluded: Tensor,  # GPU tensor (N_obj,) with frame indices
         obj_ids: np.ndarray,  # numpy array of object IDs
+        # pyre-fixme[9]: frame_idx has type `int`; used as `None`.
         frame_idx: int = None,
         reverse: bool = False,
     ):
@@ -1659,6 +1680,7 @@ class Sam3MultiplexBase(Sam3VideoBase):
         ):
             suppress_i_mask = suppress_i_mask.cpu().numpy()
             suppress_j_mask = suppress_j_mask.cpu().numpy()
+            # pyre-fixme[9]: last_occluded has type `Tensor`; used as `ndarray`.
             last_occluded = last_occluded.cpu().numpy()
 
             # Find all suppression pairs without using torch.where
@@ -1723,13 +1745,17 @@ class Sam3MultiplexBase(Sam3VideoBase):
                     num_frames_propagated += 1
 
             # only 1 frames should be propagated
+            # pyre-fixme[61]: `out_frame_idx` is undefined, or not always defined.
             assert num_frames_propagated == 1 and out_frame_idx == frame_idx, (
+                # pyre-fixme[61]: `out_frame_idx` is undefined, or not always defined.
                 f"num_frames_propagated: {num_frames_propagated}, out_frame_idx: {out_frame_idx}, frame_idx: {frame_idx}"
             )
+            # pyre-fixme[61]: `out_obj_ids` is undefined, or not always defined.
             assert isinstance(out_obj_ids, list)
             # Optionally filter to a subset of object ids (for partial propagation).
             # We also clamp indices to available rows to avoid CUDA index_select assertions.
             if filter_obj_ids is not None:
+                # pyre-fixme[61]: `out_obj_ids` is undefined, or not always defined.
                 if len(out_obj_ids) > 0:
                     max_mask_rows = out_low_res_masks.shape[0]
                     max_score_rows = out_obj_scores.shape[0]
@@ -1745,6 +1771,8 @@ class Sam3MultiplexBase(Sam3VideoBase):
                     else:
                         keep_indices = [
                             i
+                            # pyre-fixme[61]: `out_obj_ids` is undefined, or not
+                            #  always defined.
                             for i, oid in enumerate(out_obj_ids)
                             if oid in filter_obj_ids
                             and i < max_mask_rows
@@ -1767,7 +1795,9 @@ class Sam3MultiplexBase(Sam3VideoBase):
                     # no selected objects in this local state; skip appending
                     out_obj_ids = []
 
+            # pyre-fixme[61]: `out_obj_ids` is undefined, or not always defined.
             if len(out_obj_ids) > 0:
+                # pyre-fixme[61]: `out_obj_ids` is undefined, or not always defined.
                 obj_ids_local.extend(out_obj_ids)
                 low_res_masks_list.append(out_low_res_masks.squeeze(1))
                 obj_scores_list.append(out_obj_scores.squeeze(1))
@@ -1833,6 +1863,8 @@ class Sam3MultiplexBase(Sam3VideoBase):
 
         return obj_ids_local, low_res_masks_local, obj_scores_local
 
+    # pyre-fixme[14]: `_associate_det_trk` overrides method defined in
+    #  `Sam3VideoBase` inconsistently.
     def _associate_det_trk(
         self,
         det_masks: Tensor,
@@ -2058,6 +2090,8 @@ class Sam3MultiplexBase(Sam3VideoBase):
         if isinstance(adt_result, RealizedAssociateDetTrkresult):
             # No tracks exist, so no objects to remove/suppress
             empty_mask = torch.zeros(0, dtype=torch.bool, device=self.device)
+            # pyre-fixme[7]: Expected `Tuple[Tensor, Tensor, Dict[str, Tensor]]` but
+            #  got `Tuple[Tensor, Tensor, Dict[str, int]]`.
             return empty_mask, empty_mask, {"N_obj": 0}
 
         device = adt_result.trk_is_unmatched.device
@@ -2432,6 +2466,8 @@ class Sam3MultiplexBase(Sam3VideoBase):
         removed_obj_ids.update(obj_ids_newly_removed)
         return obj_ids_newly_removed, rank0_metadata
 
+    # pyre-fixme[14]: `_tracker_update_memories` overrides method defined in
+    #  `Sam3VideoBase` inconsistently.
     def _tracker_update_memories(
         self,
         sam2_inference_states: List[Any],
@@ -2501,6 +2537,8 @@ class Sam3MultiplexBase(Sam3VideoBase):
             # Get the local high-res masks and object score logits for this inference state
             if self.is_multiplex and self.tracker.is_multiplex_dynamic:
                 local_idx = (
+                    # pyre-fixme[61]: `object_idx_assignment` is undefined, or not
+                    #  always defined.
                     torch.tensor(object_idx_assignment[state_i])
                     .pin_memory()
                     .to(device=high_res_masks.device, non_blocking=True)
@@ -2547,9 +2585,13 @@ class Sam3MultiplexBase(Sam3VideoBase):
                 ]
                 if self.is_multiplex:
                     output_dict[storage_key][frame_idx]["image_features"] = (
+                        # pyre-fixme[61]: `local_image_features` is undefined, or
+                        #  not always defined.
                         local_image_features
                     )
                     output_dict[storage_key][frame_idx]["image_pos_enc"] = (
+                        # pyre-fixme[61]: `local_image_pos_enc` is undefined, or not
+                        #  always defined.
                         local_image_pos_enc
                     )
 

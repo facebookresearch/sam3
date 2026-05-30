@@ -121,6 +121,7 @@ def reindex_coco_to_temp(input_json_path: str) -> Optional[str]:
         with open(input_json_path, "r", encoding="utf-8") as f:
             data = json.load(f)
     except json.JSONDecodeError as e:
+        # pyre-fixme[20]: Argument `doc` expected.
         raise json.JSONDecodeError(f"Invalid JSON in {input_json_path}: {e}")
 
     # Validate COCO format

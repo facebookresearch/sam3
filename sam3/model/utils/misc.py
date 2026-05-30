@@ -48,6 +48,7 @@ def copy_data_to_device(data, device: torch.device, *args: Any, **kwargs: Any):
             },
         )
     elif isinstance(data, Mapping):
+        # pyre-fixme[19]: Expected 0 positional arguments.
         return type(data)(
             {
                 k: copy_data_to_device(v, device, *args, **kwargs)
@@ -55,6 +56,7 @@ def copy_data_to_device(data, device: torch.device, *args: Any, **kwargs: Any):
             }
         )
     elif is_dataclass(data) and not isinstance(data, type):
+        # pyre-fixme[45]: Cannot instantiate protocol `DataclassInstance`.
         new_data_class = type(data)(
             **{
                 field.name: copy_data_to_device(

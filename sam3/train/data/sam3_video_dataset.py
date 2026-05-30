@@ -252,7 +252,9 @@ class VideoGroundingDataset(Sam3ImageDataset):
         if datapoint.raw_images is not None:
             assert len(datapoint.raw_images) == 1, "Expected only one single image"
             tiled_raw_images = [
-                datapoint.raw_images[0].copy() for _ in range(num_stages_sample)
+                # pyre-fixme[16]: `Optional` has no attribute `__getitem__`.
+                datapoint.raw_images[0].copy()
+                for _ in range(num_stages_sample)
             ]
 
         # tile `find_queries: List[FindQueryLoaded]`
@@ -262,7 +264,10 @@ class VideoGroundingDataset(Sam3ImageDataset):
             assert query.query_processing_order == 0
             # check and make sure that a query doesn't contain pointers or references
             # to other queries (that cannot be tiled)
+            # pyre-fixme[16]: `FindQueryLoaded` has no attribute `ptr_x`.
+            # pyre-fixme[16]: `FindQueryLoaded` has no attribute `ptr_y`.
             assert query.ptr_x is None and query.ptr_y is None
+            # pyre-fixme[16]: `FindQueryLoaded` has no attribute `ptr_mem`.
             assert query.ptr_mem is None
             # assert query.wkdata_qid is None
             # assert query.other_positive_qids is None
@@ -291,6 +296,7 @@ class VideoGroundingDataset(Sam3ImageDataset):
         else:
             tiled_get_queries = []
 
+        # pyre-fixme[28]: Unexpected keyword argument `get_queries`.
         return Datapoint(
             images=tiled_images,
             raw_images=tiled_raw_images,
@@ -319,9 +325,11 @@ class VideoGroundingDataset(Sam3ImageDataset):
             [queries[idx] for idx in sampled_inds] for queries in find_queries_per_stage
         ]
         sampled_find_queries = sum(sampled_find_queries_per_stage, [])
+        # pyre-fixme[28]: Unexpected keyword argument `get_queries`.
         return Datapoint(
             images=datapoint.images,
             raw_images=datapoint.raw_images,
             find_queries=sampled_find_queries,
+            # pyre-fixme[16]: `Datapoint` has no attribute `get_queries`.
             get_queries=datapoint.get_queries,
         )

@@ -63,6 +63,7 @@ pytree.register_pytree_node(
 )
 
 
+# pyre-fixme[10]: Name `Tensor` is used but not defined.
 def interpolate(
     input, size=None, scale_factor=None, mode="nearest", align_corners=None
 ):

@@ -36,6 +36,7 @@ class MaskletConfirmationStatus(Enum):
 
 @dataclass
 class RealizedAssociateDetTrkresult:
+    # pyre-fixme[11]: Annotation `array` is not defined as a type.
     new_det_fa_inds: np.array
     unmatched_trk_obj_ids: np.array
     det_to_matched_trk_obj_ids: Dict[int, np.array]
@@ -546,6 +547,8 @@ class Sam3VideoBase(nn.Module):
         # Step 1: if text feature is not cached in `feature_cache`, compute and cache it
         text_batch_key = tuple(input_batch.find_text_batch)
         if "text" not in feature_cache or text_batch_key not in feature_cache["text"]:
+            # pyre-fixme[16]: Item `Tensor` of `Tensor | Module` has no attribute
+            #  `forward_text`.
             text_outputs = self.detector.backbone.forward_text(
                 input_batch.find_text_batch, device=self.device
             )
@@ -565,6 +568,7 @@ class Sam3VideoBase(nn.Module):
         max_frame_num_to_track = tracking_bounds.get("max_frame_num_to_track")
         start_frame_idx = tracking_bounds.get("propagate_in_video_start_frame_idx")
 
+        # pyre-fixme[29]: `Union[Module, Tensor]` is not a function.
         sam3_image_out, _ = self.detector.forward_video_grounding_multigpu(
             backbone_out={
                 "img_batch_all_stages": input_batch.img_batch,
@@ -604,7 +608,11 @@ class Sam3VideoBase(nn.Module):
         backbone_cache = {}
         sam_mask_decoder = self.tracker.sam_mask_decoder
         tracker_backbone_fpn = [
+            # pyre-fixme[16]: Item `Tensor` of `Tensor | Module` has no attribute
+            #  `conv_s0`.
             sam_mask_decoder.conv_s0(sam3_image_out["tracker_backbone_fpn_0"]),
+            # pyre-fixme[16]: Item `Tensor` of `Tensor | Module` has no attribute
+            #  `conv_s1`.
             sam_mask_decoder.conv_s1(sam3_image_out["tracker_backbone_fpn_1"]),
             sam3_image_out["tracker_backbone_fpn_2"],  # fpn_2 doesn't need conv
         ]
@@ -684,12 +692,16 @@ class Sam3VideoBase(nn.Module):
         tracker_obj_scores_global: Tensor,
     ):
         # Recondition the masklets based on the new detections
+        # pyre-fixme[16]: `List` has no attribute `items`.
         for trk_obj_id, det_idx in trk_id_to_max_iou_high_conf_det.items():
             new_mask = det_out["mask"][det_idx : det_idx + 1]
             input_mask_res = self.tracker.input_mask_size
             new_mask_binary = (
                 F.interpolate(
                     new_mask.unsqueeze(1),
+                    # pyre-fixme[6]: For 2nd argument expected `Union[None,
+                    #  Sequence[int], int]` but got `Tuple[Union[Module, Tensor],
+                    #  Union[Module, Tensor]]`.
                     size=(input_mask_res, input_mask_res),
                     mode="bilinear",
                     align_corners=False,
@@ -712,6 +724,7 @@ class Sam3VideoBase(nn.Module):
                     logger.debug(
                         f"Adding new mask for track {trk_obj_id} at frame {frame_idx}. Objects {inference_state['obj_ids']} are all reconditioned."
                     )
+                    # pyre-fixme[29]: `Union[Module, Tensor]` is not a function.
                     self.tracker.add_new_mask(
                         inference_state=inference_state,
                         frame_idx=frame_idx,
@@ -721,6 +734,7 @@ class Sam3VideoBase(nn.Module):
                     reconditioned_states_idx.add(state_idx)
 
             for idx in reconditioned_states_idx:
+                # pyre-fixme[29]: `Union[Module, Tensor]` is not a function.
                 self.tracker.propagate_in_video_preflight(
                     tracker_states_local[idx], run_mem_encoder=True
                 )
@@ -807,6 +821,8 @@ class Sam3VideoBase(nn.Module):
                     new_det_obj_ids=new_det_obj_ids,
                     empty_trk_obj_ids=empty_trk_obj_ids,
                     unmatched_trk_obj_ids=unmatched_trk_obj_ids,
+                    # pyre-fixme[6]: For 8th argument expected `Dict[str, Any]` but
+                    #  got `ndarray`.
                     rank0_metadata=rank0_metadata_new,
                     tracker_metadata=tracker_metadata_prev,
                 )
@@ -822,14 +838,27 @@ class Sam3VideoBase(nn.Module):
             # (it's a small array with length==self.world_size, so broadcasting it is cheap)
             num_obj_per_gpu_on_rank0 = tracker_metadata_prev["num_obj_per_gpu"]
             update_plan = [
+                # pyre-fixme[61]: `new_det_fa_inds` is undefined, or not always defined.
                 new_det_fa_inds,
+                # pyre-fixme[61]: `new_det_obj_ids` is undefined, or not always defined.
                 new_det_obj_ids,
+                # pyre-fixme[61]: `new_det_gpu_ids` is undefined, or not always defined.
                 new_det_gpu_ids,
                 num_obj_per_gpu_on_rank0,
+                # pyre-fixme[61]: `unmatched_trk_obj_ids` is undefined, or not
+                #  always defined.
                 unmatched_trk_obj_ids,
+                # pyre-fixme[61]: `det_to_matched_trk_obj_ids` is undefined, or not
+                #  always defined.
                 det_to_matched_trk_obj_ids,
+                # pyre-fixme[61]: `obj_ids_newly_removed` is undefined, or not
+                #  always defined.
                 obj_ids_newly_removed,
+                # pyre-fixme[61]: `num_obj_dropped_due_to_limit` is undefined, or
+                #  not always defined.
                 num_obj_dropped_due_to_limit,
+                # pyre-fixme[61]: `trk_id_to_max_iou_high_conf_det` is undefined, or
+                #  not always defined.
                 trk_id_to_max_iou_high_conf_det,
             ]
             assert len(update_plan) == NUM_BROADCAST_ITEMS, (
@@ -864,13 +893,26 @@ class Sam3VideoBase(nn.Module):
 
         # `tracker_update_plan` should be identical on all GPUs after broadcasting
         tracker_update_plan = {
+            # pyre-fixme[61]: `new_det_fa_inds` is undefined, or not always defined.
             "new_det_fa_inds": new_det_fa_inds,  # npt.NDArray
+            # pyre-fixme[61]: `new_det_obj_ids` is undefined, or not always defined.
             "new_det_obj_ids": new_det_obj_ids,  # npt.NDArray
+            # pyre-fixme[61]: `new_det_gpu_ids` is undefined, or not always defined.
             "new_det_gpu_ids": new_det_gpu_ids,  # npt.NDArray
+            # pyre-fixme[61]: `unmatched_trk_obj_ids` is undefined, or not always
+            #  defined.
             "unmatched_trk_obj_ids": unmatched_trk_obj_ids,  # npt.NDArray
+            # pyre-fixme[61]: `det_to_matched_trk_obj_ids` is undefined, or not
+            #  always defined.
             "det_to_matched_trk_obj_ids": det_to_matched_trk_obj_ids,  # dict
+            # pyre-fixme[61]: `obj_ids_newly_removed` is undefined, or not always
+            #  defined.
             "obj_ids_newly_removed": obj_ids_newly_removed,  # set
+            # pyre-fixme[61]: `num_obj_dropped_due_to_limit` is undefined, or not
+            #  always defined.
             "num_obj_dropped_due_to_limit": num_obj_dropped_due_to_limit,  # int
+            # pyre-fixme[61]: `trk_id_to_max_iou_high_conf_det` is undefined, or not
+            #  always defined.
             "trk_id_to_max_iou_high_conf_det": trk_id_to_max_iou_high_conf_det,  # dict
             "reconditioned_obj_ids": reconditioned_obj_ids,  # set
         }
@@ -882,6 +924,8 @@ class Sam3VideoBase(nn.Module):
         # Evaluate tracklets for reconditioning based on bbox IoU mismatch with detections
         if (
             self.reconstruction_bbox_iou_thresh > 0
+            # pyre-fixme[61]: `trk_id_to_max_iou_high_conf_det` is undefined, or not
+            #  always defined.
             and len(trk_id_to_max_iou_high_conf_det) > 0
         ):
             for trk_obj_id, det_idx in trk_id_to_max_iou_high_conf_det.items():
@@ -934,6 +978,8 @@ class Sam3VideoBase(nn.Module):
         should_recondition_periodic = (
             self.recondition_every_nth_frame > 0
             and frame_idx % self.recondition_every_nth_frame == 0
+            # pyre-fixme[61]: `trk_id_to_max_iou_high_conf_det` is undefined, or not
+            #  always defined.
             and len(trk_id_to_max_iou_high_conf_det) > 0
         )
 
@@ -942,6 +988,8 @@ class Sam3VideoBase(nn.Module):
             self._recondition_masklets(
                 frame_idx,
                 det_out,
+                # pyre-fixme[61]: `trk_id_to_max_iou_high_conf_det` is undefined, or
+                #  not always defined.
                 trk_id_to_max_iou_high_conf_det,
                 tracker_states_local,
                 tracker_metadata_prev,
@@ -961,6 +1009,8 @@ class Sam3VideoBase(nn.Module):
                             tracker_low_res_masks_global,
                             tracker_metadata_prev,
                             tracker_metadata_new,
+                            # pyre-fixme[61]: `obj_ids_newly_removed` is undefined,
+                            #  or not always defined.
                             obj_ids_newly_removed,
                             reverse,
                         )
@@ -977,15 +1027,24 @@ class Sam3VideoBase(nn.Module):
         # note: except for "rank0_metadata" (that is only available on GPU 0),
         # the updated `tracker_metadata_new` should be identical on all GPUs
         for rank in range(self.world_size):
+            # pyre-fixme[61]: `new_det_obj_ids` is undefined, or not always defined.
+            # pyre-fixme[61]: `new_det_gpu_ids` is undefined, or not always defined.
             new_det_obj_ids_this_gpu = new_det_obj_ids[new_det_gpu_ids == rank]
             updated_obj_ids_this_gpu = tracker_metadata_new["obj_ids_per_gpu"][rank]
             if len(new_det_obj_ids_this_gpu) > 0:
                 updated_obj_ids_this_gpu = np.concatenate(
                     [updated_obj_ids_this_gpu, new_det_obj_ids_this_gpu]
                 )
+            # pyre-fixme[61]: `obj_ids_newly_removed` is undefined, or not always
+            #  defined.
             if len(obj_ids_newly_removed) > 0:
                 is_removed = np.isin(
-                    updated_obj_ids_this_gpu, list(obj_ids_newly_removed)
+                    # pyre-fixme[61]: `obj_ids_newly_removed` is undefined, or not
+                    #  always defined.
+                    updated_obj_ids_this_gpu,
+                    # pyre-fixme[61]: `obj_ids_newly_removed` is undefined, or not
+                    #  always defined.
+                    list(obj_ids_newly_removed),
                 )
                 updated_obj_ids_this_gpu = updated_obj_ids_this_gpu[~is_removed]
             tracker_metadata_new["obj_ids_per_gpu"][rank] = updated_obj_ids_this_gpu
@@ -996,16 +1055,22 @@ class Sam3VideoBase(nn.Module):
             tracker_metadata_new["obj_ids_per_gpu"]
         )
         # update object scores and the maximum object ID assigned so far
+        # pyre-fixme[61]: `new_det_obj_ids` is undefined, or not always defined.
         if len(new_det_obj_ids) > 0:
             tracker_metadata_new["obj_id_to_score"].update(
+                # pyre-fixme[61]: `new_det_obj_ids` is undefined, or not always defined.
+                # pyre-fixme[61]: `new_det_fa_inds` is undefined, or not always defined.
                 zip(new_det_obj_ids, det_scores_np[new_det_fa_inds])
             )
             # tracker scores are not available for new objects, use det score instead.
             tracker_metadata_new["obj_id_to_tracker_score_frame_wise"][
                 frame_idx
+                # pyre-fixme[61]: `new_det_obj_ids` is undefined, or not always defined.
+                # pyre-fixme[61]: `new_det_fa_inds` is undefined, or not always defined.
             ].update(zip(new_det_obj_ids, det_scores_np[new_det_fa_inds]))
             tracker_metadata_new["max_obj_id"] = max(
                 tracker_metadata_new["max_obj_id"],
+                # pyre-fixme[61]: `new_det_obj_ids` is undefined, or not always defined.
                 np.max(new_det_obj_ids),
             )
         # for removed objects, we set their scores to a very low value (-1e4) but still
@@ -1023,7 +1088,10 @@ class Sam3VideoBase(nn.Module):
                 rank0_metadata=tracker_metadata_new["rank0_metadata"],
                 obj_ids_all_gpu_prev=tracker_metadata_prev["obj_ids_all_gpu"],
                 obj_ids_all_gpu_updated=tracker_metadata_new["obj_ids_all_gpu"],
+                # pyre-fixme[61]: `det_to_matched_trk_obj_ids` is undefined, or not
+                #  always defined.
                 det_to_matched_trk_obj_ids=det_to_matched_trk_obj_ids,
+                # pyre-fixme[61]: `new_det_obj_ids` is undefined, or not always defined.
                 new_det_obj_ids=new_det_obj_ids,
             )
             tracker_metadata_new["rank0_metadata"] = rank0_metadata
@@ -1080,6 +1148,7 @@ class Sam3VideoBase(nn.Module):
             )
             to_suppress = self._get_objects_to_suppress_based_on_most_recently_occluded(
                 binary_tracker_low_res_masks_global,
+                # pyre-fixme[6]: For 2nd argument expected `List[int]` but got `Tensor`.
                 last_occluded_prev,
                 obj_ids_global,
                 frame_idx,
@@ -1123,6 +1192,7 @@ class Sam3VideoBase(nn.Module):
         is_on_this_gpu: npt.NDArray = new_det_gpu_ids == self.rank
         new_det_obj_ids_local: npt.NDArray = new_det_obj_ids[is_on_this_gpu]
         new_det_fa_inds_local: npt.NDArray = new_det_fa_inds[is_on_this_gpu]
+        # pyre-fixme[9]: obj_ids_newly_removed has type `Set[int]`; used as `ndarray`.
         obj_ids_newly_removed: Set[int] = tracker_update_plan["obj_ids_newly_removed"]
 
         # Step 1: add new objects from the detector to SAM2 inference states
@@ -1133,6 +1203,8 @@ class Sam3VideoBase(nn.Module):
             tracker_states_local = self._tracker_add_new_objects(
                 frame_idx=frame_idx,
                 num_frames=num_frames,
+                # pyre-fixme[6]: For 3rd argument expected `List[int]` but got
+                #  `ndarray`.
                 new_obj_ids=new_det_obj_ids_local,
                 new_obj_masks=new_det_masks,
                 tracker_states_local=tracker_states_local,
@@ -1143,6 +1215,7 @@ class Sam3VideoBase(nn.Module):
 
         # Step 2: remove from SAM2 inference states those objects removed by heuristics
         if len(obj_ids_newly_removed) > 0:
+            # pyre-fixme[6]: For 2nd argument expected `List[int]` but got `Set[int]`.
             self._tracker_remove_objects(tracker_states_local, obj_ids_newly_removed)
 
         self._post_execution_phase_hook(tracker_states_local, tracker_metadata_new)
@@ -1182,7 +1255,10 @@ class Sam3VideoBase(nn.Module):
         tracker_update_plan: Dict[str, npt.NDArray],
         orig_vid_height: int,
         orig_vid_width: int,
+        # pyre-fixme[9]: reconditioned_obj_ids has type `Set[Any]`; used as `None`.
         reconditioned_obj_ids: set = None,
+        # pyre-fixme[9]: det_to_matched_trk_obj_ids has type `Dict[Any, Any]`; used
+        #  as `None`.
         det_to_matched_trk_obj_ids: dict = None,
     ):
         new_det_fa_inds: npt.NDArray = tracker_update_plan["new_det_fa_inds"]
@@ -1255,6 +1331,7 @@ class Sam3VideoBase(nn.Module):
         binary_low_res_masks: Tensor,
         last_occluded: List[int],
         obj_ids: List[int],
+        # pyre-fixme[9]: frame_idx has type `int`; used as `None`.
         frame_idx: int = None,
         reverse: bool = False,
     ):
@@ -1278,6 +1355,7 @@ class Sam3VideoBase(nn.Module):
         )
         overlapping_pairs = torch.triu(mask_iou_thresh, diagonal=1)  # [N,N]
 
+        # pyre-fixme[16]: `List` has no attribute `unsqueeze`.
         last_occ_expanded_i = last_occluded.unsqueeze(1)  # (N, 1)
         last_occ_expanded_j = last_occluded.unsqueeze(0)  # (1, N)
         # Suppress most recently occluded
@@ -1309,6 +1387,7 @@ class Sam3VideoBase(nn.Module):
         ):
             suppress_i_mask = suppress_i_mask.cpu().numpy()
             suppress_j_mask = suppress_j_mask.cpu().numpy()
+            # pyre-fixme[16]: `List` has no attribute `cpu`.
             last_occluded = last_occluded.cpu().numpy()
 
             # Find all suppression pairs without using torch.where
@@ -1352,6 +1431,7 @@ class Sam3VideoBase(nn.Module):
 
             # propagate one frame
             num_frames_propagated = 0
+            # pyre-fixme[29]: `Union[Module, Tensor]` is not a function.
             for out in self.tracker.propagate_in_video(
                 inference_state,
                 start_frame_idx=frame_idx,
@@ -1366,10 +1446,14 @@ class Sam3VideoBase(nn.Module):
                 num_frames_propagated += 1
 
             # only 1 frames should be propagated
+            # pyre-fixme[61]: `out_frame_idx` is undefined, or not always defined.
             assert num_frames_propagated == 1 and out_frame_idx == frame_idx, (
+                # pyre-fixme[61]: `out_frame_idx` is undefined, or not always defined.
                 f"num_frames_propagated: {num_frames_propagated}, out_frame_idx: {out_frame_idx}, frame_idx: {frame_idx}"
             )
+            # pyre-fixme[61]: `out_obj_ids` is undefined, or not always defined.
             assert isinstance(out_obj_ids, list)
+            # pyre-fixme[61]: `out_obj_ids` is undefined, or not always defined.
             obj_ids_local.extend(out_obj_ids)
             low_res_masks_list.append(out_low_res_masks.squeeze(1))
             obj_scores_list.append(out_obj_scores.squeeze(1))
@@ -1390,6 +1474,10 @@ class Sam3VideoBase(nn.Module):
             )
             low_res_masks_local = low_res_masks_local.squeeze(1)
         else:
+            # pyre-fixme[6]: For 2nd argument expected `Union[int, SymInt]` but got
+            #  `Union[Module, Tensor]`.
+            # pyre-fixme[6]: For 3rd argument expected `Union[int, SymInt]` but got
+            #  `Union[Module, Tensor]`.
             low_res_masks_local = torch.zeros(0, H_mask, W_mask, device=self.device)
             obj_scores_local = torch.zeros(0, device=self.device)
 
@@ -1666,6 +1754,8 @@ class Sam3VideoBase(nn.Module):
             return
         # Avoid an extra interpolation step by directly interpolating to `interpol_size`
         high_res_H, high_res_W = (
+            # pyre-fixme[16]: Item `Tensor` of `Tensor | Module` has no attribute
+            #  `mask_downsampler`.
             self.tracker.maskmem_backbone.mask_downsampler.interpol_size
         )
         # NOTE: inspect this part if we observe OOMs in the demo
@@ -1677,6 +1767,7 @@ class Sam3VideoBase(nn.Module):
         )
         # We first apply non-overlapping constraints before memory encoding. This may include some suppression heuristics.
         if not hasattr(self, "_warm_up_complete") or self._warm_up_complete:
+            # pyre-fixme[29]: `Union[Module, Tensor]` is not a function.
             high_res_masks = self.tracker._suppress_object_pw_area_shrinkage(
                 high_res_masks
             )
@@ -1701,6 +1792,7 @@ class Sam3VideoBase(nn.Module):
             local_batch_size = local_high_res_masks.size(0)
             # Run Sam2 memory encoder. Note that we do not re-enforce the non-overlapping constraint as it is turned off by default
 
+            # pyre-fixme[29]: `Union[Module, Tensor]` is not a function.
             encoded_mem = self.tracker._run_memory_encoder(
                 tracker_state,
                 frame_idx,
@@ -1723,6 +1815,7 @@ class Sam3VideoBase(nn.Module):
                 ]
                 # for batched inference state, we also need to add per-object
                 # memory slides to support instance interactivity
+                # pyre-fixme[29]: `Union[Module, Tensor]` is not a function.
                 self.tracker._add_output_per_object(
                     inference_state=tracker_state,
                     frame_idx=frame_idx,
@@ -1750,6 +1843,7 @@ class Sam3VideoBase(nn.Module):
         # prepare inference_state
         # batch objects that first appear on the same frame together
         # Clear inference state. Keep the cached image features if available.
+        # pyre-fixme[29]: `Union[Module, Tensor]` is not a function.
         new_tracker_state = self.tracker.init_state(
             cached_features=feature_cache,
             video_height=orig_vid_height,
@@ -1767,6 +1861,8 @@ class Sam3VideoBase(nn.Module):
         input_mask_res = self.tracker.input_mask_size
         new_obj_masks = F.interpolate(
             new_obj_masks.unsqueeze(1),
+            # pyre-fixme[6]: For 2nd argument expected `Union[None, Sequence[int],
+            #  int]` but got `Tuple[Union[Module, Tensor], Union[Module, Tensor]]`.
             size=(input_mask_res, input_mask_res),
             mode="bilinear",
             align_corners=False,
@@ -1775,6 +1871,7 @@ class Sam3VideoBase(nn.Module):
 
         # add object one by one
         for new_obj_id, new_mask in zip(new_obj_ids, new_obj_masks):
+            # pyre-fixme[29]: `Union[Module, Tensor]` is not a function.
             self.tracker.add_new_mask(
                 inference_state=new_tracker_state,
                 frame_idx=frame_idx,
@@ -1783,6 +1880,7 @@ class Sam3VideoBase(nn.Module):
                 add_mask_to_memory=True,
             )
         # NOTE: we skip enforcing the non-overlapping constraint **globally** when adding new objects.
+        # pyre-fixme[29]: `Union[Module, Tensor]` is not a function.
         self.tracker.propagate_in_video_preflight(
             new_tracker_state, run_mem_encoder=True
         )
@@ -1799,6 +1897,7 @@ class Sam3VideoBase(nn.Module):
         for tracker_inference_state in tracker_states_local_before_removal:
             # we try to remove `obj_id` on every inference state with `strict=False`
             # it will not do anything if an inference state doesn't contain `obj_id`
+            # pyre-fixme[29]: `Union[Module, Tensor]` is not a function.
             new_obj_ids, _ = self.tracker.remove_object(
                 tracker_inference_state, obj_id, strict=False, need_output=False
             )

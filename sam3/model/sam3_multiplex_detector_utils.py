@@ -7,6 +7,7 @@ from sam3 import perflib
 try:
     # Ronghang's generic GPU NMS implementation; install via
     # pip uninstall -y torch_generic_nms; TORCH_CUDA_ARCH_LIST="8.0 9.0" pip install git+https://github.com/ronghanghu/torch_generic_nms
+    # pyre-fixme[21]: Could not find module `torch_generic_nms`.
     from torch_generic_nms import generic_nms
 
     GENERIC_NMS_AVAILABLE = True

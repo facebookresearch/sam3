@@ -19,6 +19,7 @@ class YTVIS(COCO):
     """
 
     @override
+    # pyre-fixme[9]: annotation_file has type `str`; used as `None`.
     def __init__(self, annotation_file: str = None, ignore_gt_cats: bool = True):
         """
         Args:

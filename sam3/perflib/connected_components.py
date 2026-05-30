@@ -6,6 +6,7 @@ import logging
 import torch
 
 try:
+    # pyre-fixme[21]: Could not find module `cc_torch`.
     from cc_torch import get_connected_components
 
     HAS_CC_TORCH = True
@@ -19,8 +20,10 @@ except ImportError:
 
 def connected_components_cpu_single(values: torch.Tensor):
     assert values.dim() == 2
+    # pyre-fixme[21]: Could not find name `label` in `skimage.measure` (stubbed).
     from skimage.measure import label
 
+    # pyre-fixme[16]: Module `measure` has no attribute `label`.
     labels, num = label(values.cpu().numpy(), return_num=True)
     labels = torch.from_numpy(labels)
     counts = torch.zeros_like(labels)
