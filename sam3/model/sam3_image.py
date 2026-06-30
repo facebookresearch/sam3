@@ -443,11 +443,17 @@ class Sam3Image(torch.nn.Module):
         find_input,
         find_target,
         geometric_prompt: Prompt,
+        visual_prompt_embed=None,
+        visual_prompt_mask=None,
         **kwargs,
     ):
         with torch.profiler.record_function("SAM3Image._encode_prompt"):
             prompt, prompt_mask, backbone_out = self._encode_prompt(
-                backbone_out, find_input, geometric_prompt
+                backbone_out,
+                find_input,
+                geometric_prompt,
+                visual_prompt_embed=visual_prompt_embed,
+                visual_prompt_mask=visual_prompt_mask,
             )
         # Run the encoder
         with torch.profiler.record_function("SAM3Image._run_encoder"):
