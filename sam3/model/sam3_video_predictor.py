@@ -34,25 +34,41 @@ class Sam3VideoPredictor(Sam3BasePredictor):
         video_loader_type="cv2",
         apply_temporal_disambiguation: bool = True,
         compile: bool = False,
+        enable_inst_interactivity: bool = True,
     ):
         super().__init__()
         self.async_loading_frames = async_loading_frames
         self.video_loader_type = video_loader_type
-        from sam3.model_builder import build_sam3_video_model
 
-        self.model = (
-            build_sam3_video_model(
-                checkpoint_path=checkpoint_path,
-                bpe_path=bpe_path,
-                has_presence_token=has_presence_token,
-                geo_encoder_use_img_cross_attn=geo_encoder_use_img_cross_attn,
-                strict_state_dict_loading=strict_state_dict_loading,
-                apply_temporal_disambiguation=apply_temporal_disambiguation,
-                compile=compile,
+        is_multiplex = checkpoint_path is not None and "multiplex" in str(checkpoint_path)
+
+        if is_multiplex:
+            from sam3.model_builder import build_sam3_multiplex_tracking
+            self.model = (
+                build_sam3_multiplex_tracking(
+                    checkpoint_path=checkpoint_path,
+                    bpe_path=bpe_path,
+                    use_fa3=False,
+                    use_rope_real=True,
+                )
+                .cuda()
+                .eval()
             )
-            .cuda()
-            .eval()
-        )
+        else:
+            from sam3.model_builder import build_sam3_video_model
+            self.model = (
+                build_sam3_video_model(
+                    checkpoint_path=checkpoint_path,
+                    bpe_path=bpe_path,
+                    has_presence_token=has_presence_token,
+                    geo_encoder_use_img_cross_attn=geo_encoder_use_img_cross_attn,
+                    strict_state_dict_loading=strict_state_dict_loading,
+                    apply_temporal_disambiguation=apply_temporal_disambiguation,
+                    compile=compile,
+                )
+                .cuda()
+                .eval()
+            )
 
     def remove_object(
         self,
