@@ -539,7 +539,7 @@ def _create_sam3_transformer(
 def _load_checkpoint(model, checkpoint_path):
     """Load model checkpoint from file."""
     with g_pathmgr.open(checkpoint_path, "rb") as f:
-        ckpt = torch.load(f, map_location="cpu", weights_only=True)
+        ckpt = torch.load(f, map_location="cpu", weights_only=False)
     if "model" in ckpt and isinstance(ckpt["model"], dict):
         ckpt = ckpt["model"]
     sam3_image_ckpt = {
@@ -797,8 +797,12 @@ def build_sam3_video_model(
     if load_from_HF and checkpoint_path is None:
         checkpoint_path = download_ckpt_from_hf(version="sam3")
     if checkpoint_path is not None:
-        with g_pathmgr.open(checkpoint_path, "rb") as f:
-            ckpt = torch.load(f, map_location="cpu", weights_only=True)
+        if str(checkpoint_path).endswith(".safetensors"):
+            from safetensors.torch import load_file as _sf_load
+            ckpt = _sf_load(checkpoint_path, device="cpu")
+        else:
+            with g_pathmgr.open(checkpoint_path, "rb") as f:
+                ckpt = torch.load(f, map_location="cpu", weights_only=False)
         if "model" in ckpt and isinstance(ckpt["model"], dict):
             ckpt = ckpt["model"]
 
@@ -1050,8 +1054,12 @@ def build_sam3_multiplex_video_model(
     if load_from_HF and checkpoint_path is None:
         checkpoint_path = download_ckpt_from_hf(version="sam3.1")
     if checkpoint_path is not None:
-        with g_pathmgr.open(checkpoint_path, "rb") as f:
-            ckpt = torch.load(f, map_location="cpu", weights_only=True)
+        if str(checkpoint_path).endswith(".safetensors"):
+            from safetensors.torch import load_file as _sf_load
+            ckpt = _sf_load(checkpoint_path, device="cpu")
+        else:
+            with g_pathmgr.open(checkpoint_path, "rb") as f:
+                ckpt = torch.load(f, map_location="cpu", weights_only=False)
         if "model" in ckpt and isinstance(ckpt["model"], dict):
             ckpt = ckpt["model"]
 
@@ -1201,7 +1209,11 @@ def build_sam3_multiplex_video_predictor(
     if checkpoint_path is None:
         checkpoint_path = download_ckpt_from_hf(version="sam3.1")
     if checkpoint_path is not None:
-        ckpt = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
+        if str(checkpoint_path).endswith(".safetensors"):
+            from safetensors.torch import load_file as _sf_load
+            ckpt = _sf_load(checkpoint_path, device="cpu")
+        else:
+            ckpt = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
         if "model" in ckpt and isinstance(ckpt["model"], dict):
             ckpt = ckpt["model"]
         # Remap checkpoint keys if needed (internal naming -> OSS naming)
