@@ -1240,6 +1240,162 @@ def build_sam3_multiplex_video_predictor(
     return predictor
 
 
+
+def build_sam3_multiplex_tracking(
+    checkpoint_path=None,
+    bpe_path=None,
+    max_num_objects=10000,
+    multiplex_count=16,
+    use_fa3=None,
+    use_rope_real=True,
+    compile=False,
+):
+    """Build Sam3MultiplexTrackingWithInteractivity without the video-predictor wrapper.
+
+    Intended for single-image inference via Sam3Processor. The returned model
+    exposes ``.detector`` (Sam3MultiplexDetector) which Sam3Processor wraps.
+    Supports both .pt and .safetensors checkpoints.
+
+    Args:
+        checkpoint_path: Path to the merged multiplex checkpoint.
+        bpe_path: Path to the BPE tokenizer vocabulary file.
+        max_num_objects: Maximum number of tracked objects.
+        multiplex_count: Number of objects per multiplex bucket.
+        use_fa3: Whether to use FlashAttention 3. ``None`` auto-detects;
+            defaults to ``False`` when flash_attn_interface is unavailable.
+        use_rope_real: Whether to use real-valued RoPE (required for compile).
+        compile: Whether to enable torch.compile on model components.
+
+    Returns:
+        Sam3MultiplexTrackingWithInteractivity: The assembled model with
+        ``.detector`` and ``.tracker`` populated and the checkpoint loaded.
+    """
+    if use_fa3 is None:
+        try:
+            import flash_attn_interface  # noqa: F401
+            use_fa3 = True
+        except ImportError:
+            use_fa3 = False
+
+    if bpe_path is None:
+        bpe_path = pkg_resources.resource_filename(
+            "sam3", "assets/bpe_simple_vocab_16e6.txt.gz"
+        )
+
+    from sam3.model.sam3_multiplex_base import Sam3MultiplexPredictorWrapper
+    from sam3.model.sam3_multiplex_detector import Sam3MultiplexDetector
+    from sam3.model.sam3_multiplex_tracking import Sam3MultiplexTrackingWithInteractivity
+
+    # Build tracker component and load tracker weights from checkpoint.
+    tracker_model = build_sam3_multiplex_video_model(
+        checkpoint_path=checkpoint_path,
+        load_from_HF=False,
+        multiplex_count=multiplex_count,
+        use_fa3=use_fa3,
+        use_rope_real=use_rope_real,
+        compile=False,
+        strict_state_dict_loading=False,
+    )
+    del tracker_model.backbone
+    tracker_model.backbone = None
+
+    sam2_predictor = Sam3MultiplexPredictorWrapper(
+        model=tracker_model,
+        per_obj_inference=False,
+        fill_hole_area=0,
+        is_multiplex=True,
+        is_multiplex_dynamic=True,
+    )
+
+    # Build detector with multiplex tri-backbone.
+    tri_neck = _create_multiplex_tri_backbone(
+        compile_mode=None, use_fa3=use_fa3, use_rope_real=use_rope_real
+    )
+    text_encoder = _create_text_encoder(bpe_path)
+    backbone = SAM3VLBackboneTri(scalp=0, visual=tri_neck, text=text_encoder)
+    transformer = _create_sam3_transformer(use_fa3=use_fa3)
+    segmentation_head = _create_segmentation_head(use_fa3=use_fa3)
+    geometry_encoder = _create_geometry_encoder()
+    dot_prod_scoring = _create_dot_product_scoring()
+
+    detector = Sam3MultiplexDetector(
+        num_feature_levels=1,
+        backbone=backbone,
+        transformer=transformer,
+        segmentation_head=segmentation_head,
+        semantic_segmentation_head=None,
+        input_geometry_encoder=geometry_encoder,
+        use_early_fusion=True,
+        use_dot_prod_scoring=True,
+        dot_prod_scoring=dot_prod_scoring,
+        supervise_joint_box_scores=True,
+        is_multiplex=True,
+    )
+
+    demo_model = Sam3MultiplexTrackingWithInteractivity(
+        tracker=sam2_predictor,
+        detector=detector,
+        score_threshold_detection=0.4,
+        det_nms_thresh=0.1,
+        det_nms_use_iom=True,
+        assoc_iou_thresh=0.1,
+        new_det_thresh=0.65,
+        hotstart_delay=15,
+        hotstart_unmatch_thresh=8,
+        hotstart_dup_thresh=8,
+        suppress_unmatched_only_within_hotstart=False,
+        suppress_overlapping_based_on_recent_occlusion_threshold=0.7,
+        suppress_det_close_to_boundary=True,
+        fill_hole_area=0,
+        recondition_every_nth_frame=16,
+        use_iom_recondition=True,
+        iom_thresh_recondition=0.5,
+        masklet_confirmation_enable=True,
+        reconstruction_bbox_iou_thresh=-1,
+        reconstruction_bbox_det_score=0.8,
+        max_num_objects=max_num_objects,
+        postprocess_batch_size=16,
+        use_batched_grounding=True,
+        batched_grounding_batch_size=16,
+        max_num_kboxes=0,
+        sprinkle_removal_area=0,
+        is_multiplex=True,
+        image_size=1008,
+        image_mean=(0.5, 0.5, 0.5),
+        image_std=(0.5, 0.5, 0.5),
+        compile_model=compile,
+    )
+
+    # Load full checkpoint (tracker + detector) into the assembled model.
+    if checkpoint_path is not None:
+        if str(checkpoint_path).endswith(".safetensors"):
+            from safetensors.torch import load_file as _sf_load
+            ckpt = _sf_load(checkpoint_path, device="cpu")
+        else:
+            ckpt = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+        if "model" in ckpt and isinstance(ckpt["model"], dict):
+            ckpt = ckpt["model"]
+        # Remap internal naming (sam3_model.* / sam2_predictor.*) to OSS naming.
+        needs_remap = any(
+            k.startswith("sam3_model.") or k.startswith("sam2_predictor.") for k in ckpt
+        )
+        if needs_remap:
+            remapped = {}
+            for k, v in ckpt.items():
+                if k.startswith("sam3_model."):
+                    k = "detector." + k[len("sam3_model."):]
+                elif k.startswith("sam2_predictor."):
+                    k = "tracker." + k[len("sam2_predictor."):]
+                remapped[k] = v
+            ckpt = remapped
+        missing_keys, unexpected_keys = demo_model.load_state_dict(ckpt, strict=False)
+        if missing_keys:
+            print(f"[build_sam3_multiplex_tracking] Missing keys ({len(missing_keys)}): {missing_keys[:5]}")
+        if unexpected_keys:
+            print(f"[build_sam3_multiplex_tracking] Unexpected keys ({len(unexpected_keys)}): {unexpected_keys[:5]}")
+
+    return demo_model
+
 def build_sam3_predictor(
     checkpoint_path: Optional[str] = None,
     bpe_path: Optional[str] = None,

@@ -7,3 +7,5 @@ from .model_builder import build_sam3_image_model, build_sam3_predictor
 __version__ = "0.1.0"
 
 __all__ = ["build_sam3_image_model", "build_sam3_predictor"]
+from .model.sam3_video_predictor import Sam3VideoPredictor
+from .model.sam3_image_processor import Sam3Processor
