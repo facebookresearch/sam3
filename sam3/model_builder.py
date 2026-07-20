@@ -106,20 +106,22 @@ def _create_vit_backbone(compile_mode=None, use_fa3=False, use_rope_real=False):
     )
 
 
-def _create_vit_neck(position_encoding, vit_backbone, enable_inst_interactivity=False):
+def _create_vit_neck(position_encoding, vit_backbone, enable_inst_interactivity=False, scale_factors=None):
     """Create ViT neck for feature pyramid."""
+    if scale_factors is None:
+        scale_factors = [4.0, 2.0, 1.0, 0.5]
     return Sam3DualViTDetNeck(
         position_encoding=position_encoding,
         d_model=256,
-        scale_factors=[4.0, 2.0, 1.0, 0.5],
+        scale_factors=scale_factors,
         trunk=vit_backbone,
         add_sam2_neck=enable_inst_interactivity,
     )
 
 
-def _create_vl_backbone(vit_neck, text_encoder):
+def _create_vl_backbone(vit_neck, text_encoder, scalp=1):
     """Create visual-language backbone."""
-    return SAM3VLBackbone(visual=vit_neck, text=text_encoder, scalp=1)
+    return SAM3VLBackbone(visual=vit_neck, text=text_encoder, scalp=scalp)
 
 
 def _create_transformer_encoder(use_fa3=False) -> TransformerEncoderFusion:
@@ -510,7 +512,7 @@ def _create_text_encoder(bpe_path: str) -> VETextEncoder:
 
 
 def _create_vision_backbone(
-    compile_mode=None, enable_inst_interactivity=True
+    compile_mode=None, enable_inst_interactivity=True, scale_factors=None
 ) -> Sam3DualViTDetNeck:
     """Create SAM3 visual backbone with ViT and neck."""
     # Position encoding
@@ -521,6 +523,7 @@ def _create_vision_backbone(
         position_encoding,
         vit_backbone,
         enable_inst_interactivity=enable_inst_interactivity,
+        scale_factors=scale_factors,
     )
     # Visual neck
     return vit_neck
@@ -602,15 +605,27 @@ def build_sam3_image_model(
 
     # Create visual components
     compile_mode = "default" if compile else None
+    # Auto-detect backbone scale factors: sam3.1/multiplex checkpoints use a 3-scale
+    # TriViTDetNeck detector backbone (scales [4, 2, 1]); sam3 uses 4-scale DualViTDetNeck.
+    _backbone_scale_factors = [4.0, 2.0, 1.0, 0.5]  # default (sam3)
+    if checkpoint_path and any(
+        tag in str(checkpoint_path).lower() for tag in ("multiplex", "sam3.1", "sam3_1")
+    ):
+        _backbone_scale_factors = [4.0, 2.0, 1.0]
     vision_encoder = _create_vision_backbone(
-        compile_mode=compile_mode, enable_inst_interactivity=enable_inst_interactivity
+        compile_mode=compile_mode,
+        enable_inst_interactivity=enable_inst_interactivity,
+        scale_factors=_backbone_scale_factors,
     )
 
     # Create text components
     text_encoder = _create_text_encoder(bpe_path)
 
     # Create visual-language backbone
-    backbone = _create_vl_backbone(vision_encoder, text_encoder)
+    # SAM3.1 uses 3-scale neck + scalp=0 → features [4x,2x,1x], vision_features=1x (72×72)
+    # SAM3   uses 4-scale neck + scalp=1 → same 3 features after dropping 0.5x level
+    _scalp = 0 if _backbone_scale_factors == [4.0, 2.0, 1.0] else 1
+    backbone = _create_vl_backbone(vision_encoder, text_encoder, scalp=_scalp)
 
     # Create transformer components
     transformer = _create_sam3_transformer()
@@ -1116,9 +1131,10 @@ def build_sam3_multiplex_video_predictor(
     )
     from sam3.model.sam3_multiplex_video_predictor import Sam3MultiplexVideoPredictor
 
-    # Build tracker
+    # Build tracker (no checkpoint here — weights will be loaded into demo_model below
+    # with correct tracker.* / detector.* key prefixes, avoiding spurious missing-key warnings)
     tracker_model = build_sam3_multiplex_video_model(
-        checkpoint_path=checkpoint_path,
+        checkpoint_path=None,
         load_from_HF=False,
         multiplex_count=multiplex_count,
         use_fa3=use_fa3,
@@ -1220,6 +1236,21 @@ def build_sam3_multiplex_video_predictor(
                 remapped_ckpt[new_k] = v
             ckpt = remapped_ckpt
         missing_keys, unexpected_keys = demo_model.load_state_dict(ckpt, strict=False)
+        # Filter out keys that belong to the tracker backbone, which is intentionally
+        # deleted before inference (del tracker_model.backbone). Mismatches there are
+        # always harmless.
+        _tracker_bb_prefix = "tracker.model.backbone."
+        # freqs_cis_real / freqs_cis_imag are deterministic RoPE buffers derived from
+        # freqs_cis.real/.imag at __init__ time (use_rope_real=True split). Checkpoints
+        # saved with use_rope_real=False only store freqs_cis; the split buffers are
+        # always correctly re-computed in __init__, so "missing" here is harmless noise.
+        _rope_suffixes = ("attn.freqs_cis_real", "attn.freqs_cis_imag")
+        missing_keys = [
+            k for k in missing_keys
+            if not k.startswith(_tracker_bb_prefix)
+            and not any(k.endswith(s) for s in _rope_suffixes)
+        ]
+        unexpected_keys = [k for k in unexpected_keys if not k.startswith(_tracker_bb_prefix)]
         if missing_keys:
             print(f"Missing keys ({len(missing_keys)}): {missing_keys[:10]}...")
         if unexpected_keys:

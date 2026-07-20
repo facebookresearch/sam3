@@ -590,6 +590,15 @@ class SequenceGeometryEncoder(nn.Module):
         points_embed = None
         n_points, bs = points.shape[:2]
 
+        # 兼容 mmgp 卸载：将输入统一到权重所在设备
+        _dev = self.label_embed.weight.device
+        if points.device != _dev:
+            points = points.to(_dev)
+        if points_mask is not None and points_mask.device != _dev:
+            points_mask = points_mask.to(_dev)
+        if points_labels is not None and points_labels.device != _dev:
+            points_labels = points_labels.to(_dev)
+
         if self.points_direct_project is not None:
             proj = self.points_direct_project(points)
             assert points_embed is None
@@ -633,6 +642,15 @@ class SequenceGeometryEncoder(nn.Module):
         boxes_embed = None
         n_boxes, bs = boxes.shape[:2]
 
+        # 兼容 mmgp 卸载：将输入统一到权重所在设备
+        _dev = self.label_embed.weight.device
+        if boxes.device != _dev:
+            boxes = boxes.to(_dev)
+        if boxes_mask is not None and boxes_mask.device != _dev:
+            boxes_mask = boxes_mask.to(_dev)
+        if boxes_labels is not None and boxes_labels.device != _dev:
+            boxes_labels = boxes_labels.to(_dev)
+
         if self.boxes_direct_project is not None:
             proj = self.boxes_direct_project(boxes)
             assert boxes_embed is None
@@ -644,8 +662,7 @@ class SequenceGeometryEncoder(nn.Module):
             # boxes are [Num_boxes, bs, 4], normalized in [0, 1]
             # We need to denormalize, and convert to [x, y, x, y]
             boxes_xyxy = box_cxcywh_to_xyxy(boxes)
-            scale = torch.tensor([W, H, W, H], dtype=boxes_xyxy.dtype)
-            scale = scale.pin_memory().to(device=boxes_xyxy.device, non_blocking=True)
+            scale = torch.tensor([W, H, W, H], dtype=boxes_xyxy.dtype, device=boxes_xyxy.device)
             scale = scale.view(1, 1, 4)
             boxes_xyxy = boxes_xyxy * scale
             sampled = torchvision.ops.roi_align(

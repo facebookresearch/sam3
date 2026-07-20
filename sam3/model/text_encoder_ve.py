@@ -231,7 +231,8 @@ class TextTransformer(nn.Module):
         self, text: torch.Tensor
     ) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
         seq_len = text.shape[1]
-        x = self.token_embedding(text)  # [batch_size, n_ctx, d_model]
+        # 确保输入与 token_embedding 权重在同一设备（兼容 mmgp 卸载）
+        x = self.token_embedding(text.to(self.token_embedding.weight.device))  # [batch_size, n_ctx, d_model]
 
         attn_mask = self.attn_mask
         if attn_mask is not None:
@@ -303,7 +304,7 @@ class VETextEncoder(nn.Module):
 
             # manually embed the tokens
             inputs_embeds = self.encoder.token_embedding(
-                tokenized
+                tokenized.to(self.encoder.token_embedding.weight.device)
             )  # [b, seq_len, d=1024]
             _, text_memory = self.encoder(tokenized)  # [b, seq_len, d=1024]
 
