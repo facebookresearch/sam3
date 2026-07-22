@@ -143,7 +143,7 @@ def all_gather(data, force_cpu=False, force_filesys=False, filesys_save_dir=None
     buffer = io.BytesIO()
     torch.save(data, buffer)
     data_view = buffer.getbuffer()
-    device = "cuda" if cpu_group is None else "cpu"
+    device = "cuda" if (cpu_group is None and torch.cuda.is_available()) else "cpu"
     tensor = torch.ByteTensor(data_view).to(device)
 
     # obtain Tensor size of each rank

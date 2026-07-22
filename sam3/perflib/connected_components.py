@@ -41,6 +41,10 @@ def connected_components_cpu(input_tensor: torch.Tensor):
         )
 
     batch_size = input_tensor.shape[0]
+    if batch_size == 0:
+        empty = torch.zeros(out_shape, dtype=torch.long, device=input_tensor.device)
+        return empty, empty
+
     labels_list = []
     counts_list = []
     for b in range(batch_size):
