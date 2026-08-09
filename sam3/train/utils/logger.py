@@ -36,6 +36,7 @@ class TensorBoardWriterWrapper:
         self,
         path: str,
         *args: Any,
+        # pyrefly: ignore [bad-function-definition]
         filename_suffix: str = None,
         summary_writer_method: Any = SummaryWriter,
         **kwargs: Any,

@@ -160,4 +160,5 @@ class VisionRotaryEmbeddingVE(nn.Module):
         self.register_buffer("freqs_sin", freqs_sin)
 
     def forward(self, t: torch.Tensor):
+        # pyrefly: ignore [unsupported-operation]
         return t * self.freqs_cos + rotate_half(t) * self.freqs_sin

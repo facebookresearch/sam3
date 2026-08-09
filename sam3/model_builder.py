@@ -1127,6 +1127,7 @@ def build_sam3_multiplex_video_predictor(
         strict_state_dict_loading=False,
     )
     del tracker_model.backbone
+    # pyrefly: ignore [bad-assignment]
     tracker_model.backbone = None
 
     sam2_predictor = Sam3MultiplexPredictorWrapper(

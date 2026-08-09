@@ -39,6 +39,7 @@ class SAM3VLBackbone(nn.Module):
         """
         super().__init__()
         self.vision_backbone: Sam3DualViTDetNeck = (
+            # pyrefly: ignore [bad-assignment]
             torch.compile(visual) if compile_visual else visual
         )
         self.language_backbone = text
@@ -278,6 +279,7 @@ class VisionOnly(nn.Module):
         eval_chunk_size=4,
         eval_cast_to_cpu=False,
         scalp=0,
+        # pyrefly: ignore [bad-function-definition]
         compile_mode: str = None,
         compile_extra_args: Optional[dict] = None,
     ):
@@ -343,6 +345,7 @@ class TriHeadVisionOnly(VisionOnly):
         eval_chunk_size=4,
         eval_cast_to_cpu=False,
         scalp=0,
+        # pyrefly: ignore [bad-function-definition]
         compile_mode: str = None,
         compile_extra_args: Optional[dict] = None,
     ):

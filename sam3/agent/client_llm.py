@@ -6,6 +6,7 @@ import base64
 import os
 from typing import Any, Optional
 
+# pyrefly: ignore [missing-import]
 from openai import OpenAI
 
 

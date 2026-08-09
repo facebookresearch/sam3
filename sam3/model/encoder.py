@@ -112,6 +112,7 @@ class TransformerEncoderLayer(nn.Module):
         Returns:
             Processed tensor
         """
+        # pyrefly: ignore [unsupported-operation]
         q = k = tgt + query_pos if self.pos_enc_at_attn else tgt
 
         # Self attention
@@ -186,6 +187,7 @@ class TransformerEncoderLayer(nn.Module):
         tgt = tgt + self.dropout1(tgt2)
         if dac:
             # Recombine
+            # pyrefly: ignore [unbound-name]
             tgt = torch.cat((tgt, other_tgt), dim=0)
         tgt2 = self.norm2(tgt)
         tgt2 = self.cross_attn_image(
@@ -512,6 +514,7 @@ class TransformerEncoderFusion(TransformerEncoder):
         # Not needed here
         return None
 
+    # pyrefly: ignore [bad-override]
     def forward(
         self,
         src: List[Tensor],
@@ -528,13 +531,21 @@ class TransformerEncoderFusion(TransformerEncoder):
         if feat_sizes is not None:
             assert len(feat_sizes) == len(src)
             if src_key_padding_mask is None:
+                # pyrefly: ignore [bad-assignment]
                 src_key_padding_mask = [None] * len(src)
+            # pyrefly: ignore [not-iterable]
             for i, (h, w) in enumerate(feat_sizes):
                 src[i] = src[i].reshape(h, w, bs, -1).permute(2, 3, 0, 1)
+                # pyrefly: ignore [unsupported-operation]
                 src_pos[i] = src_pos[i].reshape(h, w, bs, -1).permute(2, 3, 0, 1)
+                # pyrefly: ignore [unsupported-operation]
                 src_key_padding_mask[i] = (
+                    # pyrefly: ignore [unsupported-operation]
                     src_key_padding_mask[i].reshape(h, w, bs).permute(2, 0, 1)
-                    if src_key_padding_mask[i] is not None
+                    if src_key_padding_mask[  # pyrefly: ignore [unsupported-operation]
+                        i
+                    ]  # pyrefly: ignore [unsupported-operation]
+                    is not None  # pyrefly: ignore [unsupported-operation]
                     else None
                 )
         else:

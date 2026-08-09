@@ -153,9 +153,11 @@ def run_test(
     height: int,
     n_frames: int,
     synthesize_data: bool = True,
+    # pyrefly: ignore [bad-function-definition]
     profile_save_dir: str = None,
     profile_end_frame: int = -1,
     do_compile: bool = True,
+    # pyrefly: ignore [bad-function-definition]
     checkpoint_path: str = None,
 ) -> float:
     torch.autocast(device_type="cuda", dtype=torch.bfloat16).__enter__()
@@ -183,6 +185,7 @@ def run_test(
         build_kwargs["checkpoint_path"] = checkpoint_path
     if version == "sam3.1":
         build_kwargs["warm_up"] = do_compile
+        # pyrefly: ignore [bad-assignment]
         build_kwargs["max_num_objects"] = num_objects
 
     model_wrapper = build_sam3_predictor(**build_kwargs)

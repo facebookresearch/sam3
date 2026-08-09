@@ -432,7 +432,9 @@ def connected_components_triton(input_tensor: torch.Tensor):
     _init_labels_kernel[grid_init](
         input_tensor,
         labels,
+        # pyrefly: ignore [bad-argument-type]
         numel,
+        # pyrefly: ignore [bad-argument-type]
         BLOCK_SIZE=BLOCK_SIZE,
     )
 
@@ -446,6 +448,7 @@ def connected_components_triton(input_tensor: torch.Tensor):
     # --- Phase 3 ---
     BLOCK_SIZE = 256
     grid_jump = lambda meta: (triton.cdiv(numel, meta["BLOCK_SIZE"]),)
+    # pyrefly: ignore [bad-argument-type]
     _pointer_jump_kernel[grid_jump](labels, output, numel, BLOCK_SIZE=BLOCK_SIZE)
 
     # --- Phase 4 ---
@@ -459,12 +462,23 @@ def connected_components_triton(input_tensor: torch.Tensor):
     # 4.1: Count the occurrences of each label
     grid_count = (triton.cdiv(numel, BLOCK_SIZE),)
     _count_labels_kernel[grid_count](
-        output, sizes_histogram, numel, BLOCK_SIZE=BLOCK_SIZE
+        # pyrefly: ignore [bad-argument-type]
+        output,
+        sizes_histogram,
+        numel,
+        # pyrefly: ignore [bad-argument-type]
+        BLOCK_SIZE=BLOCK_SIZE,
     )
 
     # 2.2: Broadcast the counts to the final output tensor
     grid_broadcast = (triton.cdiv(numel, BLOCK_SIZE),)
     _broadcast_sizes_kernel[grid_broadcast](
-        output, sizes_histogram, component_sizes_out, numel, BLOCK_SIZE=BLOCK_SIZE
+        # pyrefly: ignore [bad-argument-type]
+        output,
+        sizes_histogram,
+        component_sizes_out,
+        numel,
+        # pyrefly: ignore [bad-argument-type]
+        BLOCK_SIZE=BLOCK_SIZE,
     )
     return output.view(out_shape) + 1, component_sizes_out.view(out_shape)

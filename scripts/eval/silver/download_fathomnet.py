@@ -8,6 +8,8 @@ from multiprocessing import Pool
 from pathlib import Path
 
 import requests
+
+# pyrefly: ignore [missing-import]
 from fathomnet.api import images
 from tqdm import tqdm
 

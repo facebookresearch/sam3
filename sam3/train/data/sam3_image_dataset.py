@@ -157,6 +157,7 @@ class CustomCocoDetectionAPI(VisionDataset):
         zstd_dict_path=None,
         filter_query=None,
         coco_json_loader: Callable = COCO_FROM_JSON,
+        # pyrefly: ignore [bad-function-definition]
         limit_ids: int = None,
     ) -> None:
         super().__init__(root)
@@ -182,6 +183,7 @@ class CustomCocoDetectionAPI(VisionDataset):
     ) -> Tuple[List[Tuple[int, PILImage.Image]], List[Dict[str, Any]]]:
         all_images = []
         all_img_metadata = []
+        # pyrefly: ignore [missing-attribute]
         for current_meta in self.coco.loadImagesFromDatapoint(datapoint_id):
             img_id = current_meta["id"]
             if img_ids_to_load is not None and img_id not in img_ids_to_load:
@@ -256,7 +258,9 @@ class CustomCocoDetectionAPI(VisionDataset):
     def _load_datapoint(self, index: int) -> Datapoint:
         """A separate method for easy overriding in subclasses."""
         id = self.ids[index].item()
+        # pyrefly: ignore [bad-argument-type]
         pil_images, img_metadata = self._load_images(id)
+        # pyrefly: ignore [missing-attribute]
         queries, annotations = self.coco.loadQueriesAndAnnotationsFromDatapoint(id)
         return self.load_queries(pil_images, annotations, queries, img_metadata)
 
@@ -454,6 +458,7 @@ class Sam3ImageDataset(CustomCocoDetectionAPI):
         zstd_dict_path=None,
         filter_query=None,
         coco_json_loader: Callable = COCO_FROM_JSON,
+        # pyrefly: ignore [bad-function-definition]
         limit_ids: int = None,
     ):
         super(Sam3ImageDataset, self).__init__(
@@ -483,6 +488,7 @@ class Sam3ImageDataset(CustomCocoDetectionAPI):
 
         self._MAX_RETRIES = 100
 
+    # pyrefly: ignore [bad-override-param-name]
     def __getitem__(self, idx):
         return self.__orig_getitem__(idx)
 

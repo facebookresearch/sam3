@@ -153,6 +153,7 @@ def edt_triton(data: torch.Tensor):
         parabola_inter,
         H,
         W,
+        # pyrefly: ignore [bad-argument-type]
         horizontal=True,
     )
 
@@ -169,6 +170,7 @@ def edt_triton(data: torch.Tensor):
         parabola_inter,
         H,
         W,
+        # pyrefly: ignore [bad-argument-type]
         horizontal=False,
     )
     # don't forget to take sqrt at the end

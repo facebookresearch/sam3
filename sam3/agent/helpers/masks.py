@@ -149,6 +149,7 @@ class BitMasks:
         return BitMasks(m)
 
     @torch.jit.unused
+    # pyrefly: ignore [bad-return]
     def __iter__(self) -> torch.Tensor:
         yield from self.tensor
 
@@ -197,6 +198,7 @@ class BitMasks:
             roi_masks:
             height, width (int):
         """
+        # pyrefly: ignore [bad-argument-type, missing-argument]
         return roi_masks.to_bitmasks(height, width)
 
     def crop_and_resize(self, boxes: torch.Tensor, mask_size: int) -> torch.Tensor:
@@ -321,6 +323,7 @@ class PolygonMasks:
                     raise ValueError(
                         f"Cannot create a polygon from {len(polygon)} coordinates."
                     )
+            # pyrefly: ignore [bad-return]
             return polygons_per_instance
 
         self.polygons: List[List[np.ndarray]] = [
@@ -395,6 +398,7 @@ class PolygonMasks:
                     "Unsupported tensor dtype={} for indexing!".format(item.dtype)
                 )
             selected_polygons = [self.polygons[i] for i in item]
+        # pyrefly: ignore [bad-argument-type]
         return PolygonMasks(selected_polygons)
 
     def __iter__(self) -> Iterator[List[np.ndarray]]:
@@ -480,6 +484,7 @@ class PolygonMasks:
         assert all(isinstance(polymask, PolygonMasks) for polymask in polymasks_list)
 
         cat_polymasks = type(polymasks_list[0])(
+            # pyrefly: ignore [bad-argument-type]
             list(itertools.chain.from_iterable(pm.polygons for pm in polymasks_list))
         )
         return cat_polymasks
@@ -543,6 +548,7 @@ class ROIMasks:
         """
         Args: see documentation of :func:`paste_masks_in_image`.
         """
+        # pyrefly: ignore [missing-import]
         from detectron2.layers.mask_ops import (
             _paste_masks_tensor_shape,
             paste_masks_in_image,
@@ -556,6 +562,11 @@ class ROIMasks:
         else:
             paste_func = retry_if_cuda_oom(paste_masks_in_image)
         bitmasks = paste_func(
-            self.tensor, boxes.tensor, (height, width), threshold=threshold
+            # pyrefly: ignore [missing-attribute]
+            self.tensor,
+            # pyrefly: ignore [missing-attribute]
+            boxes.tensor,
+            (height, width),
+            threshold=threshold,
         )
         return BitMasks(bitmasks)

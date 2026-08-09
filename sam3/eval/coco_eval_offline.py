@@ -19,6 +19,7 @@ from pycocotools.cocoeval import COCOeval
 from sam3.train.utils.distributed import is_main_process
 
 try:
+    # pyrefly: ignore [missing-import]
     from tidecv import datasets, TIDE
 
     HAS_TIDE = True

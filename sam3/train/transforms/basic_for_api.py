@@ -871,10 +871,12 @@ class ToTensorAPI:
     def __call__(self, datapoint: Datapoint, **kwargs):
         for img in datapoint.images:
             if self.v2:
+                # pyrefly: ignore [missing-attribute]
                 img.data = Fv2.to_image_tensor(img.data)
                 # img.data = Fv2.to_dtype(img.data, torch.uint8, scale=True)
                 # img.data = Fv2.convert_image_dtype(img.data, torch.uint8)
             else:
+                # pyrefly: ignore [bad-argument-type]
                 img.data = F.to_tensor(img.data)
         return datapoint
 
@@ -888,9 +890,11 @@ class NormalizeAPI:
     def __call__(self, datapoint: Datapoint, **kwargs):
         for img in datapoint.images:
             if self.v2:
+                # pyrefly: ignore [bad-argument-type]
                 img.data = Fv2.convert_image_dtype(img.data, torch.float32)
                 img.data = Fv2.normalize(img.data, mean=self.mean, std=self.std)
             else:
+                # pyrefly: ignore [bad-argument-type]
                 img.data = F.normalize(img.data, mean=self.mean, std=self.std)
             for obj in img.objects:
                 boxes = obj.bbox
@@ -904,6 +908,7 @@ class NormalizeAPI:
         for query in datapoint.find_queries:
             if query.input_bbox is not None:
                 boxes = query.input_bbox
+                # pyrefly: ignore [missing-attribute]
                 cur_h, cur_w = datapoint.images[query.image_id].data.shape[-2:]
                 boxes = box_xyxy_to_cxcywh(boxes)
                 boxes = boxes / torch.tensor(
@@ -912,6 +917,7 @@ class NormalizeAPI:
                 query.input_bbox = boxes
             if query.input_points is not None:
                 points = query.input_points
+                # pyrefly: ignore [missing-attribute]
                 cur_h, cur_w = datapoint.images[query.image_id].data.shape[-2:]
                 points = points / torch.tensor([cur_w, cur_h, 1.0], dtype=torch.float32)
                 query.input_points = points
@@ -998,14 +1004,23 @@ class ColorJitter:
                 ) = T.ColorJitter.get_params(
                     self.brightness, self.contrast, self.saturation, self.hue
                 )
+            # pyrefly: ignore [unbound-name]
             for fn_id in fn_idx:
+                # pyrefly: ignore [unbound-name]
                 if fn_id == 0 and brightness_factor is not None:
+                    # pyrefly: ignore [bad-argument-type]
                     img.data = F.adjust_brightness(img.data, brightness_factor)
+                # pyrefly: ignore [unbound-name]
                 elif fn_id == 1 and contrast_factor is not None:
+                    # pyrefly: ignore [bad-argument-type]
                     img.data = F.adjust_contrast(img.data, contrast_factor)
+                # pyrefly: ignore [unbound-name]
                 elif fn_id == 2 and saturation_factor is not None:
+                    # pyrefly: ignore [bad-argument-type]
                     img.data = F.adjust_saturation(img.data, saturation_factor)
+                # pyrefly: ignore [unbound-name]
                 elif fn_id == 3 and hue_factor is not None:
+                    # pyrefly: ignore [bad-argument-type]
                     img.data = F.adjust_hue(img.data, hue_factor)
         return datapoint
 
@@ -1058,6 +1073,7 @@ class RandomAffine:
         return datapoint
 
     def transform_datapoint(self, datapoint: Datapoint):
+        # pyrefly: ignore [bad-argument-type]
         _, height, width = F.get_dimensions(datapoint.images[0].data)
         img_size = [width, height]
 
@@ -1073,6 +1089,7 @@ class RandomAffine:
 
         for img_idx, img in enumerate(datapoint.images):
             this_masks = [
+                # pyrefly: ignore [missing-attribute]
                 obj.segment.unsqueeze(0) if obj.segment is not None else None
                 for obj in img.objects
             ]
@@ -1094,9 +1111,12 @@ class RandomAffine:
                     transformed_bboxes.append(torch.tensor([[0, 0, 0, 0]]))
                 else:
                     transformed_mask = F.affine(
+                        # pyrefly: ignore [bad-argument-type]
                         this_masks[i],
+                        # pyrefly: ignore [bad-argument-type, unbound-name]
                         *affine_params,
                         interpolation=InterpolationMode.NEAREST,
+                        # pyrefly: ignore [bad-argument-type]
                         fill=0.0,
                     )
                     if img_idx == 0 and transformed_mask.max() == 0:
@@ -1112,7 +1132,9 @@ class RandomAffine:
                 img.objects[i].segment = transformed_masks[i]
 
             img.data = F.affine(
+                # pyrefly: ignore [bad-argument-type]
                 img.data,
+                # pyrefly: ignore [bad-argument-type, unbound-name]
                 *affine_params,
                 interpolation=self.image_interpolation,
                 fill=self.fill_img,
@@ -1174,6 +1196,7 @@ class RandomResizedCrop:
         if self.consistent_transform:
             # Create a random crop transformation
             crop_params = T.RandomResizedCrop.get_params(
+                # pyrefly: ignore [bad-argument-type]
                 img=datapoint.images[0].data,
                 scale=self.scale,
                 ratio=ratio,
@@ -1183,12 +1206,14 @@ class RandomResizedCrop:
             if not self.consistent_transform:
                 # Create a random crop transformation
                 crop_params = T.RandomResizedCrop.get_params(
+                    # pyrefly: ignore [bad-argument-type]
                     img=img.data,
                     scale=self.scale,
                     ratio=ratio,
                 )
 
             this_masks = [
+                # pyrefly: ignore [missing-attribute]
                 obj.segment.unsqueeze(0) if obj.segment is not None else None
                 for obj in img.objects
             ]
@@ -1201,7 +1226,9 @@ class RandomResizedCrop:
                     transformed_bboxes.append(torch.tensor([[0, 0, 0, 0]]))
                 else:
                     transformed_mask = F.resized_crop(
+                        # pyrefly: ignore [bad-argument-type]
                         this_masks[i],
+                        # pyrefly: ignore [unbound-name]
                         *crop_params,
                         size=self.size,
                         interpolation=InterpolationMode.NEAREST,
@@ -1220,7 +1247,9 @@ class RandomResizedCrop:
                 img.objects[i].segment = transformed_masks[i]
 
             img.data = F.resized_crop(
+                # pyrefly: ignore [bad-argument-type]
                 img.data,
+                # pyrefly: ignore [unbound-name]
                 *crop_params,
                 size=self.size,
                 interpolation=InterpolationMode.BILINEAR,
@@ -1237,6 +1266,7 @@ class ResizeToMaxIfAbove:
         self.max_size = max_size
 
     def __call__(self, datapoint: Datapoint, **kwargs):
+        # pyrefly: ignore [bad-argument-type]
         _, height, width = F.get_dimensions(datapoint.images[0].data)
 
         if height <= self.max_size and width <= self.max_size:
@@ -1252,11 +1282,14 @@ class ResizeToMaxIfAbove:
         size = new_height, new_width
 
         for index in range(len(datapoint.images)):
+            # pyrefly: ignore [bad-argument-type]
             datapoint.images[index].data = F.resize(datapoint.images[index].data, size)
 
             for obj in datapoint.images[index].objects:
                 obj.segment = F.resize(
+                    # pyrefly: ignore [unsupported-operation]
                     obj.segment[None, None],
+                    # pyrefly: ignore [bad-argument-type]
                     size,
                     interpolation=InterpolationMode.NEAREST,
                 ).squeeze()
@@ -1302,6 +1335,7 @@ class MotionBlur:
             if not self.consistent_transform:
                 # Generate a new motion blur kernel for each image
                 kernel = self._generate_motion_blur_kernel()
+            # pyrefly: ignore [unbound-name]
             img.data = self._apply_motion_blur(img.data, kernel)
 
         return datapoint
@@ -1364,6 +1398,7 @@ class LargeScaleJitter:
         log_ratio = torch.log(torch.tensor(self.aspect_ratio_range))
         scale_factor = torch.empty(1).uniform_(*self.scale_range).item()
         aspect_ratio = torch.exp(
+            # pyrefly: ignore [bad-argument-type]
             torch.empty(1).uniform_(log_ratio[0], log_ratio[1])
         ).item()
 
@@ -1373,10 +1408,12 @@ class LargeScaleJitter:
                 log_ratio = torch.log(torch.tensor(self.aspect_ratio_range))
                 scale_factor = torch.empty(1).uniform_(*self.scale_range).item()
                 aspect_ratio = torch.exp(
+                    # pyrefly: ignore [bad-argument-type]
                     torch.empty(1).uniform_(log_ratio[0], log_ratio[1])
                 ).item()
 
             # Compute the dimensions of the jittered crop
+            # pyrefly: ignore [not-iterable]
             original_width, original_height = img.data.size
             target_area = original_width * original_height * scale_factor
             crop_width = int(round((target_area * aspect_ratio) ** 0.5))

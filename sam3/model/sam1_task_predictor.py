@@ -166,9 +166,13 @@ class SAM3InteractiveImagePredictor(nn.Module):
 
     def predict_batch(
         self,
+        # pyre-fixme[9]: point_coords_batch has type `List[ndarray]`; used as `None`.
         point_coords_batch: List[np.ndarray] = None,
+        # pyre-fixme[9]: point_labels_batch has type `List[ndarray]`; used as `None`.
         point_labels_batch: List[np.ndarray] = None,
+        # pyre-fixme[9]: box_batch has type `List[ndarray]`; used as `None`.
         box_batch: List[np.ndarray] = None,
+        # pyre-fixme[9]: mask_input_batch has type `List[ndarray]`; used as `None`.
         mask_input_batch: List[np.ndarray] = None,
         multimask_output: bool = True,
         return_logits: bool = False,
@@ -182,6 +186,7 @@ class SAM3InteractiveImagePredictor(nn.Module):
             raise RuntimeError(
                 "An image must be set with .set_image_batch(...) before mask prediction."
             )
+        # pyrefly: ignore [unsupported-operation]
         num_images = len(self._features["image_embed"])
         all_masks = []
         all_ious = []
@@ -389,6 +394,8 @@ class SAM3InteractiveImagePredictor(nn.Module):
             # boxes are added at the beginning) to sam_prompt_encoder
             if concat_points is not None:
                 concat_coords = torch.cat([box_coords, concat_points[0]], dim=1)
+                # pyre-fixme[6]: For 1st argument expected `Union[List[Tensor],
+                #  tuple[Tensor, ...]]` but got `List[Optional[Tensor]]`.
                 concat_labels = torch.cat([box_labels, concat_points[1]], dim=1)
                 concat_points = (concat_coords, concat_labels)
             else:
@@ -406,9 +413,11 @@ class SAM3InteractiveImagePredictor(nn.Module):
         )  # multi object prediction
         high_res_features = [
             feat_level[img_idx].unsqueeze(0)
+            # pyrefly: ignore [unsupported-operation]
             for feat_level in self._features["high_res_feats"]
         ]
         low_res_masks, iou_predictions, _, _ = self.model.sam_mask_decoder(
+            # pyrefly: ignore [unsupported-operation]
             image_embeddings=self._features["image_embed"][img_idx].unsqueeze(0),
             image_pe=self.model.sam_prompt_encoder.get_dense_pe(),
             sparse_prompt_embeddings=sparse_embeddings,
@@ -420,7 +429,10 @@ class SAM3InteractiveImagePredictor(nn.Module):
 
         # Upscale the masks to the original image resolution
         masks = self._transforms.postprocess_masks(
-            low_res_masks, self._orig_hw[img_idx]
+            # pyrefly: ignore [unsupported-operation]
+            low_res_masks,
+            # pyrefly: ignore [unsupported-operation]
+            self._orig_hw[img_idx],
         )
         low_res_masks = torch.clamp(low_res_masks, -32.0, 32.0)
         if not return_logits:

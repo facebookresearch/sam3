@@ -513,6 +513,7 @@ class DemoEvaluator(CocoEvaluator):
         self.use_self_evaluate = True
         self.compute_JnF = compute_JnF
 
+    # pyrefly: ignore [bad-override]
     def _lazy_init(self):
         if self.initialized:
             return
@@ -641,6 +642,7 @@ class DemoEvaluator(CocoEvaluator):
         for coco_eval in self.coco_evals[0].values():
             coco_eval.accumulate()
 
+    # pyrefly: ignore [bad-override]
     def reset(self):
         self.coco_evals = [{} for _ in range(len(self.coco_gts))]
         for i, coco_gt in enumerate(self.coco_gts):

@@ -268,6 +268,7 @@ class HOTA(_BaseMetric):
         res["HOTALocA(0)"] = res["HOTA(0)"] * res["LocA(0)"]
         return res
 
+    # pyrefly: ignore [bad-override-param-name]
     def plot_single_tracker_results(self, table_res, tracker, cls, output_folder):
         """Create plot of results"""
 

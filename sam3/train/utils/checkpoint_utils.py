@@ -61,6 +61,7 @@ def filter_params_matching_unix_pattern(
 
     all_keys = list(state_dict.keys())
     included_keys = unix_pattern_to_parameter_names(patterns, all_keys)
+    # pyrefly: ignore [not-iterable]
     return {k: state_dict[k] for k in included_keys}
 
 
@@ -82,6 +83,7 @@ def exclude_params_matching_unix_pattern(
 
     all_keys = list(state_dict.keys())
     excluded_keys = unix_pattern_to_parameter_names(patterns, all_keys)
+    # pyrefly: ignore [not-iterable]
     return {k: v for k, v in state_dict.items() if k not in excluded_keys}
 
 
@@ -180,8 +182,12 @@ class CkptExcludeKernel:
         if len(self.key_pattern) == 0:
             return state_dict
         exclude_keys = unix_pattern_to_parameter_names(
-            self.key_pattern, state_dict.keys()
+            # pyrefly: ignore [bad-argument-type]
+            self.key_pattern,
+            # pyrefly: ignore [bad-argument-type]
+            state_dict.keys(),
         )
+        # pyrefly: ignore [not-iterable]
         return {k: v for k, v in state_dict.items() if k not in exclude_keys}
 
 
@@ -245,6 +251,7 @@ def get_state_dict(checkpoint, ckpt_state_dict_keys):
 
 def load_checkpoint_and_apply_kernels(
     checkpoint_path: str,
+    # pyrefly: ignore [bad-function-definition]
     checkpoint_kernels: List[Callable] = None,
     ckpt_state_dict_keys: Tuple[str] = ("state_dict",),
     map_location: str = "cpu",
@@ -297,13 +304,16 @@ def check_load_state_dict_errors(
     missing_keys,
     unexpected_keys,
     strict: bool,
+    # pyrefly: ignore [bad-function-definition]
     ignore_missing_keys: List[str] = None,
+    # pyrefly: ignore [bad-function-definition]
     ignore_unexpected_keys: List[str] = None,
 ):
     if ignore_missing_keys is not None and len(ignore_missing_keys) > 0:
         ignored_keys = unix_pattern_to_parameter_names(
             ignore_missing_keys, missing_keys
         )
+        # pyrefly: ignore [not-iterable]
         missing_keys = [key for key in missing_keys if key not in ignored_keys]
 
     if ignore_unexpected_keys is not None and len(ignore_unexpected_keys) > 0:
@@ -311,7 +321,11 @@ def check_load_state_dict_errors(
             ignore_unexpected_keys, unexpected_keys
         )
         unexpected_keys = [
-            key for key in unexpected_keys if key not in ignored_unexpected_keys
+            # pyrefly: ignore [not-iterable]
+            key
+            for key in unexpected_keys
+            # pyrefly: ignore [not-iterable]
+            if key not in ignored_unexpected_keys
         ]
 
     err = "State key mismatch."
@@ -330,8 +344,11 @@ def load_state_dict_into_model(
     state_dict: Dict,
     model: nn.Module,
     strict: bool = True,
+    # pyrefly: ignore [bad-function-definition]
     ignore_missing_keys: List[str] = None,
+    # pyrefly: ignore [bad-function-definition]
     ignore_unexpected_keys: List[str] = None,
+    # pyrefly: ignore [bad-function-definition]
     checkpoint_kernels: List[Callable] = None,
 ):
     """

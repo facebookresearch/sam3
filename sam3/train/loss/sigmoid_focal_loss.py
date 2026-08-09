@@ -231,6 +231,7 @@ class SigmoidFocalLoss(torch.autograd.Function):
         return loss.view(input_shape)
 
     @staticmethod
+    # pyrefly: ignore [bad-override]
     def backward(ctx, grad_output):
         inputs, targets = ctx.saved_tensors
         alpha = ctx.alpha
@@ -294,6 +295,7 @@ class SigmoidFocalLossReduced(torch.autograd.Function):
         return loss.sum()
 
     @staticmethod
+    # pyrefly: ignore [bad-override]
     def backward(ctx, grad_output):
         inputs, targets = ctx.saved_tensors
         alpha = ctx.alpha

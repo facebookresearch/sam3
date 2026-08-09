@@ -9,6 +9,7 @@ import numpy as np
 # Check if Numba is available
 HAS_NUMBA = False
 try:
+    # pyrefly: ignore [missing-import]
     import numba as nb
 
     HAS_NUMBA = True
@@ -70,6 +71,7 @@ def process_track_level_nms(video_groups: Dict, nms_threshold: float) -> Dict:
             # Suppress non-kept tracks
             for idx, track in enumerate(track_detections):
                 if idx not in keep:
+                    # pyrefly: ignore [bad-argument-type]
                     tracks[track["track_idx"]]["bboxes"] = [None] * len(track["bboxes"])
 
     return video_groups
@@ -103,6 +105,7 @@ def process_frame_level_nms(video_groups: Dict, nms_threshold: float) -> Dict:
 
             # Apply NMS
             if frame_detections:
+                # pyrefly: ignore [bad-argument-type]
                 bboxes = np.stack([d["bbox"] for d in frame_detections])
                 scores = np.array(
                     [d["score"] for d in frame_detections], dtype=np.float32
@@ -155,7 +158,7 @@ def compute_track_iou_matrix(
 
 
 if HAS_NUMBA:
-
+    # pyrefly: ignore [unbound-name]
     @nb.jit(nopython=True, parallel=True)
     def _compute_track_iou_matrix_numba(bboxes_stacked, valid_masks, areas):
         """Numba-optimized IoU matrix computation for track-level NMS"""

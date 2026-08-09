@@ -19,6 +19,7 @@ class YTVIS(COCO):
     """
 
     @override
+    # pyrefly: ignore [bad-function-definition]
     def __init__(self, annotation_file: str = None, ignore_gt_cats: bool = True):
         """
         Args:

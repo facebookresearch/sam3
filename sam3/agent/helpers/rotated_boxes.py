@@ -486,6 +486,7 @@ class RotatedBoxes(Boxes):
         self.tensor[:, 4] = torch.atan2(scale_x * s, scale_y * c) * 180 / math.pi
 
     @classmethod
+    # pyrefly: ignore [bad-override]
     def cat(cls, boxes_list: List["RotatedBoxes"]) -> "RotatedBoxes":
         """
         Concatenates a list of RotatedBoxes into a single RotatedBoxes

@@ -16,6 +16,8 @@ from multiprocessing import Pool
 
 from PIL import Image
 from tqdm import tqdm
+
+# pyrefly: ignore [missing-import]
 from utils import (
     annotation_files,
     config,

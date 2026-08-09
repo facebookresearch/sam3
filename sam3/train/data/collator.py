@@ -211,9 +211,11 @@ def collate_fn_api(
 
         for q in data.find_queries:
             stage_id = q.query_processing_order
+            # pyrefly: ignore [missing-attribute]
             stages[stage_id].img_ids.append(q.image_id + offset_img_id)
             if q.query_text not in text_batch:
                 text_batch.append(q.query_text)
+            # pyrefly: ignore [missing-attribute]
             stages[stage_id].text_ids.append(text_batch.index(q.query_text))
 
             assert q.inference_metadata is not None, (
@@ -229,52 +231,68 @@ def collate_fn_api(
                 assert q.input_bbox_label is not None
                 nb_boxes = q.input_bbox.numel() // 4
                 assert len(q.input_bbox_label) == nb_boxes
+                # pyrefly: ignore [missing-attribute]
                 stages[stage_id].input_boxes.append(q.input_bbox.view(nb_boxes, 4))
+                # pyrefly: ignore [missing-attribute]
                 stages[stage_id].input_boxes_label.append(
                     q.input_bbox_label.view(nb_boxes)
                 )
+                # pyrefly: ignore [missing-attribute]
                 stages[stage_id].input_boxes_mask.append(
                     torch.zeros(nb_boxes, dtype=torch.bool)
                 )
             else:
+                # pyrefly: ignore [missing-attribute]
                 stages[stage_id].input_boxes.append(torch.zeros(0, 4))
+                # pyrefly: ignore [missing-attribute]
                 stages[stage_id].input_boxes_label.append(
                     torch.zeros(0, dtype=torch.bool)
                 )
+                # pyrefly: ignore [missing-attribute]
                 stages[stage_id].input_boxes_mask.append(
                     torch.ones(0, dtype=torch.bool)
                 )
 
             if q.input_points is not None:
+                # pyrefly: ignore [missing-attribute]
                 stages[stage_id].input_points.append(
                     q.input_points.squeeze(0)  # Strip a trivial batch index
                 )
                 # All masks will be padded up to the longest length
                 # with 1s before final conversion to batchd tensors
+                # pyrefly: ignore [missing-attribute]
                 stages[stage_id].input_points_mask.append(
                     torch.zeros(q.input_points.shape[1])
                 )
             else:
+                # pyrefly: ignore [missing-attribute]
                 stages[stage_id].input_points.append(
                     torch.empty(0, input_points_embedding_dim)
                 )
+                # pyrefly: ignore [missing-attribute]
                 stages[stage_id].input_points_mask.append(torch.empty(0))
 
             current_out_boxes = []
             current_out_object_ids = []
             # Set the object ids referred to by this query
+            # pyrefly: ignore [missing-attribute]
             stages[stage_id].object_ids.append(q.object_ids_output)
             for object_id in q.object_ids_output:
                 current_out_boxes.append(
                     data.images[q.image_id].objects[object_id].bbox
                 )
                 current_out_object_ids.append(object_id)
+            # pyrefly: ignore [missing-attribute]
             find_targets[stage_id].boxes.extend(current_out_boxes)
+            # pyrefly: ignore [missing-attribute]
             find_targets[stage_id].object_ids.extend(current_out_object_ids)
             if repeats > 0:
                 for _ in range(repeats):
+                    # pyrefly: ignore [missing-attribute]
                     find_targets[stage_id].repeated_boxes.extend(current_out_boxes)
+            # pyrefly: ignore [missing-attribute]
             find_targets[stage_id].num_boxes.append(len(current_out_boxes))
+            # pyrefly: ignore [missing-attribute]
             find_targets[stage_id].is_exhaustive.append(q.is_exhaustive)
 
             if with_seg_masks:
@@ -287,11 +305,15 @@ def collate_fn_api(
                         current_is_valid_segment.append(1)
                     else:
                         dummy_mask = torch.zeros(
-                            data.images[q.image_id].data.shape[-2:], dtype=torch.bool
+                            # pyrefly: ignore [missing-attribute]
+                            data.images[q.image_id].data.shape[-2:],
+                            dtype=torch.bool,
                         )
                         current_seg_mask.append(dummy_mask)
                         current_is_valid_segment.append(0)
+                # pyrefly: ignore [missing-attribute]
                 find_targets[stage_id].segments.extend(current_seg_mask)
+                # pyrefly: ignore [missing-attribute]
                 find_targets[stage_id].is_valid_segment.extend(current_is_valid_segment)
             else:
                 # We are not loading segmentation masks
@@ -299,6 +321,7 @@ def collate_fn_api(
                 find_targets[stage_id].is_valid_segment = None
 
             if q.semantic_target is not None:
+                # pyrefly: ignore [missing-attribute]
                 find_targets[stage_id].semantic_segments.append(q.semantic_target)
 
         offset_img_id += len(data.images)
@@ -306,24 +329,39 @@ def collate_fn_api(
     # Pad input points to equal sequence lengths
     for i in range(len(stages)):
         stages[i].input_points = pad_tensor_list_to_longest(
-            stages[i].input_points, dim=0, pad_val=0
+            # pyrefly: ignore [bad-argument-type]
+            stages[i].input_points,
+            dim=0,
+            pad_val=0,
         )
         # Masked-out regions indicated by 1s.
         stages[i].input_points_mask = pad_tensor_list_to_longest(
-            stages[i].input_points_mask, dim=0, pad_val=1
+            # pyrefly: ignore [bad-argument-type]
+            stages[i].input_points_mask,
+            dim=0,
+            pad_val=1,
         )
 
     # Pad input boxes to equal sequence lengths
     for i in range(len(stages)):
         stages[i].input_boxes = pad_tensor_list_to_longest(
-            stages[i].input_boxes, dim=0, pad_val=0
+            # pyrefly: ignore [bad-argument-type]
+            stages[i].input_boxes,
+            dim=0,
+            pad_val=0,
         )
         stages[i].input_boxes_label = pad_tensor_list_to_longest(
-            stages[i].input_boxes_label, dim=0, pad_val=0
+            # pyrefly: ignore [bad-argument-type]
+            stages[i].input_boxes_label,
+            dim=0,
+            pad_val=0,
         )
         # Masked-out regions indicated by 1s.
         stages[i].input_boxes_mask = pad_tensor_list_to_longest(
-            stages[i].input_boxes_mask, dim=0, pad_val=1
+            # pyrefly: ignore [bad-argument-type]
+            stages[i].input_boxes_mask,
+            dim=0,
+            pad_val=1,
         )
 
     # Convert to tensors
@@ -333,7 +371,9 @@ def collate_fn_api(
         find_metadatas[i] = convert_my_tensors(find_metadatas[i])
         # get padded representation for the boxes
         find_targets[i].boxes_padded = packed_to_padded_naive(
-            find_targets[i].boxes.view(-1, 4), find_targets[i].num_boxes
+            # pyrefly: ignore [missing-attribute]
+            find_targets[i].boxes.view(-1, 4),
+            find_targets[i].num_boxes,
         )
         find_targets[i].object_ids_padded = packed_to_padded_naive(
             find_targets[i].object_ids, find_targets[i].num_boxes, fill_value=-1
@@ -342,7 +382,9 @@ def collate_fn_api(
     # Finalize the image batch
     # check sizes
     for img in img_batch[1:]:
+        # pyrefly: ignore [missing-attribute]
         assert img.shape == img_batch[0].shape, "All images must have the same size"
+    # pyrefly: ignore [bad-argument-type]
     image_batch = torch.stack(img_batch)
     if load_image_in_fp16:
         # Optionally, cast the image tensors to fp16, which helps save GPU memory on

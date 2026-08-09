@@ -63,6 +63,7 @@ class Keypoints:
             valid:
                 A tensor of shape (N, K) containing whether each keypoint is in the roi or not.
         """
+        # pyrefly: ignore [bad-return]
         return _keypoints_to_heatmap(self.tensor, boxes, heatmap_size)
 
     def __getitem__(self, item: Union[int, slice, torch.BoolTensor]) -> "Keypoints":
@@ -80,6 +81,7 @@ class Keypoints:
         subject to Pytorch's indexing semantics.
         """
         if isinstance(item, int):
+            # pyrefly: ignore [bad-argument-type]
             return Keypoints([self.tensor[item]])
         return Keypoints(self.tensor[item])
 

@@ -195,6 +195,7 @@ class Attention(nn.Module):
         num_heads: int,
         downsample_rate: int = 1,
         dropout: float = 0.0,
+        # pyrefly: ignore [bad-function-definition]
         kv_in_dim: int = None,
         use_fa3: bool = False,
     ) -> None:

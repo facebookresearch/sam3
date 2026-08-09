@@ -10,6 +10,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import requests
+
+# pyrefly: ignore [missing-import]
 import utils
 from PIL import Image
 from tqdm import tqdm

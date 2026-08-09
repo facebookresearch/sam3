@@ -21,6 +21,7 @@ from torch.overrides import handle_torch_function, has_torch_function
 from typing_extensions import override
 
 try:
+    # pyre-fixme[21]: Could not find module `xformers`.
     import xformers
 except ImportError:
     xformers = None
@@ -112,6 +113,7 @@ def multi_head_attention_forward(
     static_v: Optional[Tensor] = None,
     average_attn_weights: bool = True,
     is_causal: bool = False,
+    # pyre-fixme[9]: attn_type has type `AttentionType`; used as `str`.
     attn_type: AttentionType = AttentionType.Vanilla,
     attn_sparsity: float = 0.0,
     attn_bias: Optional[Tensor] = None,
@@ -208,6 +210,7 @@ def multi_head_attention_forward(
         assert in_proj_weight is not None, (
             "use_separate_proj_weight is False but in_proj_weight is None"
         )
+        # pyre-fixme[16]: Module `functional` has no attribute `_in_projection_packed`.
         q, k, v = F._in_projection_packed(
             query, key, value, in_proj_weight, in_proj_bias
         )
@@ -225,6 +228,7 @@ def multi_head_attention_forward(
             b_q = b_k = b_v = None
         else:
             b_q, b_k, b_v = in_proj_bias.chunk(3)
+        # pyre-fixme[16]: Module `functional` has no attribute `_in_projection`.
         q, k, v = F._in_projection(
             query,
             key,
@@ -286,6 +290,7 @@ def multi_head_attention_forward(
     #
     q = q.contiguous().view(tgt_len, bsz * num_heads, head_dim).transpose(0, 1)
     if static_k is None:
+        # pyrefly: ignore [bad-argument-type]
         k = k.contiguous().view(k.shape[0], bsz * num_heads, head_dim).transpose(0, 1)
     else:
         assert static_k.size(0) == bsz * num_heads, (
@@ -296,6 +301,7 @@ def multi_head_attention_forward(
         )
         k = static_k
     if static_v is None:
+        # pyrefly: ignore [bad-argument-type]
         v = v.contiguous().view(v.shape[0], bsz * num_heads, head_dim).transpose(0, 1)
     else:
         assert static_v.size(0) == bsz * num_heads, (
@@ -310,10 +316,14 @@ def multi_head_attention_forward(
     if add_zero_attn:
         zero_attn_shape = (bsz * num_heads, 1, head_dim)
         k = torch.cat(
-            [k, torch.zeros(zero_attn_shape, dtype=k.dtype, device=k.device)], dim=1
+            # pyrefly: ignore [no-matching-overload]
+            [k, torch.zeros(zero_attn_shape, dtype=k.dtype, device=k.device)],
+            dim=1,
         )
         v = torch.cat(
-            [v, torch.zeros(zero_attn_shape, dtype=v.dtype, device=v.device)], dim=1
+            # pyrefly: ignore [no-matching-overload]
+            [v, torch.zeros(zero_attn_shape, dtype=v.dtype, device=v.device)],
+            dim=1,
         )
         if attn_mask is not None:
             attn_mask = F.pad(attn_mask, (0, 1))
@@ -378,7 +388,9 @@ def multi_head_attention_forward(
             attn_mask = attn_mask + attn_bias
 
     q = q.view(bsz, num_heads, tgt_len, head_dim)
+    # pyrefly: ignore [bad-argument-type]
     k = k.view(bsz, num_heads, src_len, head_dim)
+    # pyrefly: ignore [bad-argument-type]
     v = v.view(bsz, num_heads, src_len, head_dim)
 
     if attn_type == AttentionType.Vanilla:
@@ -404,6 +416,7 @@ def multi_head_attention_forward(
     elif attn_type == AttentionType.Xformer:
         attn_output_weights = None
         assert not need_weights, "need_weights is not supported in efficient mode"
+        # pyrefly: ignore [missing-attribute]
         attn_output = xformers.ops.memory_efficient_attention(
             q.transpose(1, 2),
             k.transpose(1, 2),
@@ -417,11 +430,15 @@ def multi_head_attention_forward(
         assert not need_weights, "need_weights is not supported in efficient mode"
         # Need to collapse heads and batch dimensions
         q = q.reshape(bsz * num_heads, tgt_len, head_dim).contiguous()
+        # pyrefly: ignore [bad-argument-type]
         k = k.reshape(bsz * num_heads, src_len, head_dim).contiguous()
+        # pyrefly: ignore [bad-argument-type]
         v = v.reshape(bsz * num_heads, src_len, head_dim).contiguous()
+        # pyrefly: ignore [missing-attribute]
         row_offsets, column_indices = xformers.ops.find_locations_new(
             q, k, attn_sparsity, True
         )
+        # pyrefly: ignore [missing-attribute]
         attn_output = xformers.ops.sparse_memory_efficient_attention(
             q, k, v, row_offsets, column_indices, attn_bias=attn_mask
         ).reshape(bsz, num_heads, tgt_len, head_dim)
@@ -468,6 +485,7 @@ class MultiheadAttention(nn.Module):
         batch_first=False,
         device=None,
         dtype=None,
+        # pyre-fixme[9]: attn_type has type `AttentionType`; used as `str`.
         attn_type: AttentionType = AttentionType.Vanilla,
         sparsity: float = 0.0,
         use_act_checkpoint: bool = False,
@@ -591,6 +609,7 @@ class MultiheadAttention(nn.Module):
 
         if not self._qkv_same_embed_dim:
             if self.use_act_checkpoint:
+                # pyrefly: ignore [not-iterable]
                 attn_output, attn_output_weights = torch.utils.checkpoint.checkpoint(
                     multi_head_attention_forward,
                     query,
@@ -652,6 +671,7 @@ class MultiheadAttention(nn.Module):
                 )
         else:
             if self.use_act_checkpoint:
+                # pyrefly: ignore [not-iterable]
                 attn_output, attn_output_weights = torch.utils.checkpoint.checkpoint(
                     multi_head_attention_forward,
                     query,
@@ -860,6 +880,7 @@ class MLP(nn.Module):
         self.residual = residual
         # whether to apply a normalization layer to the output
         assert isinstance(out_norm, nn.Module) or out_norm is None
+        # pyrefly: ignore [not-callable]
         self.out_norm = out_norm or nn.Identity()
 
     def forward(self, x):
@@ -992,6 +1013,7 @@ class SAM3Output(list):
 
     def __init__(
         self,
+        # pyre-fixme[9]: output has type `List[List[Dict[Any, Any]]]`; used as `None`.
         output: List[List[Dict]] = None,
         iter_mode: IterMode = IterMode.ALL_STEPS_PER_STAGE,
         loss_stages: Optional[List[int]] = None,
@@ -1014,17 +1036,26 @@ class SAM3Output(list):
         # This is to avoid cyclic references and let SAM3Output be garabge collected.
         self_ref = weakref.ref(self)
         self._mode2iter = {
+            # pyrefly: ignore [missing-attribute]
             SAM3Output.IterMode.ALL_STEPS_PER_STAGE: lambda: iter(self_ref().output),
             SAM3Output.IterMode.LAST_STEP_PER_STAGE: lambda: (
-                inner_list[-1] for inner_list in self_ref().output
+                # pyrefly: ignore [missing-attribute]
+                inner_list[-1]
+                # pyrefly: ignore [missing-attribute]
+                for inner_list in self_ref().output
             ),
             SAM3Output.IterMode.FLATTENED: lambda: (
-                element for inner_list in self_ref().output for element in inner_list
+                # pyrefly: ignore [missing-attribute]
+                element
+                # pyrefly: ignore [missing-attribute]
+                for inner_list in self_ref().output
+                for element in inner_list
             ),
         }
         self.loss_stages = loss_stages
 
     @override
+    # pyre-fixme[14]: `__iter__` overrides method defined in `list` inconsistently.
     def __iter__(self) -> Iterator:
         return self._mode2iter[self.iter_mode]()
 

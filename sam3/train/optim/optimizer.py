@@ -103,6 +103,7 @@ def set_default_parameters(
     if default_count == 0:
         # No default scheduler specified, add a default, but without any scheduler
         # for that option
+        # pyrefly: ignore [bad-argument-type]
         scheduler_cfgs.append({"parameter_names": default_params})
 
 
@@ -122,6 +123,7 @@ def name_constraints_to_parameters(
         param_constraints.
     """
     matching_names = set.intersection(*param_constraints)
+    # pyrefly: ignore [bad-return]
     return [value for name, value in named_parameters.items() if name in matching_names]
 
 
@@ -218,6 +220,7 @@ def unix_module_cls_pattern_to_parameter_names(
             f"Matches for module_cls_name [{module_cls_name}]: {matching_parameters} "
         )
         allowed_parameter_names.append(matching_parameters)
+    # pyrefly: ignore [bad-argument-type]
     return set.union(*allowed_parameter_names)
 
 
@@ -260,8 +263,12 @@ def _unix_pattern_to_parameter_names(
     """
     if "param_names" not in scheduler_cfg and "module_cls_names" not in scheduler_cfg:
         return None
+    # pyrefly: ignore [missing-attribute]
     return unix_param_pattern_to_parameter_names(
-        scheduler_cfg.get("param_names"), parameter_names
+        # pyrefly: ignore [bad-argument-type]
+        scheduler_cfg.get("param_names"),
+        # pyrefly: ignore [bad-argument-type]
+        parameter_names,
     ).union(
         unix_module_cls_pattern_to_parameter_names(
             scheduler_cfg.get("module_cls_names"), module_cls_to_param_names
@@ -270,7 +277,10 @@ def _unix_pattern_to_parameter_names(
 
 
 def get_module_cls_to_param_names(
-    model: nn.Module, param_allowlist: Set[str] = None
+    # pyrefly: ignore [bad-function-definition]
+    model: nn.Module,
+    # pyrefly: ignore [bad-function-definition]
+    param_allowlist: Set[str] = None,
 ) -> Dict[Type, str]:
     """Produce a mapping from all the modules classes to the names of parames they own.
 
@@ -290,13 +300,16 @@ def get_module_cls_to_param_names(
             full_param_name = get_full_parameter_name(module_name, param_name)
             if param_allowlist is None or full_param_name in param_allowlist:
                 module_cls_to_params[module_cls].add(full_param_name)
+    # pyrefly: ignore [bad-return]
     return module_cls_to_params
 
 
 def construct_optimizer(
     model: torch.nn.Module,
     optimizer_conf: Any,
+    # pyrefly: ignore [bad-function-definition]
     options_conf: Mapping[str, List] = None,
+    # pyrefly: ignore [bad-function-definition]
     param_group_modifiers_conf: List[Callable] = None,
     param_allowlist: Optional[Set[str]] = None,
     validate_param_groups=True,
@@ -360,7 +373,10 @@ def construct_optimizer(
                 scheduler_cfgs=all_scheduler_cfgs, model=model
             )
     schedulers, param_groups = map_scheduler_cfgs_to_param_groups(
-        all_scheduler_cfgs, named_parameters
+        # pyrefly: ignore [bad-argument-type]
+        all_scheduler_cfgs,
+        # pyrefly: ignore [bad-argument-type]
+        named_parameters,
     )
     if validate_param_groups:
         validate_param_group_params(param_groups, model)
@@ -403,6 +419,7 @@ class ValueScaler:
         return val * self.mult_val
 
 
+# pyrefly: ignore [bad-function-definition]
 def rgetattr(obj, rattrs: str = None):
     """
     Like getattr(), but supports dotted notation for nested objects.
@@ -422,6 +439,7 @@ def layer_decay_param_modifier(
     layer_decay_value: float,
     layer_decay_min: Optional[float] = None,
     apply_to: Optional[str] = None,
+    # pyrefly: ignore [bad-function-definition]
     overrides: List[Dict] = (),
 ) -> List[List[Dict]]:
     """
@@ -443,6 +461,7 @@ def layer_decay_param_modifier(
     Returns
     - scheduler_configs: same structure as the input, elements can be modified
     """
+    # pyrefly: ignore [bad-argument-type]
     model = rgetattr(model, apply_to)
     num_layers = model.get_num_layers() + 1
     layer_decays = [

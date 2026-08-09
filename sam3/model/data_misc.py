@@ -59,6 +59,7 @@ from torch.utils import _pytree as pytree
 pytree.register_pytree_node(
     NestedTensor,
     lambda x: ([x.tensors, x.mask], None),
+    # pyrefly: ignore [bad-index]
     lambda values, _: NestedTensor(values[0], values[1]),
 )
 

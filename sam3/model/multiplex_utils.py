@@ -197,6 +197,7 @@ class MultiplexState:
 
         if not prefer_new_buckets:
             # Fill empty slots in existing buckets first
+            # pyrefly: ignore [not-iterable]
             for bucket in self.assignments:
                 for i in range(self.allowed_bucket_capacity):
                     if bucket[i] == _PADDING_NUM:
@@ -219,11 +220,13 @@ class MultiplexState:
                 if len(object_indices) == 0:
                     break
                 new_bucket[i] = _pop_next()
+            # pyrefly: ignore [missing-attribute]
             self.assignments.append(new_bucket)
             buckets_created += 1
 
         # reinitialize all the settings
         original_num_entries = self.total_valid_entries
+        # pyrefly: ignore [bad-argument-type]
         self._initialize_assignments(self.assignments, object_ids=self.object_ids)
         assert self.total_valid_entries == original_num_entries + num_new_objects, (
             f"{self.total_valid_entries=} != {original_num_entries=} + {num_new_objects=}"
@@ -251,9 +254,11 @@ class MultiplexState:
         object_indices = object_indices.copy()
 
         # Mark objects as removed in assignments
+        # pyrefly: ignore [not-iterable]
         for bucket_idx, bucket in enumerate(self.assignments):
             for slot_idx, obj_id in enumerate(bucket):
                 if obj_id in object_indices:
+                    # pyrefly: ignore [unsupported-operation]
                     self.assignments[bucket_idx][slot_idx] = _REMOVED_NUM
                     object_indices.remove(obj_id)
 
@@ -266,6 +271,7 @@ class MultiplexState:
         # and which buckets we will keep
         buckets_to_remove = []
         buckets_to_keep = []
+        # pyrefly: ignore [not-iterable]
         for bucket_idx, bucket in enumerate(self.assignments):
             # Check if all objects in this bucket are removed or are paddings
             all_removed = all(
@@ -281,10 +287,12 @@ class MultiplexState:
 
         # Remove buckets in reverse order to maintain correct indices
         for bucket_idx in reversed(buckets_to_remove):
+            # pyrefly: ignore [unsupported-operation]
             del self.assignments[bucket_idx]
 
         if len(buckets_to_keep) == 0:
             logger.info(f"Removing all buckets: {buckets_to_remove}; state invalidated")
+            # pyrefly: ignore [bad-assignment]
             self.assignments = None
             if self.object_ids is not None:
                 self.object_ids = []
@@ -293,6 +301,7 @@ class MultiplexState:
         # After removal, remap object IDs to be sequential
         # Collect all unique positive object IDs and create a mapping to sequential IDs
         all_positive_ids = set()
+        # pyrefly: ignore [not-iterable]
         for bucket in self.assignments:
             for obj_id in bucket:
                 if obj_id >= 0:
@@ -303,6 +312,7 @@ class MultiplexState:
         id_mapping = {old_id: new_id for new_id, old_id in enumerate(sorted_ids)}
 
         # Apply the mapping to assignments to make IDs sequential
+        # pyrefly: ignore [not-iterable]
         for bucket in self.assignments:
             for i, obj_id in enumerate(bucket):
                 if obj_id >= 0:
@@ -316,12 +326,15 @@ class MultiplexState:
 
             # Map the original object_ids to their new positions
             for old_idx, new_idx in id_mapping.items():
+                # pyrefly: ignore [unsupported-operation]
                 new_object_ids[new_idx] = self.object_ids[old_idx]
 
             assert not any(obj_id is None for obj_id in new_object_ids)
+            # pyrefly: ignore [bad-assignment]
             self.object_ids = new_object_ids
 
         # Reinitialize the state to update all internal structures
+        # pyrefly: ignore [bad-argument-type]
         self._initialize_assignments(self.assignments, object_ids=self.object_ids)
 
         logger.info(f"Removed these buckets: {buckets_to_remove}")
@@ -357,6 +370,7 @@ class MultiplexState:
         for i in range(self.num_buckets):
             for j in range(self.multiplex_count):
                 bucket_idx = i * self.multiplex_count + j
+                # pyrefly: ignore [unsupported-operation]
                 object_idx = self.assignments[i][j]
                 if object_idx >= 0:
                     self.mux_matrix[bucket_idx, object_idx] = 1.0
@@ -426,7 +440,12 @@ class MultiplexState:
         not the arbitrary object IDs that are passed in during initialization
         """
         all_valid_objects = {
-            obj_idx for bucket in self.assignments for obj_idx in bucket if obj_idx >= 0
+            # pyrefly: ignore [not-iterable]
+            obj_idx
+            # pyrefly: ignore [not-iterable]
+            for bucket in self.assignments
+            for obj_idx in bucket
+            if obj_idx >= 0
         }
         return all_valid_objects
 

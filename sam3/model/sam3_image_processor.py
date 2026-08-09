@@ -92,6 +92,7 @@ class Sam3Processor:
             self.transform(v2.functional.to_image(image).to(self.device))
             for image in images
         ]
+        # pyrefly: ignore [bad-argument-type, bad-assignment]
         images = torch.stack(images, dim=0)
         state["backbone_out"] = self.model.backbone.forward_image(images)
         inst_interactivity_en = self.model.inst_interactive_predictor is not None

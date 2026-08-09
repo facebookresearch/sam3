@@ -478,6 +478,7 @@ class COCO(_BaseDataset):
 
         return data
 
+    # pyrefly: ignore [bad-override-param-name]
     def _calculate_similarities(self, gt_dets_t, tk_dets_t):
         """Compute similarity scores."""
         if self.use_mask:

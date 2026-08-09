@@ -48,7 +48,9 @@ def copy_data_to_device(data, device: torch.device, *args: Any, **kwargs: Any):
             },
         )
     elif isinstance(data, Mapping):
+        # pyrefly: ignore [bad-instantiation]
         return type(data)(
+            # pyrefly: ignore [bad-argument-count]
             {
                 k: copy_data_to_device(v, device, *args, **kwargs)
                 for k, v in data.items()

@@ -10,7 +10,10 @@ import sys
 from concurrent.futures import as_completed, ThreadPoolExecutor
 from pathlib import Path
 
+# pyrefly: ignore [missing-source-for-stubs]
 import yt_dlp
+
+# pyrefly: ignore [missing-import]
 from utils import (
     annotation_files,
     config,

@@ -37,6 +37,7 @@ class Sam3DualViTDetNeck(nn.Module):
 
         self.scale_factors = scale_factors
         use_bias = True
+        # pyrefly: ignore [bad-assignment, bad-index]
         dim: int = self.trunk.channel_list[-1]
 
         for _, scale in enumerate(scale_factors):
@@ -122,7 +123,9 @@ class Sam3DualViTDetNeck(nn.Module):
             if self.sam2_convs is not None:
                 sam2_x_out = self.sam2_convs[i](x)
                 sam2_pos_out = self.position_encoding(sam2_x_out).to(sam2_x_out.dtype)
+                # pyrefly: ignore [missing-attribute]
                 sam2_out.append(sam2_x_out)
+                # pyrefly: ignore [missing-attribute]
                 sam2_pos.append(sam2_pos_out)
         return sam3_out, sam3_pos, sam2_out, sam2_pos
 
@@ -146,6 +149,7 @@ class Sam3TriViTDetNeck(nn.Module):
 
         self.scale_factors = scale_factors
         use_bias = neck_norm is None
+        # pyrefly: ignore [bad-index]
         dim = self.trunk.channel_list[-1]
 
         for _, scale in enumerate(scale_factors):
@@ -154,6 +158,7 @@ class Sam3TriViTDetNeck(nn.Module):
             if scale == 4.0:
                 current.add_module(
                     "dconv_2x2_0",
+                    # pyrefly: ignore [bad-argument-type]
                     nn.ConvTranspose2d(dim, dim // 2, kernel_size=2, stride=2),
                 )
                 current.add_module(
@@ -162,12 +167,14 @@ class Sam3TriViTDetNeck(nn.Module):
                 )
                 current.add_module(
                     "dconv_2x2_1",
+                    # pyrefly: ignore [bad-argument-type]
                     nn.ConvTranspose2d(dim // 2, dim // 4, kernel_size=2, stride=2),
                 )
                 out_dim = dim // 4
             elif scale == 2.0:
                 current.add_module(
                     "dconv_2x2",
+                    # pyrefly: ignore [bad-argument-type]
                     nn.ConvTranspose2d(dim, dim // 2, kernel_size=2, stride=2),
                 )
                 out_dim = dim // 2
@@ -185,6 +192,7 @@ class Sam3TriViTDetNeck(nn.Module):
             current.add_module(
                 "conv_1x1",
                 nn.Conv2d(
+                    # pyrefly: ignore [bad-argument-type]
                     in_channels=out_dim,
                     out_channels=d_model,
                     kernel_size=1,

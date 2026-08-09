@@ -71,6 +71,7 @@ class SimpleMaskDownSampler(nn.Module):
             assert isinstance(self.interpol_size, (list, tuple)), (
                 f"Unsupported type {type(self.interpol_size)}. Should be a list or tuple."
             )
+            # pyrefly: ignore [bad-argument-type]
             self.interpol_size = list(interpol_size)
             assert len(self.interpol_size) == 2
 
@@ -206,4 +207,5 @@ class SimpleMaskEncoder(nn.Module):
 
         pos = self.position_encoding(x).to(x.dtype)
 
+        # pyrefly: ignore [bad-return]
         return {"vision_features": x, "vision_pos_enc": [pos]}

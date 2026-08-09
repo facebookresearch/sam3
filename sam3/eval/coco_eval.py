@@ -155,6 +155,7 @@ class CocoEvaluator:
                 print(f"{k}: {len(v)}")
 
     def set_sync_device(self, device: torch.device) -> Any:
+        # pyre-fixme[16]: `CocoEvaluator` has no attribute `_sync_device`.
         self._sync_device = device
 
     def _evaluate(self, *args, **kwargs):

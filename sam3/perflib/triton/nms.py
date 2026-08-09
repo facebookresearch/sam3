@@ -27,8 +27,10 @@ def _nms_suppression_kernel(
     iou_mask_ptr: tl.tensor,  # [N, N]
     keep_mask_ptr: tl.tensor,  # [N]
     # Scalars
+    # pyrefly: ignore [not-a-type]
     num_boxes: tl.int32,
     # Strides
+    # pyrefly: ignore [not-a-type]
     iou_mask_stride: tl.int32,
     # Constexprs
     cxpr_block_size: tl.constexpr,

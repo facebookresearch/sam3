@@ -112,6 +112,7 @@ class YTVISPredFileEvaluator(BasePredFileEvaluator):
 
         # video-NP level results not supported for `YTVISPredFileEvaluator` yet
         video_np_level_results = {}
+        # pyrefly: ignore [bad-return]
         return results, video_np_level_results
 
 
@@ -147,6 +148,7 @@ class VideoPhraseApEvaluator(BasePredFileEvaluator):
 
         results = {}
         use_cats = False  # Phrase AP evaluation does not use categories
+        # pyrefly: ignore [bad-argument-type]
         ytvisGT = YTVIS(annotation_file=None, ignore_gt_cats=not use_cats)
         ytvisGT.dataset = gt
         ytvisGT.createIndex()
@@ -180,6 +182,7 @@ class VideoPhraseApEvaluator(BasePredFileEvaluator):
 
         # video-NP level results not supported for `VideoPhraseApEvaluator` yet
         video_np_level_results = {}
+        # pyrefly: ignore [bad-return]
         return results, video_np_level_results
 
 
@@ -225,6 +228,7 @@ class VideoCGF1Evaluator(BasePredFileEvaluator):
 
         results = {}
         use_cats = False  # Demo F1 evaluation does not use categories
+        # pyrefly: ignore [bad-argument-type]
         ytvisGT = YTVIS(annotation_file=None, ignore_gt_cats=not use_cats)
         ytvisGT.dataset = gt
         ytvisGT.createIndex()
@@ -284,6 +288,7 @@ class VideoCGF1Evaluator(BasePredFileEvaluator):
 
             self.extract_video_np_level_results(demoF1Eval, video_np_level_results)
 
+        # pyrefly: ignore [bad-return]
         return results, video_np_level_results
 
     def extract_video_np_level_results(self, demoF1Eval, video_np_level_results):
@@ -628,6 +633,7 @@ class VideoPhraseHotaEvaluator(BasePredFileEvaluator):
                 )
 
         # video-NP level results not supported for `VideoPhraseHotaEvaluator` yet
+        # pyrefly: ignore [bad-return]
         return out_dict, video_np_level_results
 
     def _remap_gt_dt(self, gt, dt):

@@ -36,6 +36,7 @@ def sample_box_points(
     ).repeat(B)
     if noise > 0.0:
         if not isinstance(noise_bound, torch.Tensor):
+            # pyrefly: ignore [bad-assignment]
             noise_bound = torch.tensor(noise_bound, device=device)
         bbox_w = box_coords[..., 2] - box_coords[..., 0]
         bbox_h = box_coords[..., 3] - box_coords[..., 1]
@@ -52,6 +53,7 @@ def sample_box_points(
 
     box_coords = box_coords.reshape(-1, 2, 2)  # always 2 points
     box_labels = box_labels.reshape(-1, 2)
+    # pyrefly: ignore [bad-return]
     return box_coords, box_labels
 
 

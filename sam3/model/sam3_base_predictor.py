@@ -404,6 +404,7 @@ class Sam3BasePredictor:
                         f"{post_gpu_mem['reserved_bytes']} bytes)"
                     )
                     gpu_mem = post_gpu_mem
+                # pyrefly: ignore [bad-assignment]
                 result["gpu_mem"] = gpu_mem
             logger.info(f"removed session {session_id}")
         return result

@@ -68,6 +68,7 @@ class OptimAMPConf:
 
 @dataclass
 class OptimConf:
+    # pyre-fixme[8]: Attribute has type `Optimizer`; used as `None`.
     optimizer: torch.optim.Optimizer = None
     options: Optional[Dict[str, Any]] = None
     param_group_modifiers: Optional[List] = None
@@ -111,6 +112,7 @@ class CheckpointConf:
     save_freq: int
     save_list: List[int] = field(default_factory=list)
     model_weight_initializer: Any = None
+    # pyre-fixme[8]: Attribute has type `List[str]`; used as `None`.
     save_best_meters: List[str] = None
     skip_saving_parameters: List[str] = field(default_factory=list)
     initialize_after_preemption: Optional[bool] = None
@@ -157,7 +159,9 @@ class Trainer:
         accelerator: str = "cuda",
         seed_value: int = 123,
         val_epoch_freq: int = 1,
+        # pyre-fixme[9]: distributed has type `Dict[str, bool]`; used as `None`.
         distributed: Dict[str, bool] = None,
+        # pyre-fixme[9]: cuda has type `Dict[str, bool]`; used as `None`.
         cuda: Dict[str, bool] = None,
         env_variables: Optional[Dict[str, Any]] = None,
         optim: Optional[Dict[str, Any]] = None,
@@ -183,7 +187,12 @@ class Trainer:
         self.meters_conf = meters
         self.loss_conf = loss
         self.gradient_accumulation_steps = gradient_accumulation_steps
+        # pyre-fixme[9]: distributed has type `Dict[str, bool]`; used as
+        #  `DistributedConf`.
+        # pyre-fixme[6]: For 1st argument expected `Optional[str]` but got
+        #  `Union[bool, _VT]`.
         distributed = DistributedConf(**distributed or {})
+        # pyre-fixme[9]: cuda has type `Dict[str, bool]`; used as `CudaConf`.
         cuda = CudaConf(**cuda or {})
         self.where = 0.0
 
@@ -218,6 +227,7 @@ class Trainer:
         self._construct_optimizers()
         self._setup_dataloaders()
 
+        # pyre-fixme[16]: `Trainer` has no attribute `device`.
         self.time_elapsed_meter = DurationMeter("Time Elapsed", self.device, ":.2f")
 
         if self.checkpoint_conf.resume_from is not None:
@@ -450,6 +460,7 @@ class Trainer:
         self.steps = checkpoint["steps"]
         self.ckpt_time_elapsed = checkpoint.get("time_elapsed")
 
+        # pyre-fixme[16]: `Optional` has no attribute `enabled`.
         if self.optim_conf.amp.enabled and "scaler" in checkpoint:
             self.scaler.load_state_dict(checkpoint["scaler"])
 
@@ -491,7 +502,9 @@ class Trainer:
         model: nn.Module,
         phase: str,
     ):
+        # pyre-fixme[16]: `BatchedDatapoint` has no attribute `popitem`.
         key, batch = batch.popitem()
+        # pyre-fixme[16]: `Trainer` has no attribute `device`.
         batch = copy_data_to_device(batch, self.device, non_blocking=True)
 
         find_stages = model(batch)
@@ -925,8 +938,12 @@ class Trainer:
             accum_steps = len(batch)
         else:
             accum_steps = 1
+            # pyre-fixme[9]: batch has type `BatchedDatapoint`; used as
+            #  `List[BatchedDatapoint]`.
             batch = [batch]
 
+        # pyre-fixme[6]: For 1st argument expected `Iterable[_T]` but got
+        #  `BatchedDatapoint`.
         for i, chunked_batch in enumerate(batch):
             ddp_context = (
                 self.model.no_sync()
@@ -936,7 +953,9 @@ class Trainer:
             with ddp_context:
                 with torch.amp.autocast(
                     device_type="cuda",
+                    # pyre-fixme[16]: `Optional` has no attribute `enabled`.
                     enabled=self.optim_conf.amp.enabled,
+                    # pyre-fixme[16]: `Optional` has no attribute `amp_dtype`.
                     dtype=get_amp_type(self.optim_conf.amp.amp_dtype),
                 ):
                     loss_dict, batch_size, extra_losses = self._step(
@@ -961,7 +980,11 @@ class Trainer:
                 for extra_loss_key, extra_loss in extra_losses.items():
                     if extra_loss_key not in extra_loss_mts:
                         extra_loss_mts[extra_loss_key] = AverageMeter(
-                            extra_loss_key, self.device, ":.2e"
+                            # pyre-fixme[16]: `Trainer` has no attribute `device`.
+                            extra_loss_key,
+                            # pyre-fixme[16]: `Trainer` has no attribute `device`.
+                            self.device,
+                            ":.2e",
                         )
                     extra_loss_mts[extra_loss_key].update(extra_loss.item(), batch_size)
 

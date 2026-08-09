@@ -98,6 +98,7 @@ class MaskDecoder(nn.Module):
         if self.pred_obj_scores:
             self.pred_obj_score_head = nn.Linear(transformer_dim, 1)
             if pred_obj_scores_mlp:
+                # pyrefly: ignore [bad-assignment]
                 self.pred_obj_score_head = MLP(transformer_dim, transformer_dim, 1, 3)
 
         # When outputting a single mask, optionally we can dynamically fall back to the best
@@ -132,6 +133,7 @@ class MaskDecoder(nn.Module):
           torch.Tensor: batched predictions of mask quality
           torch.Tensor: batched SAM token for mask output
         """
+        # pyrefly: ignore [bad-unpacking]
         masks, iou_pred, mask_tokens_out, object_score_logits = self.predict_masks(
             image_embeddings=image_embeddings,
             image_pe=image_pe,
@@ -162,6 +164,7 @@ class MaskDecoder(nn.Module):
             sam_tokens_out = mask_tokens_out[:, 0:1]  # [b, 1, c] shape
 
         # Prepare output
+        # pyrefly: ignore [bad-return]
         return masks, iou_pred, sam_tokens_out, object_score_logits
 
     def predict_masks(
@@ -219,6 +222,7 @@ class MaskDecoder(nn.Module):
             upscaled_embedding = self.output_upscaling(src)
         else:
             dc1, ln1, act1, dc2, act2 = self.output_upscaling
+            # pyrefly: ignore [not-iterable]
             feat_s0, feat_s1 = high_res_features
             upscaled_embedding = act1(ln1(dc1(src) + feat_s1))
             upscaled_embedding = act2(dc2(upscaled_embedding) + feat_s0)
@@ -241,6 +245,7 @@ class MaskDecoder(nn.Module):
             # Obj scores logits - default to 10.0, i.e. assuming the object is present, sigmoid(10)=1
             object_score_logits = 10.0 * iou_pred.new_ones(iou_pred.shape[0], 1)
 
+        # pyrefly: ignore [bad-return]
         return masks, iou_pred, mask_tokens_out, object_score_logits
 
     def _get_stability_scores(self, mask_logits):

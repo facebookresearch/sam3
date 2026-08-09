@@ -252,6 +252,7 @@ def agent_inference(
                 # Add the text_prompt to the set of used prompts
                 USED_TEXT_PROMPTS.add(current_text_prompt)
                 LATEST_SAM3_TEXT_PROMPT = current_text_prompt
+                # pyrefly: ignore [missing-argument]
                 PATH_TO_LATEST_OUTPUT_JSON = call_sam_service(
                     image_path=img_path,
                     text_prompt=current_text_prompt,
@@ -296,6 +297,7 @@ def agent_inference(
             assert LATEST_SAM3_TEXT_PROMPT != ""
 
             # Make sure that the last message is a image
+            # pyrefly: ignore [bad-index]
             assert messages[-1]["content"][1]["type"] == "image", (
                 "Second content element should be an image"
             )
@@ -319,6 +321,7 @@ def agent_inference(
             # MLLM check the mask one by one
             for i in range(num_masks):
                 print(f"🔍 Checking mask {i + 1}/{num_masks}...")
+                # pyrefly: ignore [not-iterable]
                 image_w_mask_i, image_w_zoomed_in_mask_i = visualize(current_outputs, i)
 
                 image_w_zoomed_in_mask_i_path = os.path.join(
@@ -401,6 +404,7 @@ def agent_inference(
                     "/", "_"
                 ),
             )
+            # pyrefly: ignore [missing-attribute]
             image_w_check_masks.save(image_w_check_masks_path)
             # save the updated json outputs and append to message history
             messages.append(
@@ -492,6 +496,7 @@ def agent_inference(
 
         elif tool_call["name"] == "report_no_mask":
             print("🔍 Calling report_no_mask tool...")
+            # pyrefly: ignore [missing-attribute]
             height, width = cv2.imread(img_path).shape[:2]
             final_outputs = {
                 "original_image_path": img_path,

@@ -334,8 +334,11 @@ class RandomizeInputBbox:
                 assert isinstance(img, torch.Tensor)
                 h, w = img.shape[-2:]
 
+            # pyre-fixme[16]: Optional type has no attribute `shape`.
             for box_id in range(query.input_bbox.shape[0]):
+                # pyre-fixme[16]: Optional type has no attribute `__setitem__`.
                 query.input_bbox[box_id, :] = noise_box(
+                    # pyre-fixme[16]: Optional type has no attribute `__getitem__`.
                     query.input_bbox[box_id, :].view(4),
                     (h, w),
                     box_noise_std=self.box_noise_std,

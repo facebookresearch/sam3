@@ -32,6 +32,7 @@ class Sam3MultiplexImageBase(Sam3Image):
         self.offload_outputs_to_cpu_for_eval = offload_outputs_to_cpu_for_eval
         self.trim_outputs_for_eval = True  # dummy option -- it doesn't do anything
 
+    # pyrefly: ignore [bad-override]
     def forward(
         self,
         input: BatchedDatapoint,
@@ -135,7 +136,9 @@ class Sam3MultiplexImageBase(Sam3Image):
         # Generate img_ids based on chunk frame indices
         # Each frame in the chunk gets its corresponding frame index
         # The modulo for circular buffer access is handled in _get_img_feats
+        # pyrefly: ignore [missing-attribute]
         device = chunk_find_inputs[0].img_ids.device
+        # pyrefly: ignore [missing-attribute]
         dtype = chunk_find_inputs[0].img_ids.dtype
         img_ids_list = [
             torch.tensor([i], device=device, dtype=dtype)
@@ -149,11 +152,13 @@ class Sam3MultiplexImageBase(Sam3Image):
 
         # Concatenate text_ids
         text_ids_list = [fi.text_ids for fi in chunk_find_inputs]
+        # pyrefly: ignore [bad-argument-type]
         batched_text_ids = torch.cat(text_ids_list, dim=0)
 
         # Concatenate input_boxes
         input_boxes_list = [fi.input_boxes for fi in chunk_find_inputs]
         batched_input_boxes = (
+            # pyrefly: ignore [bad-argument-type]
             torch.cat(input_boxes_list, dim=0)
             if input_boxes_list[0] is not None
             else None
@@ -162,6 +167,7 @@ class Sam3MultiplexImageBase(Sam3Image):
         # Concatenate input_boxes_mask
         input_boxes_mask_list = [fi.input_boxes_mask for fi in chunk_find_inputs]
         batched_input_boxes_mask = (
+            # pyrefly: ignore [bad-argument-type]
             torch.cat(input_boxes_mask_list, dim=0)
             if input_boxes_mask_list[0] is not None
             else None
@@ -170,6 +176,7 @@ class Sam3MultiplexImageBase(Sam3Image):
         # Concatenate input_boxes_label
         input_boxes_label_list = [fi.input_boxes_label for fi in chunk_find_inputs]
         batched_input_boxes_label = (
+            # pyrefly: ignore [bad-argument-type]
             torch.cat(input_boxes_label_list, dim=0)
             if input_boxes_label_list[0] is not None
             else None
@@ -178,6 +185,7 @@ class Sam3MultiplexImageBase(Sam3Image):
         # Concatenate input_points
         input_points_list = [fi.input_points for fi in chunk_find_inputs]
         batched_input_points = (
+            # pyrefly: ignore [bad-argument-type]
             torch.cat(input_points_list, dim=0)
             if input_points_list[0] is not None
             else None
@@ -186,6 +194,7 @@ class Sam3MultiplexImageBase(Sam3Image):
         # Concatenate input_points_mask
         input_points_mask_list = [fi.input_points_mask for fi in chunk_find_inputs]
         batched_input_points_mask = (
+            # pyrefly: ignore [bad-argument-type]
             torch.cat(input_points_mask_list, dim=0)
             if input_points_mask_list[0] is not None
             else None
@@ -196,6 +205,7 @@ class Sam3MultiplexImageBase(Sam3Image):
             fi.input_boxes_before_embed for fi in chunk_find_inputs
         ]
         batched_input_boxes_before_embed = (
+            # pyrefly: ignore [bad-argument-type]
             torch.cat(input_boxes_before_embed_list, dim=0)
             if input_boxes_before_embed_list[0] is not None
             else None
@@ -205,6 +215,7 @@ class Sam3MultiplexImageBase(Sam3Image):
             fi.input_points_before_embed for fi in chunk_find_inputs
         ]
         batched_input_points_before_embed = (
+            # pyrefly: ignore [bad-argument-type]
             torch.cat(input_points_before_embed_list, dim=0)
             if input_points_before_embed_list[0] is not None
             else None
@@ -215,10 +226,15 @@ class Sam3MultiplexImageBase(Sam3Image):
             img_ids=batched_img_ids,
             img_ids_np=batched_img_ids_np,
             text_ids=batched_text_ids,
+            # pyrefly: ignore [bad-argument-type]
             input_boxes=batched_input_boxes,
+            # pyrefly: ignore [bad-argument-type]
             input_boxes_mask=batched_input_boxes_mask,
+            # pyrefly: ignore [bad-argument-type]
             input_boxes_label=batched_input_boxes_label,
+            # pyrefly: ignore [bad-argument-type]
             input_points=batched_input_points,
+            # pyrefly: ignore [bad-argument-type]
             input_points_mask=batched_input_points_mask,
             ptrs=None,  # Not batching pointers for now
             ptrs_seg=None,
@@ -441,6 +457,7 @@ class Sam3MultiplexDetector(Sam3MultiplexImageBase):
         else:
             frame_idx_prev_b = frame_idx_prev_e = None
         if frame_idx_prev_b is not None:
+            # pyrefly: ignore [bad-argument-type]
             for frame_idx_rm in range(frame_idx_prev_b, frame_idx_prev_e):
                 multigpu_buffer.pop(frame_idx_rm, None)
 
@@ -596,24 +613,35 @@ class Sam3MultiplexDetector(Sam3MultiplexImageBase):
                 # also add gathered SAM 2 backbone features to frame_buffer
                 if self.is_multiplex:
                     frame_buffer["interactive_backbone_fpn_0"] = (
+                        # pyrefly: ignore [unbound-name]
                         inte_fpn0[rank],
+                        # pyrefly: ignore [unbound-name]
                         inte_fpn_handle0,
                     )
                     frame_buffer["interactive_backbone_fpn_1"] = (
+                        # pyrefly: ignore [unbound-name]
                         inte_fpn1[rank],
+                        # pyrefly: ignore [unbound-name]
                         inte_fpn_handle1,
                     )
                     frame_buffer["interactive_backbone_fpn_2"] = (
+                        # pyrefly: ignore [unbound-name]
                         inte_fpn2[rank],
+                        # pyrefly: ignore [unbound-name]
                         inte_fpn_handle2,
                     )
                     frame_buffer["interactive_backbone_pos_enc"] = (
+                        # pyrefly: ignore [unbound-name]
                         inte_vision_pos_enc,
                         None,
                     )
+                # pyrefly: ignore [unbound-name]
                 frame_buffer["sam2_backbone_fpn_0"] = (fpn0[rank], fpn_handle0)
+                # pyrefly: ignore [unbound-name]
                 frame_buffer["sam2_backbone_fpn_1"] = (fpn1[rank], fpn_handle1)
+                # pyrefly: ignore [unbound-name]
                 frame_buffer["sam2_backbone_fpn_2"] = (fpn2[rank], fpn_handle2)
+                # pyrefly: ignore [unbound-name]
                 frame_buffer["sam2_backbone_pos_enc"] = (vision_pos_enc, None)
 
             multigpu_buffer[frame_idx_to_save] = frame_buffer
@@ -893,6 +921,7 @@ class Sam3MultiplexDetector(Sam3MultiplexImageBase):
                 out["sam2_backbone_fpn_2"] = sam2_bb["backbone_fpn"][2].tensors[
                     local_idx : local_idx + 1
                 ]
+                # pyrefly: ignore [unsupported-operation]
                 out["sam2_backbone_pos_enc"] = [
                     x[local_idx : local_idx + 1] for x in sam2_bb["vision_pos_enc"]
                 ]
@@ -908,6 +937,7 @@ class Sam3MultiplexDetector(Sam3MultiplexImageBase):
                 out["interactive_backbone_fpn_2"] = inte_bb["backbone_fpn"][2].tensors[
                     local_idx : local_idx + 1
                 ]
+                # pyrefly: ignore [unsupported-operation]
                 out["interactive_backbone_pos_enc"] = [
                     x[local_idx : local_idx + 1] for x in inte_bb["vision_pos_enc"]
                 ]
