@@ -63,6 +63,31 @@ This breakthrough is driven by an innovative data engine that has automatically 
 - PyTorch 2.7 or higher
 - CUDA-compatible GPU with CUDA 12.6 or higher
 
+### Databricks ML GPU Cluster
+
+If you install this repo inside a Databricks notebook on a Machine Learning GPU cluster,
+the base cluster image typically already provides the heavy runtime stack such as
+PyTorch and torchvision. The package metadata is therefore intentionally kept small
+and only lists the non-cluster-specific Python dependencies that the repo imports
+directly at runtime.
+
+Typical notebook install flow:
+
+```python
+# Clone into local driver storage or /Workspace as preferred
+%sh git clone https://github.com/facebookresearch/sam3.git /tmp/sam3
+
+# Install the repo into the notebook environment
+%pip install -e /tmp/sam3
+
+# Restart Python after %pip in Databricks
+dbutils.library.restartPython()
+```
+
+Before relying on the cluster image, verify that the runtime already exposes
+`torch` and `torchvision` in the notebook. If not, install versions matching your
+Databricks runtime and CUDA stack before installing the repo.
+
 1. **Create a new Conda environment:**
 
 ```bash
@@ -85,14 +110,17 @@ cd sam3
 pip install -e .
 ```
 
-4. **Install additional dependencies for example notebooks or development:**
+4. **Install optional tooling only if you need it:**
 
 ```bash
-# For running example notebooks
-pip install -e ".[notebooks]"
+# Example notebooks and visualization helpers
+pip install matplotlib jupyter notebook ipywidgets ipycanvas ipympl pycocotools decord opencv-python scikit-image scikit-learn pandas
 
-# For development
-pip install -e ".[train,dev]"
+# Training and evaluation tooling
+pip install hydra-core submitit tensorboard zstandard scipy torchmetrics fvcore fairscale pycocotools
+
+# Development tooling
+pip install pytest pytest-cov black==24.2.0 ufmt==2.8.0 ruff-api==0.1.0 usort==1.0.2 gitpython==3.1.31 yt-dlp numba python-rapidjson
 ```
 
 ## Getting Started

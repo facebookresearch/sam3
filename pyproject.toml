@@ -27,60 +27,10 @@ classifiers = [
 dependencies = [
     "timm>=1.0.17",
     "numpy==1.26",
-    "tqdm",
     "ftfy==6.1.1",
     "regex",
     "iopath>=0.1.10",
-    "typing_extensions",
-    "huggingface_hub",
 ]
-
-[project.optional-dependencies]
-dev = [
-    "pytest",
-    "pytest-cov",
-    "black==24.2.0",
-    "ufmt==2.8.0",
-    "ruff-api==0.1.0",
-    "usort==1.0.2",
-    "gitpython==3.1.31",
-    "yt-dlp",
-    "pandas",
-    "opencv-python",
-    "pycocotools",
-    "numba",
-    "python-rapidjson",
-]
-notebooks = [
-    "matplotlib",
-    "jupyter",
-    "notebook",
-    "ipywidgets",
-    "ipycanvas",
-    "ipympl",
-    "pycocotools",
-    "decord",
-    "opencv-python",
-    "einops",
-    "scikit-image",
-    "scikit-learn",
-]
-train = [
-    "hydra-core",
-    "submitit",
-    "tensorboard",
-    "zstandard",
-    "scipy",
-    "torchmetrics",
-    "fvcore",
-    "fairscale",
-    "scikit-image",
-    "scikit-learn",
-]
-
-[project.urls]
-"Homepage" = "https://github.com/facebookresearch/sam3"
-"Bug Tracker" = "https://github.com/facebookresearch/sam3/issues"
 
 [tool.setuptools]
 packages = ["sam3", "sam3.model"]
@@ -88,44 +38,4 @@ packages = ["sam3", "sam3.model"]
 [tool.setuptools.dynamic]
 version = {attr = "sam3.__version__"}
 
-[tool.black]
-line-length = 88
-target-version = ['py38', 'py39', 'py310', 'py311', 'py312']
-include = '\.pyi?$'
-
-[tool.isort]
-profile = "black"
-multi_line_output = 3
-
-[tool.usort]
-first_party_detection = false
-
-[tool.ufmt]
-formatter = "ruff-api"
-
-[tool.mypy]
-python_version = "3.12"
-warn_return_any = true
-warn_unused_configs = true
-disallow_untyped_defs = true
-disallow_incomplete_defs = true
-
-[[tool.mypy.overrides]]
-module = [
-    "torch.*",
-    "torchvision.*",
-    "timm.*",
-    "numpy.*",
-    "PIL.*",
-    "tqdm.*",
-    "ftfy.*",
-    "regex.*",
-    "iopath.*",
-]
 ignore_missing_imports = true
-
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-python_files = "test_*.py"
-python_classes = "Test*"
-python_functions = "test_*"
