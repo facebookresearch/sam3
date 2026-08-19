@@ -96,6 +96,17 @@ class Sam3VideoPredictor(Sam3BasePredictor):
             f"GPU device: {torch.cuda.get_device_properties(torch.cuda.current_device())}"
         )
 
+    def shutdown(self):
+        tracker = getattr(self.model, "tracker", None)
+        bf16_context = getattr(tracker, "bf16_context", None)
+        try:
+            if bf16_context is not None:
+                bf16_context.__exit__(None, None, None)
+        finally:
+            if tracker is not None:
+                tracker.bf16_context = None
+            super().shutdown()
+
 
 class Sam3VideoPredictorMultiGPU(Sam3VideoPredictor):
     def __init__(self, *model_args, gpus_to_use=None, **model_kwargs):
