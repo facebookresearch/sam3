@@ -192,11 +192,31 @@ class Sam3VideoInference(Sam3VideoBase):
             and inference_state["previous_stages_out"][frame_idx] is None
         )
         if is_new_visual_prompt:
-            if boxes_cxcywh.size(0) != 1:
-                raise RuntimeError(
-                    "visual prompts (box as an initial prompt) should only have one box, "
-                    f"but got {boxes_cxcywh.shape=}"
+            if boxes_cxcywh.size(0) > 1:
+                if (box_labels == 0).any().item():
+                    logging.warning("A negative box is added as a visual prompt.")
+
+                batch_size = 1
+                device = self.device
+                new_visual_prompt = Prompt(
+                    box_embeddings=torch.zeros(
+                        0, batch_size, 4, device=device
+                    ),
+                    box_mask=torch.zeros(
+                        batch_size, 0, device=device, dtype=torch.bool
+                    ),
+                    point_embeddings=None,
+                    point_mask=None,
                 )
+                new_visual_prompt.append_boxes(
+                    boxes=boxes_cxcywh.view(-1, batch_size, 4).to(device),
+                    labels=box_labels.view(-1, batch_size).to(device),
+                )
+                inference_state["per_frame_visual_prompt"][frame_idx] = (
+                    new_visual_prompt
+                )
+                return boxes_cxcywh[:0], box_labels[:0], new_visual_prompt
+
             if not box_labels.item():
                 logging.warning("A negative box is added as a visual prompt.")
             # take the first box prompt as a visual prompt
