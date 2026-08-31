@@ -7,7 +7,7 @@ This repository supports finetuning SAM3 models on custom datasets in multi-node
 
 ```bash
 cd sam3
-pip install -e ".[train]"
+uv sync --extra train
 ```
 
 ### Training Script Usage

@@ -8,7 +8,6 @@ import os
 import torch
 from PIL import Image
 from sam3.model.box_ops import box_xyxy_to_xywh
-from sam3.train.masks_ops import rle_encode
 
 from .helpers.mask_overlap_removal import remove_overlapping_masks
 from .viz import visualize
@@ -36,6 +35,9 @@ def sam3_inference(processor, image_path, text_prompt):
         dim=-1,
     )  # normalized in range [0, 1]
     pred_boxes_xywh = box_xyxy_to_xywh(pred_boxes_xyxy).tolist()
+    # Imported lazily so `import sam3` does not require pycocotools.
+    from sam3.train.masks_ops import rle_encode
+
     pred_masks = rle_encode(inference_state["masks"].squeeze(1))
     pred_masks = [m["counts"] for m in pred_masks]
     outputs = {
