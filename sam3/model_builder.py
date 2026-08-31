@@ -1072,7 +1072,7 @@ def build_sam3_multiplex_video_predictor(
     bpe_path: Optional[str] = None,
     max_num_objects: int = 16,
     multiplex_count: int = 16,
-    use_fa3: bool = True,
+    use_fa3: bool = False,
     use_rope_real: bool = True,
     compile: bool = False,
     warm_up: bool = False,
@@ -1251,7 +1251,7 @@ def build_sam3_predictor(
     max_num_objects: int = 16,
     multiplex_count: int = 16,
     # Common
-    use_fa3: bool = True,
+    use_fa3: bool = False,
     use_rope_real: bool = True,
     async_loading_frames: bool = True,
     **kwargs,
