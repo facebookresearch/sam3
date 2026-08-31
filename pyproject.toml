@@ -64,6 +64,7 @@ notebooks = [
     "einops",
     "scikit-image",
     "scikit-learn",
+    "pandas",
 ]
 train = [
     "hydra-core",
