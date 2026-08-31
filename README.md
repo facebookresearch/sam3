@@ -68,7 +68,10 @@ This breakthrough is driven by an innovative data engine that has automatically 
 
 - Python 3.12 or higher
 - PyTorch 2.7 or higher
-- CUDA-compatible GPU with CUDA 12.6 or higher
+- A CUDA-compatible GPU (CUDA 12.6 or higher) is recommended for best
+  performance. CPU-only environments are also supported — the device is
+  selected automatically based on `torch.cuda.is_available()` (inference will
+  be slower without a GPU).
 
 1. **Create a new Conda environment:**
 
@@ -83,6 +86,13 @@ conda activate sam3
 ```bash
 pip install torch==2.10.0 torchvision --index-url https://download.pytorch.org/whl/cu128
 ```
+
+> **CPU-only:** if you don't have a CUDA-compatible GPU, install the CPU build
+> instead. SAM 3 will automatically fall back to running on CPU.
+>
+> ```bash
+> pip install torch==2.10.0 torchvision --index-url https://download.pytorch.org/whl/cpu
+> ```
 
 3. **Clone the repository and install the package:**
 
