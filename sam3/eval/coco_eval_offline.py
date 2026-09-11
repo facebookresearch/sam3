@@ -134,7 +134,15 @@ class CocoEvaluatorOfflineWithPredFileEvaluators:
         tide: bool = True,
         iou_type: str = "bbox",
         positive_split=False,
+        backend="pycocotools",
     ):
+        if backend not in ("pycocotools", "ultrafast"):
+            raise ValueError(f"Unknown COCO backend {backend!r}")
+        self.backend = backend
+        if backend == "ultrafast":
+            from sam3.eval.ultrafast_coco import ultrafast_tools
+
+            ultrafast_tools()
         self.gt_path = gt_path
         self.tide_enabled = HAS_TIDE and tide
         self.positive_split = positive_split
@@ -153,9 +161,19 @@ class CocoEvaluatorOfflineWithPredFileEvaluators:
 
         # Run the evaluation
         logging.info("Coco evaluator: Running evaluation")
-        coco_eval = COCOevalCustom(
-            self.gt, cocoDt, iouType=self.iou_type, dt_only_positive=self.positive_split
-        )
+        if self.backend == "ultrafast":
+            from sam3.eval.ultrafast_coco import create_offline_evaluator
+
+            coco_eval = create_offline_evaluator(
+                self.gt, cocoDt, self.iou_type, self.positive_split
+            )
+        else:
+            coco_eval = COCOevalCustom(
+                self.gt,
+                cocoDt,
+                iouType=self.iou_type,
+                dt_only_positive=self.positive_split,
+            )
         coco_eval.evaluate()
         coco_eval.accumulate()
         coco_eval.summarize()
