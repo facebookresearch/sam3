@@ -151,6 +151,12 @@ class Sam3BasePredictor:
             init_kwargs["async_loading_frames"] = self.async_loading_frames
         if hasattr(self, "video_loader_type"):
             init_kwargs["video_loader_type"] = self.video_loader_type
+        # Filter to params the model accepts: the SAM 3.1 multiplex init_state()
+        # has no offload_state_to_cpu
+        import inspect
+
+        sig = inspect.signature(self.model.init_state)
+        init_kwargs = {k: v for k, v in init_kwargs.items() if k in sig.parameters}
         inference_state = self.model.init_state(**init_kwargs)
 
         if not session_id:

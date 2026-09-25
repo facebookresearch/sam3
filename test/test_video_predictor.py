@@ -66,6 +66,27 @@ class TestVideoPredictorStreaming(unittest.TestCase):
         self.assertEqual([0, 1], sorted(state["cached_frame_outputs"]))
 
 
+class _MultiplexInitModel:
+    """Like the SAM 3.1 multiplex model, init_state() has no offload_state_to_cpu."""
+
+    def init_state(self, resource_path, offload_video_to_cpu=False):
+        return {"resource_path": resource_path}
+
+
+class TestStartSession(unittest.TestCase):
+    def test_drops_kwargs_the_model_does_not_accept(self) -> None:
+        predictor = Sam3BasePredictor()
+        predictor.model = _MultiplexInitModel()
+
+        response = predictor.handle_request(
+            {"type": "start_session", "resource_path": "video.mp4", "session_id": "s"}
+        )
+
+        self.assertEqual("s", response["session_id"])
+        state = predictor._all_inference_states["s"]["state"]
+        self.assertEqual("video.mp4", state["resource_path"])
+
+
 class TestVideoPredictorShutdown(unittest.TestCase):
     def test_exits_tracker_autocast_context(self) -> None:
         predictor = Sam3VideoPredictor.__new__(Sam3VideoPredictor)
