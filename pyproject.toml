@@ -60,7 +60,7 @@ notebooks = [
     "ipycanvas",
     "ipympl",
     "pycocotools",
-    "decord",
+    "decord; sys_platform != 'darwin'",  # no macOS wheels
     "opencv-python",
     "einops",
     "scikit-image",

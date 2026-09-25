@@ -13,6 +13,7 @@ via the shared Sam3BasePredictor handle_request/handle_stream_request API.
 from typing import Dict, Optional
 
 import torch
+from sam3.device_utils import bf16_autocast
 from sam3.logger import get_logger
 from sam3.model.sam3_base_predictor import Sam3BasePredictor
 
@@ -48,7 +49,7 @@ class Sam3MultiplexVideoPredictor(Sam3BasePredictor):
         torch.backends.cuda.matmul.allow_tf32 = True
         torch.backends.cudnn.allow_tf32 = True
         # use bfloat16 inference for Flash Attention kernel
-        self.bf16_context = torch.autocast(device_type="cuda", dtype=torch.bfloat16)
+        self.bf16_context = bf16_autocast()
         self.bf16_context.__enter__()
 
         if warm_up:

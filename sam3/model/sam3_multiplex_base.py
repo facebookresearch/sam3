@@ -11,6 +11,7 @@ import numpy as np
 import torch
 import torch.distributed as dist
 import torch.nn.functional as F
+from sam3.device_utils import bf16_autocast, cuda_supports_tf32
 from sam3.logger import get_logger
 from sam3.model.box_ops import fast_diag_box_iou
 from sam3.model.data_misc import BatchedDatapoint, NestedTensor
@@ -33,7 +34,7 @@ SAM3_COLLECTIVE_OP_TIMEOUT_SEC = int(os.getenv("SAM3_COLLECTIVE_OP_TIMEOUT_SEC",
 
 logger = get_logger(__name__)
 
-if torch.cuda.get_device_properties(0).major >= 8:
+if cuda_supports_tf32():
     # turn on tfloat32 for Ampere GPUs (https://pytorch.org/docs/stable/notes/cuda.html#tensorfloat-32-tf32-on-ampere-devices)
     torch.backends.cuda.matmul.allow_tf32 = True
     torch.backends.cudnn.allow_tf32 = True
@@ -168,7 +169,7 @@ class Sam3MultiplexTrackerPredictor(nn.Module):
         self.per_obj_inference = per_obj_inference
         self.fill_hole_area = fill_hole_area
         # use bfloat16 inference for Flash Attention kernel
-        self.bf16_context = torch.autocast(device_type="cuda", dtype=torch.bfloat16)
+        self.bf16_context = bf16_autocast()
         self.bf16_context.__enter__()  # keep using for the entire model process
 
     def __getattr__(self, name):
@@ -2941,5 +2942,5 @@ class Sam3MultiplexPredictorWrapper(Sam3MultiplexTrackerPredictor):
         self.is_multiplex_dynamic = is_multiplex_dynamic
 
         # use bfloat16 inference for Flash Attention kernel
-        self.bf16_context = torch.autocast(device_type="cuda", dtype=torch.bfloat16)
+        self.bf16_context = bf16_autocast()
         self.bf16_context.__enter__()

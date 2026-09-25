@@ -9,6 +9,7 @@ from typing import List, Optional
 
 import torch
 import torch.nn as nn
+from sam3.device_utils import DEVICE
 from torch.nn.attention import sdpa_kernel, SDPBackend
 
 from .act_ckpt_utils import activation_ckpt_wrapper
@@ -122,7 +123,7 @@ class SAM3VLBackbone(nn.Module):
         return output
 
     def forward_text(
-        self, captions, input_boxes=None, additional_text=None, device="cuda"
+        self, captions, input_boxes=None, additional_text=None, device=DEVICE
     ):
         return activation_ckpt_wrapper(self._forward_text_no_ack_ckpt)(
             captions=captions,
@@ -137,7 +138,7 @@ class SAM3VLBackbone(nn.Module):
         captions,
         input_boxes=None,
         additional_text=None,
-        device="cuda",
+        device=DEVICE,
     ):
         output = {}
 
@@ -326,7 +327,7 @@ class VisionOnly(nn.Module):
         captions,
         input_boxes=None,
         additional_text=None,
-        device="cuda",
+        device=DEVICE,
     ):
         bs = len(captions)
         output = {
