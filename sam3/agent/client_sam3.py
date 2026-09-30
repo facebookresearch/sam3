@@ -49,15 +49,20 @@ def sam3_inference(processor, image_path, text_prompt):
 
 
 def call_sam_service(
-    sam3_processor,
-    image_path: str,
-    text_prompt: str,
+    sam3_processor=None,
+    image_path: str = "",
+    text_prompt: str = "",
     output_folder_path: str = "sam3_output",
 ):
     """
     Loads an image, sends it with a text prompt to the service,
     saves the results, and renders the visualization.
     """
+    if sam3_processor is None:
+        raise ValueError(
+            "sam3_processor must be provided to call_sam_service. "
+            "Please pass a Sam3Processor instance via functools.partial(call_sam_service, sam3_processor=...)."
+        )
     print(f"📞 Loading image '{image_path}' and sending with prompt '{text_prompt}'...")
 
     text_prompt_for_save_path = (

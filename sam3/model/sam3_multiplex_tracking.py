@@ -2525,10 +2525,11 @@ class Sam3MultiplexTrackingWithInteractivity(Sam3MultiplexTracking):
         ):
             # last action is cancel, we go back to the action before cancel
             action_before_cancelation = inference_state["action_history"][-2]
-            # the action before cancellation can be a propagation_fetch from running both forward
-            # and backward propagation as in webdemo interface, in that case we go back one more step
             if action_before_cancelation["type"] == "propagation_fetch":
-                action_before_cancelation = inference_state["action_history"][-3]
+                if len(inference_state["action_history"]) >= 3:
+                    action_before_cancelation = inference_state["action_history"][-3]
+                else:
+                    return "propagation_full", None
             return action_before_cancelation["type"], action_before_cancelation.get(
                 "obj_ids", None
             )
