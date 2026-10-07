@@ -157,8 +157,23 @@ response = video_predictor.handle_request(
         text="<YOUR_TEXT_PROMPT>",
     )
 )
-output = response["outputs"]
+prompted_frame_output = response["outputs"]
+
+for result in video_predictor.handle_stream_request(
+    request=dict(
+        type="propagate_in_video",
+        session_id=response["session_id"],
+    )
+):
+    frame_idx = result["frame_index"]
+    frame_output = result["outputs"]
 ```
+
+### API Notes
+
+- `Sam3Processor` is the convenience API for image inference. `processor.set_text_prompt(...)` returns `boxes` in absolute pixel coordinates using `[x0, y0, x1, y1]` (`xyxy`) format.
+- `build_sam3_video_predictor()` exposes a request-based API. Use `handle_request(...)` for one-shot operations such as `start_session` and `add_prompt`, and use `handle_stream_request(...)` for `propagate_in_video`, which yields one result per frame.
+- For video prompts, `add_prompt` expects `bounding_boxes` in normalized `[x_min, y_min, width, height]` (`xywh`) format. Video outputs expose `out_boxes_xywh` in the same normalized `xywh` convention.
 
 ## Examples
 
