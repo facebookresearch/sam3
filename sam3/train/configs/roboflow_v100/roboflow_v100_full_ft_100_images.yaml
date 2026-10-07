@@ -227,14 +227,15 @@ scratch:
     dict_key: roboflow100
     with_seg_masks: ${scratch.enable_segmentation} # Note: Set this to true if using segmentation masks!
 
-  gradient_accumulation_steps: 1
-  train_batch_size: 1
+  gradient_accumulation_steps: 16
+  train_batch_size: 16
   collate_fn:
-    _target_: sam3.train.data.collator.collate_fn_api
+    _target_: sam3.train.data.collator.collate_fn_api_with_chunking
     _partial_: true
     repeats: ${scratch.hybrid_repeats}
     dict_key: all
     with_seg_masks: ${scratch.enable_segmentation} # Note: Set this to true if using segmentation masks!
+    num_chunks: ${scratch.gradient_accumulation_steps}
 
 # ============================================================================
 # Trainer Configuration
