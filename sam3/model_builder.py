@@ -542,9 +542,19 @@ def _load_checkpoint(model, checkpoint_path):
         ckpt = torch.load(f, map_location="cpu", weights_only=True)
     if "model" in ckpt and isinstance(ckpt["model"], dict):
         ckpt = ckpt["model"]
+    # Checkpoints saved from a DDP-wrapped model (e.g. the training pipeline
+    # described in README_TRAIN.md) prefix every key with "module."
+    ckpt = {
+        (k[len("module.") :] if k.startswith("module.") else k): v
+        for k, v in ckpt.items()
+    }
     sam3_image_ckpt = {
         k.replace("detector.", ""): v for k, v in ckpt.items() if "detector" in k
     }
+    if not sam3_image_ckpt:
+        # Checkpoint saved directly from the image model: its keys have no
+        # "detector." prefix, so the filter above would drop all of them.
+        sam3_image_ckpt = ckpt
     if model.inst_interactive_predictor is not None:
         sam3_image_ckpt.update(
             {
@@ -553,11 +563,17 @@ def _load_checkpoint(model, checkpoint_path):
                 if "tracker" in k
             }
         )
-    missing_keys, _ = model.load_state_dict(sam3_image_ckpt, strict=False)
-    if len(missing_keys) > 0:
+    if not set(sam3_image_ckpt) & set(model.state_dict()):
+        raise ValueError(
+            f"no key in checkpoint {checkpoint_path} matches the model state dict; "
+            "loading it would leave the model randomly initialized. Sample "
+            f"checkpoint keys: {sorted(sam3_image_ckpt)[:5]}"
+        )
+    missing_keys, unexpected_keys = model.load_state_dict(sam3_image_ckpt, strict=False)
+    if len(missing_keys) > 0 or len(unexpected_keys) > 0:
         print(
             f"loaded {checkpoint_path} and found "
-            f"missing and/or unexpected keys:\n{missing_keys=}"
+            f"missing and/or unexpected keys:\n{missing_keys=}\n{unexpected_keys=}"
         )
 
 
