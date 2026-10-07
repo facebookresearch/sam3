@@ -151,3 +151,37 @@ Thumbs.db
 # BPE vocabulary files
 *.bpe
 *.vocab
+
+# secrets
+.env
+*.env
+*token*
+*secret*
+*key*
+
+# Hugging Face / model cache
+hf_cache/
+.cache/
+*.safetensors
+*.pt
+*.pth
+*.ckpt
+*.bin
+
+# PBS / cluster logs
+*.o[0-9]*
+*.e[0-9]*
+sam3_mask_area.o*
+
+# experiment outputs
+sam3_test_samples/
+sam3_test_from_json/
+sam3_test_same_take/
+sam3_test_same_object/
+sam3_mask_results/
+gemini_ranked_candidates.json
+meta.json
+
+# python cache
+__pycache__/
+*.pyc
