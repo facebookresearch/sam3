@@ -33,6 +33,7 @@ dependencies = [
     "iopath>=0.1.10",
     "typing_extensions",
     "huggingface_hub",
+    "psutil",
 ]
 
 [project.optional-dependencies]
@@ -59,7 +60,7 @@ notebooks = [
     "ipycanvas",
     "ipympl",
     "pycocotools",
-    "decord",
+    "decord; sys_platform != 'darwin'",  # no macOS wheels
     "opencv-python",
     "einops",
     "scikit-image",
