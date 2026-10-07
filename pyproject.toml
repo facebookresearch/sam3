@@ -33,6 +33,7 @@ dependencies = [
     "iopath>=0.1.10",
     "typing_extensions",
     "huggingface_hub",
+    "einops",
 ]
 
 [project.optional-dependencies]
@@ -61,7 +62,6 @@ notebooks = [
     "pycocotools",
     "decord",
     "opencv-python",
-    "einops",
     "scikit-image",
     "scikit-learn",
 ]
