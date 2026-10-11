@@ -92,6 +92,9 @@ class Sam3BasePredictor:
                 session_id=request["session_id"],
                 frame_idx=request.get("frame_index", 0),
                 obj_id=request["obj_id"],
+                # Programmatic pruning before propagation must pass False: a history of
+                # only user removals makes propagation return the cached seed frame.
+                is_user_action=request.get("is_user_action", True),
             )
         elif request_type == "reset_session":
             return self.reset_session(session_id=request["session_id"])

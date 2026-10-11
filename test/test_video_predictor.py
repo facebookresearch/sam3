@@ -2,6 +2,7 @@
 
 import types
 import unittest
+from unittest.mock import MagicMock
 
 import torch
 from sam3.model.sam3_base_predictor import Sam3BasePredictor
@@ -81,6 +82,24 @@ class TestVideoPredictorShutdown(unittest.TestCase):
 
         self.assertFalse(torch.is_autocast_enabled("cpu"))
         self.assertIsNone(tracker.bf16_context)
+
+
+class TestRemoveObjectRequest(unittest.TestCase):
+    def test_forwards_is_user_action(self) -> None:
+        predictor = Sam3VideoPredictor.__new__(Sam3VideoPredictor)
+        predictor.remove_object = MagicMock()
+        request = {"type": "remove_object", "session_id": "s", "obj_id": 3}
+
+        predictor.handle_request({**request, "is_user_action": False})
+        predictor.handle_request(request)
+
+        self.assertEqual(
+            [
+                c.kwargs["is_user_action"]
+                for c in predictor.remove_object.call_args_list
+            ],
+            [False, True],
+        )
 
 
 if __name__ == "__main__":
