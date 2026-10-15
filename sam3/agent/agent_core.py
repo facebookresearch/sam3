@@ -202,9 +202,8 @@ def agent_inference(
     print(f"\n>>> MLLM Response [start]\n{generated_text}\n<<< MLLM Response [end]\n")
     while generated_text is not None:
         save_debug_messages(messages, debug, debug_folder_path, debug_jsonl_path)
-        assert (
-            "<tool>" in generated_text,
-            f"Generated text does not contain <tool> tag: {generated_text}",
+        assert "<tool>" in generated_text, (
+            f"Generated text does not contain <tool> tag: {generated_text}"
         )
         generated_text = generated_text.split("</tool>", 1)[0] + "</tool>"
         tool_call_json_str = (
@@ -252,7 +251,6 @@ def agent_inference(
                 # Add the text_prompt to the set of used prompts
                 USED_TEXT_PROMPTS.add(current_text_prompt)
                 LATEST_SAM3_TEXT_PROMPT = current_text_prompt
-                # pyrefly: ignore [missing-argument]
                 PATH_TO_LATEST_OUTPUT_JSON = call_sam_service(
                     image_path=img_path,
                     text_prompt=current_text_prompt,
