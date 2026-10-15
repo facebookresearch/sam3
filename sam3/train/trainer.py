@@ -31,6 +31,7 @@ from sam3.train.utils.checkpoint_utils import (
     with_check_parameter_frozen,
 )
 from sam3.train.utils.distributed import all_reduce_max, barrier, get_rank
+from sam3.train.utils.freeze_utils import apply_freezing_from_config
 from sam3.train.utils.logger import Logger, setup_logging
 from sam3.train.utils.train_utils import (
     AverageMeter,
@@ -165,6 +166,7 @@ class Trainer:
         cuda: Dict[str, bool] = None,
         env_variables: Optional[Dict[str, Any]] = None,
         optim: Optional[Dict[str, Any]] = None,
+        freezing: Optional[Dict[str, Any]] = None,
         optim_overrides: Optional[List[Dict[str, Any]]] = None,
         meters: Optional[Dict[str, Any]] = None,
         loss: Optional[Dict[str, Any]] = None,
@@ -184,6 +186,7 @@ class Trainer:
         self.mode = mode
         self.val_epoch_freq = val_epoch_freq
         self.optim_conf = OptimConf(**optim) if optim is not None else OptimConf()
+        self.freezing_conf = freezing
         self.meters_conf = meters
         self.loss_conf = loss
         self.gradient_accumulation_steps = gradient_accumulation_steps
@@ -1092,6 +1095,8 @@ class Trainer:
         self.logger = Logger(self.logging_conf)
 
         self.model = instantiate(self.model_conf, _convert_="all")
+        if self.freezing_conf is not None:
+            apply_freezing_from_config(self.model, self.freezing_conf)
         print_model_summary(self.model)
 
         self.loss = None

@@ -184,6 +184,35 @@ trainer:
   meters:
     val: null
 
+  # Available strategies:
+  # - none
+  # - freeze_encoder
+  # - freeze_vision_only
+  # - freeze_language_only
+  # - freeze_all_backbones
+  # - freeze_encoder_keep_decoder
+  # - freeze_everything_except_heads
+  # freeze_modules and freeze_param_patterns operate on the unwrapped model.
+  freezing:
+    strategy: none
+    freeze_vision_backbone: false
+    freeze_language_backbone: false
+    freeze_geometry_encoder: false
+    freeze_transformer: false
+    freeze_transformer_encoder: false
+    freeze_transformer_decoder: false
+    freeze_vision_neck: false
+    freeze_vision_patch_embed: false
+    freeze_vision_ln_pre: false
+    freeze_scoring_head: false
+    freeze_segmentation_head: false
+    freeze_vision_layers: []
+    unfreeze_vision_layers: []
+    freeze_modules: []
+    unfreeze_modules: []
+    freeze_param_patterns: []
+    unfreeze_param_patterns: []
+
   optim:
     amp:
       enabled: True
