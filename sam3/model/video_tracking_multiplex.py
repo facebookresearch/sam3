@@ -28,6 +28,7 @@ import torch
 import torch.distributed
 import torch.nn as nn
 import torch.nn.functional as F
+from sam3.device_utils import DEVICE
 from sam3.model.data_misc import BatchedDatapoint, NestedTensor
 from sam3.model.memory import SimpleMaskEncoder
 from sam3.model.multiplex_mask_decoder import MLP, MultiplexMaskDecoder
@@ -1421,7 +1422,7 @@ class VideoTrackingMultiplex(nn.Module):
                     continue
                 # "maskmem_features" might have been offloaded to CPU in demo use cases,
                 # so we load it back to GPU (it's a no-op if it's already on GPU).
-                feats = feats.cuda(non_blocking=True)
+                feats = feats.to(DEVICE, non_blocking=True)
                 if feats.dim() == 5:
                     feats = multiplex_state.demux(feats).contiguous()
                     prev["maskmem_features"] = (
@@ -1440,7 +1441,7 @@ class VideoTrackingMultiplex(nn.Module):
                 maskmem_enc = maskmem_pos_list[-1]
                 if maskmem_enc is None:
                     continue
-                maskmem_enc = maskmem_enc.cuda(non_blocking=True)
+                maskmem_enc = maskmem_enc.to(DEVICE, non_blocking=True)
                 if maskmem_enc.dim() == 5:
                     maskmem_enc = multiplex_state.demux(maskmem_enc).contiguous()
                     prev["maskmem_pos_enc"][-1] = (
@@ -1465,8 +1466,8 @@ class VideoTrackingMultiplex(nn.Module):
 
                 if self.save_image_features:
                     # image features are in (HW)BC
-                    image_feat = prev["image_features"].cuda()
-                    image_pos_embed = prev["image_pos_enc"].cuda() + tpos_enc
+                    image_feat = prev["image_features"].to(DEVICE)
+                    image_pos_embed = prev["image_pos_enc"].to(DEVICE) + tpos_enc
                     # pyrefly: ignore [unbound-name]
                     to_cat_image_feat.append(image_feat)
                     # pyrefly: ignore [unbound-name]
