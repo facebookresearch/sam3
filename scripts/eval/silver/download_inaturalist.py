@@ -27,10 +27,17 @@ def download_archive(url, dest_dir):
     return archive_path
 
 
+def _is_safe_tar_member(member, dest_dir):
+    dest_path = Path(dest_dir).resolve()
+    member_path = (dest_path / member.name).resolve()
+    return member_path.is_relative_to(dest_path) and ".." not in member.name
+
+
 def extract_archive(archive_path, dest_dir):
     print(f"Extracting {archive_path} to {dest_dir}...")
     with tarfile.open(archive_path, "r:gz") as tar:
-        tar.extractall(path=dest_dir)
+        safe_members = [m for m in tar.getmembers() if _is_safe_tar_member(m, dest_dir)]
+        tar.extractall(path=dest_dir, members=safe_members)
     print("Extraction complete.")
 
 
