@@ -1,0 +1,648 @@
+"""
+SAM 3 — Batch Video Tracking + Evaluation
+==========================================
+
+For each folder under --input-dir:
+    b1.MP4  +  b1pf.xml (GT)
+    ↓
+    SAM3 tracking → b1pf_pred.xml  (CVAT track format, matches GT schema)
+    ↓
+    frame_compare.py → results/b1_metrics.txt
+
+Directory structure expected:
+    hard/
+        007/
+            b1.MP4   b1pf.xml
+            b2.MP4   b2pf.xml
+            results/
+        064/
+            ...
+
+Output:
+    hard/007/b1pf_pred.xml          ← prediction XML
+    hard/007/results/b1_metrics.txt ← per-video metrics
+    hard/007/results/summary.txt    ← folder-level summary
+    hard/results_summary.txt        ← global summary across all folders
+"""
+
+import argparse
+import os
+import sys
+import time
+import traceback
+import xml.etree.ElementTree as ET
+from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+from xml.dom import minidom
+
+import cv2
+import numpy as np
+import torch
+import torch.distributed as dist
+
+# ── frame_compare imports ────────────────────────────────────────────────────
+# We import the evaluation functions directly so we don't need a subprocess
+script_dir = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, script_dir)
+from frame_compare import parse_xml, evaluate, calculate_ap
+
+# ── Distributed / NCCL stability ────────────────────────────────────────────
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+os.environ["MASTER_ADDR"] = "127.0.0.1"
+os.environ["NCCL_ASYNC_ERROR_HANDLING"] = "1"
+os.environ["NCCL_BLOCKING_WAIT"] = "1"
+os.environ["NCCL_TIMEOUT"] = "600"
+os.environ.setdefault("GLOO_SOCKET_TIMEOUT", "600")
+
+from sam3.model_builder import build_sam3_video_predictor
+
+# ── Defaults ─────────────────────────────────────────────────────────────────
+INPUT_DIR       = "/home/ptekchan/vision-stream-worker/worker-go/tmp/hard"
+CHECKPOINT_PATH = "/home/ptekchan/sam3/examples/model/sam3.pt"
+CONCEPTS        = ["person"]
+GPUS            = [0, 1, 2, 3]
+MAX_SIDE        = 720
+LABELS_TO_EVAL  = {"person"}
+
+PALETTE = [
+    (0, 114, 189), (217, 83, 25),  (32, 178, 170),
+    (126, 47, 142),(119, 172, 48), (77, 190, 238),
+    (162, 20, 47), (0, 128, 0),    (128, 0, 128), (255, 165, 0),
+]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Geometry helpers
+# ─────────────────────────────────────────────────────────────────────────────
+
+def get_colour(idx):
+    return PALETTE[int(idx) % len(PALETTE)]
+
+def xywh_to_xyxy(box):
+    x, y, w, h = box
+    return [x, y, x + w, y + h]
+
+def scale_box(box_xyxy, scale):
+    if scale == 1.0:
+        return box_xyxy
+    x1, y1, x2, y2 = box_xyxy
+    return [x1 / scale, y1 / scale, x2 / scale, y2 / scale]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Drawing (written onto JPEG copies for visual QC)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def draw_detections(frame, boxes_xyxy, track_ids, scores, masks=None):
+    h_frame, w_frame = frame.shape[:2]
+    for i, (box, tid, score) in enumerate(zip(boxes_xyxy, track_ids, scores)):
+        x1, y1, x2, y2 = map(int, box)
+        colour = get_colour(tid)
+        if masks is not None and i < len(masks):
+            m = cv2.resize(masks[i].astype(np.uint8),
+                           (w_frame, h_frame),
+                           interpolation=cv2.INTER_NEAREST).astype(bool)
+            overlay = frame.copy()
+            overlay[m] = colour
+            cv2.addWeighted(overlay, 0.35, frame, 0.65, 0, frame)
+        cv2.rectangle(frame, (x1, y1), (x2, y2), colour, 2)
+        label = f"ID:{tid} {score:.2f}"
+        (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.55, 1)
+        cv2.rectangle(frame, (x1, y1 - th - 6), (x1 + tw + 4, y1), colour, -1)
+        cv2.putText(frame, label, (x1 + 2, y1 - 4),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 1)
+    return frame
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Prediction XML  — CVAT track format to match GT schema
+#
+# GT schema (b1pf.xml):
+#   <annotations>
+#     <track id="0" label="person">
+#       <box frame="0" xtl="x" ytl="y" xbr="x" ybr="y" outside="0" occluded="0">
+#         <attribute name="Global User Id">N/A</attribute>
+#         <attribute name="score">0.9</attribute>
+#       </box>
+#     </track>
+#   </annotations>
+# ─────────────────────────────────────────────────────────────────────────────
+
+class PredXmlBuilder:
+    """Accumulates per-frame detections and writes a CVAT-format XML."""
+
+    def __init__(self):
+        # track_id → list of (frame_idx, xtl, ytl, xbr, ybr, score)
+        self._tracks: dict[int, list] = defaultdict(list)
+
+    def add_frame(self, frame_idx: int, boxes_xyxy_orig: list,
+                  track_ids, scores):
+        for box, tid, score in zip(boxes_xyxy_orig, track_ids, scores):
+            x1, y1, x2, y2 = box
+            self._tracks[int(tid)].append(
+                (frame_idx, float(x1), float(y1), float(x2), float(y2), float(score))
+            )
+
+    def write(self, out_path: str, label: str = "person"):
+        root = ET.Element("annotations")
+        ET.SubElement(root, "version").text = "1.1"
+
+        for tid in sorted(self._tracks):
+            entries = sorted(self._tracks[tid], key=lambda e: e[0])
+            track_el = ET.SubElement(root, "track")
+            track_el.set("id",    str(tid))
+            track_el.set("label", label)
+
+            for (fidx, x1, y1, x2, y2, score) in entries:
+                box_el = ET.SubElement(track_el, "box")
+                box_el.set("frame",    str(fidx))
+                box_el.set("xtl",      f"{x1:.2f}")
+                box_el.set("ytl",      f"{y1:.2f}")
+                box_el.set("xbr",      f"{x2:.2f}")
+                box_el.set("ybr",      f"{y2:.2f}")
+                box_el.set("outside",  "0")
+                box_el.set("occluded", "0")
+
+                gid_el = ET.SubElement(box_el, "attribute")
+                gid_el.set("name", "Global User Id")
+                gid_el.text = str(tid)
+
+                sc_el = ET.SubElement(box_el, "attribute")
+                sc_el.set("name", "score")
+                sc_el.text = f"{score:.4f}"
+
+        raw  = ET.tostring(root, encoding="unicode")
+        pretty = minidom.parseString(raw).toprettyxml(indent="  ")
+        os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
+        with open(out_path, "w") as f:
+            f.write(pretty)
+        print(f"    Wrote prediction XML → {out_path}")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Frame extraction
+# ─────────────────────────────────────────────────────────────────────────────
+
+def extract_and_resize_frames(video_path, jpeg_dir, max_side):
+    os.makedirs(jpeg_dir, exist_ok=True)
+    existing = sorted(f for f in os.listdir(jpeg_dir) if f.endswith(".jpg"))
+    cap      = cv2.VideoCapture(str(video_path))
+    orig_w   = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    orig_h   = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+    if existing:
+        cap.release()
+        sample = cv2.imread(os.path.join(jpeg_dir, existing[0]))
+        scale  = sample.shape[1] / orig_w
+        return jpeg_dir, scale, orig_w, orig_h
+
+    longest = max(orig_w, orig_h)
+    if longest <= max_side:
+        scale = 1.0
+        new_w, new_h = orig_w, orig_h
+    else:
+        scale = max_side / longest
+        new_w, new_h = int(orig_w * scale), int(orig_h * scale)
+
+    idx = 0
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
+        if scale != 1.0:
+            frame = cv2.resize(frame, (new_w, new_h), interpolation=cv2.INTER_AREA)
+        cv2.imwrite(os.path.join(jpeg_dir, f"{idx:05d}.jpg"), frame)
+        idx += 1
+    cap.release()
+    print(f"    Extracted {idx} frames  ({orig_w}×{orig_h} → {new_w}×{new_h})")
+    return jpeg_dir, scale, orig_w, orig_h
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Evaluation helper
+# ─────────────────────────────────────────────────────────────────────────────
+
+def run_evaluation(gt_xml: str, pred_xml: str, results_dir: str,
+                   video_stem: str) -> dict | None:
+    """
+    Load both XMLs, compute metrics for every label in LABELS_TO_EVAL,
+    write a metrics txt, and return a summary dict.
+    """
+    gt_data = parse_xml(gt_xml)
+    pd_data = parse_xml(pred_xml)
+
+    if gt_data is None or pd_data is None:
+        print(f"    [EVAL] Could not load XML pair — skipping evaluation.")
+        return None
+
+    labels = set()
+    for f in gt_data:
+        for o in gt_data[f]: labels.add(o["label"])
+    for f in pd_data:
+        for o in pd_data[f]: labels.add(o["label"])
+    labels = [l for l in labels if l in LABELS_TO_EVAL]
+
+    if not labels:
+        print(f"    [EVAL] No matching labels found.")
+        return None
+
+    os.makedirs(results_dir, exist_ok=True)
+    metrics_path = os.path.join(results_dir, f"{video_stem}_metrics.txt")
+
+    lines = []
+    header = (f"{'CATEGORY':<10} | {'mAP':<8} | {'MOTA':<8} | {'IDF1':<8} | "
+              f"{'STABILITY':<10} | {'GT':<6} | {'MISS':<6} | {'FP':<6} | {'ID_SW':<6}")
+    sep    = "-" * 100
+    lines += ["=" * 100, header, sep]
+
+    summary = {}
+    maps, motas, idf1s, stabs = [], [], [], []
+
+    for label in labels:
+        ap = calculate_ap(gt_data, pd_data, label)
+        if ap is None:
+            continue
+        m = evaluate(gt_data, pd_data, label)
+        row = (f"{label.capitalize():<10} | {ap:<8.2%} | {m['mota']:<8.2%} | "
+               f"{m['idf1']:<8.2%} | {m['stability']:<10.2%} | {m['gt']:<6} | "
+               f"{m['miss']:<6} | {m['fp']:<6} | {m['id_sw']:<6}")
+        lines.append(row)
+        maps.append(ap); motas.append(m["mota"])
+        idf1s.append(m["idf1"]); stabs.append(m["stability"])
+        summary[label] = {"ap": ap, **m}
+
+    if len(labels) > 1:
+        lines.append(sep)
+        lines.append(
+            f"{'AVERAGE':<10} | {np.mean(maps):<8.2%} | {np.mean(motas):<8.2%} | "
+            f"{np.mean(idf1s):<8.2%} | {np.mean(stabs):<10.2%}"
+        )
+    lines.append("=" * 100)
+    lines.append(f"\nGT XML  : {gt_xml}")
+    lines.append(f"Pred XML: {pred_xml}")
+
+    report = "\n".join(lines)
+    print("\n" + report)
+    with open(metrics_path, "w") as f:
+        f.write(report + "\n")
+    print(f"    Metrics → {metrics_path}")
+
+    return summary
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Single-video processing
+# ─────────────────────────────────────────────────────────────────────────────
+
+def process_video(predictor, video_path: Path, gt_xml: str,
+                  pred_xml: str, results_dir: str,
+                  concepts: list, max_side: int) -> dict | None:
+    """
+    1. Extract frames
+    2. Run SAM3 → accumulate detections
+    3. Write prediction XML
+    4. Evaluate against GT XML
+    Returns metrics summary or None on failure.
+    """
+    video_stem = video_path.stem          # e.g. "b1"
+    frames_dir = str(video_path.parent / "results" / video_stem / "_vis")
+    jpeg_dir   = str(video_path.parent / "results" / video_stem / "_jpeg_input")
+
+    os.makedirs(frames_dir, exist_ok=True)
+
+    infer_path, scale, orig_w, orig_h = extract_and_resize_frames(
+        video_path, jpeg_dir, max_side
+    )
+    jpeg_paths = sorted(
+        os.path.join(infer_path, f)
+        for f in os.listdir(infer_path) if f.endswith(".jpg")
+    )
+    if not jpeg_paths:
+        print(f"    [SKIP] No frames extracted.")
+        return None
+
+    xml_builder = PredXmlBuilder()
+    io_pool     = ThreadPoolExecutor(max_workers=4)
+    session_id  = None
+
+    try:
+        with torch.autocast("cuda", dtype=torch.bfloat16):
+            response = predictor.handle_request(dict(
+                type="start_session",
+                resource_path=infer_path,
+                offload_video_to_cpu=True,
+                async_loading_frames=True,
+            ))
+        session_id = response["session_id"]
+
+        for concept in concepts:
+            with torch.autocast("cuda", dtype=torch.bfloat16):
+                predictor.handle_request(dict(
+                    type="add_prompt",
+                    session_id=session_id,
+                    frame_index=0,
+                    text=concept,
+                ))
+
+        with torch.autocast("cuda", dtype=torch.bfloat16):
+            for response in predictor.handle_stream_request(dict(
+                type="propagate_in_video",
+                session_id=session_id,
+            )):
+                fidx = response["frame_index"]
+                out  = response.get("outputs", {})
+
+                boxes_xywh_norm = out.get("out_boxes_xywh", [])
+                scores          = out.get("out_probs", [])
+                track_ids       = out.get("out_obj_ids", [])
+                raw_masks       = out.get("out_binary_masks", None)
+
+                # ── tensor → numpy ────────────────────────────────────────
+                if hasattr(boxes_xywh_norm, "cpu"):
+                    boxes_xywh_norm = boxes_xywh_norm.cpu().numpy()
+                else:
+                    boxes_xywh_norm = (np.array(boxes_xywh_norm)
+                                       if len(boxes_xywh_norm)
+                                       else np.zeros((0, 4)))
+
+                scores    = (scores.cpu().numpy()
+                             if hasattr(scores, "cpu") else np.array(scores))
+                track_ids = (track_ids.cpu().numpy()
+                             if hasattr(track_ids, "cpu") else np.array(track_ids))
+
+                if raw_masks is not None:
+                    masks_np = (raw_masks.detach().cpu().numpy()
+                                if hasattr(raw_masks, "detach")
+                                else np.array(raw_masks))
+                    del raw_masks
+                else:
+                    masks_np = None
+
+                # ── denormalize to inference-frame pixel coords ───────────
+                if len(boxes_xywh_norm):
+                    _img = cv2.imread(jpeg_paths[fidx])
+                    h_inf, w_inf = _img.shape[:2]
+                    del _img
+
+                    bx = boxes_xywh_norm.copy()
+                    bx[:, 0] *= w_inf;  bx[:, 2] *= w_inf
+                    bx[:, 1] *= h_inf;  bx[:, 3] *= h_inf
+                    boxes_xyxy_inf  = [xywh_to_xyxy(b) for b in bx]
+                    # scale back to original video resolution for XML
+                    boxes_xyxy_orig = [scale_box(b, scale) for b in boxes_xyxy_inf]
+                else:
+                    boxes_xyxy_inf  = []
+                    boxes_xyxy_orig = []
+
+                # ── accumulate into XML builder ───────────────────────────
+                xml_builder.add_frame(fidx, boxes_xyxy_orig, track_ids, scores)
+
+                # ── write visualised frame (closure-safe) ─────────────────
+                def _write(
+                    _fidx=fidx,
+                    _src=jpeg_paths[fidx],
+                    _boxes=list(boxes_xyxy_inf),
+                    _tids=list(track_ids),
+                    _scores=list(scores),
+                    _masks=masks_np,
+                    _out_dir=frames_dir,
+                ):
+                    try:
+                        img = cv2.imread(_src)
+                        if img is None:
+                            return
+                        img = draw_detections(img, _boxes, _tids, _scores, _masks)
+                        cv2.imwrite(
+                            os.path.join(_out_dir, f"frame_{_fidx:06d}.jpg"), img
+                        )
+                    except Exception as e:
+                        print(f"    [WARNING] Frame {_fidx} write failed: {e}")
+
+                io_pool.submit(_write)
+
+                if fidx % 50 == 0:
+                    torch.cuda.synchronize()
+
+                del boxes_xywh_norm, boxes_xyxy_inf, boxes_xyxy_orig
+                del track_ids, scores, masks_np
+                torch.cuda.empty_cache()
+
+        io_pool.shutdown(wait=True)
+
+        # ── write prediction XML ──────────────────────────────────────────
+        xml_builder.write(pred_xml, label="person")
+
+        # ── evaluate if GT XML exists ─────────────────────────────────────
+        if os.path.exists(gt_xml):
+            return run_evaluation(gt_xml, pred_xml, results_dir, video_stem)
+        else:
+            print(f"    [EVAL] No GT XML found at {gt_xml} — skipping evaluation.")
+            return None
+
+    except Exception:
+        traceback.print_exc()
+        io_pool.shutdown(wait=False)
+        return None
+
+    finally:
+        if session_id is not None:
+            try:
+                predictor.handle_request(dict(
+                    type="close_session", session_id=session_id
+                ))
+            except Exception:
+                pass
+        torch.cuda.synchronize()
+        torch.cuda.empty_cache()
+        time.sleep(1)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# File discovery
+# ─────────────────────────────────────────────────────────────────────────────
+
+def find_video_gt_pairs(input_dir: str):
+    """
+    Walk input_dir looking for MP4 files that have a matching *pf.xml GT file.
+    Returns list of (video_path, gt_xml_path, pred_xml_path, results_dir).
+    """
+    pairs = []
+    input_dir = Path(input_dir)
+
+    for folder in sorted(input_dir.iterdir()):
+        if not folder.is_dir() or folder.name == "results":
+            continue
+
+        results_dir = folder / "results"
+
+        for mp4 in sorted(folder.glob("*.MP4")) + sorted(folder.glob("*.mp4")):
+            stem   = mp4.stem                        # e.g. "b1"
+            gt_xml = folder / f"{stem}pf.xml"        # e.g. b1pf.xml
+            pred_xml = folder / f"{stem}pf_pred.xml" # e.g. b1pf_pred.xml
+
+            pairs.append((mp4, str(gt_xml), str(pred_xml), str(results_dir)))
+
+    return pairs
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Batch runner
+# ─────────────────────────────────────────────────────────────────────────────
+
+def run_batch(input_dir, checkpoint_path, concepts, gpus, max_side):
+    pairs = find_video_gt_pairs(input_dir)
+    if not pairs:
+        print(f"No video/GT pairs found under {input_dir}")
+        return
+
+    print(f"Found {len(pairs)} video(s):")
+    for mp4, gt, pred, _ in pairs:
+        gt_flag = "✓ GT" if os.path.exists(gt) else "✗ no GT"
+        print(f"  {mp4}  [{gt_flag}]")
+
+    print("\nLoading SAM3 predictor …")
+    predictor = build_sam3_video_predictor(
+        checkpoint_path=checkpoint_path, gpus_to_use=gpus
+    )
+    print("Predictor ready.\n")
+
+    all_results = {}   # video_path_str → summary dict or None
+
+    for i, (video_path, gt_xml, pred_xml, results_dir) in enumerate(pairs):
+        tag = f"[{i+1}/{len(pairs)}]"
+
+        # Skip if pred XML already exists and has content
+        if os.path.exists(pred_xml) and os.path.getsize(pred_xml) > 200:
+            print(f"{tag} SKIP (pred XML exists): {video_path}")
+            # Still run eval in case metrics file is missing
+            stem = Path(video_path).stem
+            metrics_file = os.path.join(results_dir, f"{stem}_metrics.txt")
+            if not os.path.exists(metrics_file) and os.path.exists(gt_xml):
+                print(f"    Re-running evaluation only …")
+                summary = run_evaluation(gt_xml, pred_xml, results_dir, stem)
+                all_results[str(video_path)] = summary
+            else:
+                all_results[str(video_path)] = "skipped"
+            continue
+
+        print(f"\n{tag} Processing: {video_path}")
+        t0 = time.time()
+
+        summary = process_video(
+            predictor, video_path, gt_xml, pred_xml,
+            results_dir, concepts, max_side
+        )
+
+        elapsed = time.time() - t0
+        status  = "OK" if summary is not None else "FAILED/NO-EVAL"
+        all_results[str(video_path)] = summary
+        print(f"{tag} {status}  ({elapsed:.1f}s)\n")
+
+    # ── Write per-folder summaries ────────────────────────────────────────────
+    _write_summaries(input_dir, pairs, all_results)
+
+    # ── Shutdown ──────────────────────────────────────────────────────────────
+    torch.cuda.synchronize()
+    if dist.is_available() and dist.is_initialized():
+        dist.barrier()
+    time.sleep(2)
+    try:
+        predictor.shutdown()
+    except Exception:
+        pass
+
+    # ── Final console summary ─────────────────────────────────────────────────
+    print("\n" + "=" * 60)
+    print("BATCH COMPLETE")
+    print("=" * 60)
+    ok   = sum(1 for v in all_results.values() if isinstance(v, dict))
+    skip = sum(1 for v in all_results.values() if v == "skipped")
+    fail = sum(1 for v in all_results.values() if v is None)
+    print(f"  OK (with eval) : {ok}")
+    print(f"  Skipped        : {skip}")
+    print(f"  Failed/no-eval : {fail}")
+    print("=" * 60)
+
+
+def _write_summaries(input_dir, pairs, all_results):
+    """Write per-folder and global summary files."""
+    input_dir = Path(input_dir)
+
+    # Group by folder
+    folder_map = defaultdict(list)
+    for (video_path, gt_xml, pred_xml, results_dir) in pairs:
+        folder = str(video_path.parent)
+        folder_map[folder].append((video_path, gt_xml, pred_xml, results_dir))
+
+    global_lines = ["GLOBAL SUMMARY", "=" * 100,
+                    f"{'VIDEO':<30} | {'mAP':<8} | {'MOTA':<8} | {'IDF1':<8} | "
+                    f"{'STABILITY':<10} | {'GT':<6} | {'MISS':<6} | {'FP':<6} | {'ID_SW':<6}",
+                    "-" * 100]
+
+    for folder, vids in folder_map.items():
+        results_dir = vids[0][3]
+        os.makedirs(results_dir, exist_ok=True)
+        folder_lines = [f"FOLDER: {folder}", "=" * 100,
+                        f"{'VIDEO':<20} | {'mAP':<8} | {'MOTA':<8} | {'IDF1':<8} | "
+                        f"{'STABILITY':<10} | {'GT':<6} | {'MISS':<6} | {'FP':<6} | {'ID_SW':<6}",
+                        "-" * 100]
+
+        for (video_path, _, _, _) in vids:
+            stem    = video_path.stem
+            summary = all_results.get(str(video_path))
+
+            if isinstance(summary, dict) and summary:
+                # take first label (usually "person")
+                m = next(iter(summary.values()))
+                row = (f"{stem:<20} | {m['ap']:<8.2%} | {m['mota']:<8.2%} | "
+                       f"{m['idf1']:<8.2%} | {m['stability']:<10.2%} | {m['gt']:<6} | "
+                       f"{m['miss']:<6} | {m['fp']:<6} | {m['id_sw']:<6}")
+                global_row = (f"{stem+' ('+Path(folder).name+')':<30} | "
+                              f"{m['ap']:<8.2%} | {m['mota']:<8.2%} | "
+                              f"{m['idf1']:<8.2%} | {m['stability']:<10.2%} | "
+                              f"{m['gt']:<6} | {m['miss']:<6} | {m['fp']:<6} | {m['id_sw']:<6}")
+            elif summary == "skipped":
+                row = f"{stem:<20} | SKIPPED"
+                global_row = f"{stem+' ('+Path(folder).name+')':<30} | SKIPPED"
+            else:
+                row = f"{stem:<20} | FAILED / NO EVAL"
+                global_row = f"{stem+' ('+Path(folder).name+')':<30} | FAILED / NO EVAL"
+
+            folder_lines.append(row)
+            global_lines.append(global_row)
+
+        folder_lines.append("=" * 100)
+        folder_summary_path = os.path.join(results_dir, "summary.txt")
+        with open(folder_summary_path, "w") as f:
+            f.write("\n".join(folder_lines) + "\n")
+        print(f"  Folder summary → {folder_summary_path}")
+
+    global_lines.append("=" * 100)
+    global_summary_path = str(input_dir / "results_summary.txt")
+    with open(global_summary_path, "w") as f:
+        f.write("\n".join(global_lines) + "\n")
+    print(f"  Global summary → {global_summary_path}")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Entry point
+# ─────────────────────────────────────────────────────────────────────────────
+
+if __name__ == "__main__":
+    p = argparse.ArgumentParser(description="Batch SAM3 tracker + evaluator")
+    p.add_argument("--input-dir",   default=INPUT_DIR,
+                   help="Root dir containing sub-folders (007/, 064/, …) with MP4+GT XML")
+    p.add_argument("--checkpoint",  default=CHECKPOINT_PATH)
+    p.add_argument("--concepts",    nargs="+", default=CONCEPTS)
+    p.add_argument("--gpus",        nargs="+", type=int, default=GPUS)
+    p.add_argument("--max-side",    type=int, default=MAX_SIDE)
+    args = p.parse_args()
+
+    run_batch(
+        input_dir       = args.input_dir,
+        checkpoint_path = args.checkpoint,
+        concepts        = args.concepts,
+        gpus            = args.gpus,
+        max_side        = args.max_side,
+    )

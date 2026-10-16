@@ -1,0 +1,9 @@
+torch>=2.1.0
+torchvision
+torchaudio
+transformers>=4.44.0
+accelerate
+opencv-python>=4.8.0
+pillow
+numpy>=1.24.0
+lxml

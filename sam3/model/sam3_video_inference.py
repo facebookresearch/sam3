@@ -548,7 +548,7 @@ class Sam3VideoInference(Sam3VideoBase):
                 if obj_id in filtered_obj_id_to_mask:
                     del filtered_obj_id_to_mask[obj_id]
 
-        inference_state["cached_frame_outputs"][frame_idx] = filtered_obj_id_to_mask
+        # inference_state["cached_frame_outputs"][frame_idx] = filtered_obj_id_to_mask
 
     def _build_tracker_output(
         self, inference_state, frame_idx, refined_obj_id_to_mask=None
