@@ -745,7 +745,7 @@ class Sam3VideoBase(nn.Module):
             for idx in reconditioned_states_idx:
                 # pyre-fixme[29]: `Union[Module, Tensor]` is not a function.
                 self.tracker.propagate_in_video_preflight(
-                    tracker_states_local[idx], run_mem_encoder=True
+                    tracker_states_local[idx], run_mem_encoder=False
                 )
         return tracker_states_local
 
@@ -1005,6 +1005,21 @@ class Sam3VideoBase(nn.Module):
                 tracker_metadata_prev,
                 tracker_obj_scores_global,
             )
+            # Replace tracker masks with detector masks for reconditioned objects,
+            # so that the memory encoder below encodes the correct (detector) masks.
+            # Without this, _tracker_update_memories would overwrite the reconditioned
+            # memory with the original tracker masks.
+            for trk_obj_id in reconditioned_obj_ids:
+                det_idx = trk_id_to_max_iou_high_conf_det.get(trk_obj_id)
+                if det_idx is None:
+                    continue
+                trk_idx_arr = np.where(
+                    tracker_metadata_prev["obj_ids_all_gpu"] == trk_obj_id
+                )[0]
+                if len(trk_idx_arr) == 0:
+                    continue
+                trk_idx = trk_idx_arr.item()
+                tracker_low_res_masks_global[trk_idx] = det_out["mask"][det_idx]
 
         # Step 4: Run SAM2 memory encoder on the current frame's prediction masks
         # This is done on all GPUs
