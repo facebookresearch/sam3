@@ -23,7 +23,6 @@ from sam3.model.box_ops import fast_diag_box_iou
 from sam3.model.data_misc import BatchedDatapoint
 from sam3.model.sam3_tracker_utils import fill_holes_in_mask_scores, mask_to_box
 from sam3.perflib.masks_ops import mask_iou
-from sam3.train.masks_ops import mask_iom, rle_encode
 from torch import nn, Tensor
 
 logger = get_logger(__name__)
@@ -179,6 +178,9 @@ def _associate_det_trk_compilable(
     trk_masks_binary = trk_masks > 0
     intersection_metric = None
     if use_iom_recondition:
+        # Imported lazily so `import sam3` does not require pycocotools.
+        from sam3.train.masks_ops import mask_iom
+
         intersection_metric = mask_iom(det_masks_binary, trk_masks_binary)  # (N, M)
     else:
         intersection_metric = mask_iou(det_masks_binary, trk_masks_binary)  # (N, M)
@@ -2070,6 +2072,9 @@ class Sam3VideoBase(nn.Module):
             preds["scores"].append(o_score)
             preds["labels"].append(o_label)
             preds["boxes"].append(mask_to_box(o_masks.unsqueeze(1)).squeeze())
+            # Imported lazily so `import sam3` does not require pycocotools.
+            from sam3.train.masks_ops import rle_encode
+
             preds["masks_rle"].append(rle_encode(o_masks, return_areas=True))
 
         preds["boxes"] = (
