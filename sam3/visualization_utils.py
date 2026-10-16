@@ -214,22 +214,28 @@ def visualize_formatted_frame_output(
     figsize=(12, 8),
     title_suffix="",
     prompt_info=None,
+    save=False,
+    output_dir=None,
+    scenario_name=None,
 ):
     """Visualize up to three sets of segmentation masks on a video frame.
 
     Args:
         frame_idx: Frame index to visualize
-        image_files: List of image file paths
+        video_frames: List of video frames or frame paths
         outputs_list: List of {frame_idx: {obj_id: mask_tensor}} or single dict {obj_id: mask_tensor}
         titles: List of titles for each set of outputs_list
         points_list: Optional list of point coordinates
         points_labels_list: Optional list of point labels
         figsize: Figure size tuple
         save: Whether to save the visualization to file
-        output_dir: Base output directory when saving
-        scenario_name: Scenario name for organizing saved files
+        output_dir: Base output directory when saving; defaults to current directory
+        scenario_name: Optional subdirectory name when saving
         title_suffix: Additional title suffix
         prompt_info: Dictionary with prompt information (boxes, points, etc.)
+
+    Returns:
+        The saved file path if save=True, otherwise None.
     """
     # Handle single output dict case
     if isinstance(outputs_list, dict) and frame_idx in outputs_list:
@@ -249,7 +255,7 @@ def visualize_formatted_frame_output(
         "length of `titles` should match that of `outputs_list` if not None."
     )
 
-    _, axes = plt.subplots(1, num_outputs, figsize=figsize)
+    fig, axes = plt.subplots(1, num_outputs, figsize=figsize)
     if num_outputs == 1:
         axes = [axes]  # Make it iterable
 
@@ -384,7 +390,24 @@ def visualize_formatted_frame_output(
         ax.axis("off")
 
     plt.tight_layout()
+    saved_path = None
+    if save:
+        save_dir = output_dir if output_dir is not None else "."
+        if scenario_name:
+            save_dir = os.path.join(save_dir, scenario_name)
+        os.makedirs(save_dir, exist_ok=True)
+
+        safe_suffix = "".join(
+            c if c.isalnum() or c in ("-", "_") else "_"
+            for c in title_suffix.strip()
+        )
+        suffix = f"_{safe_suffix}" if safe_suffix else ""
+        filename = f"frame_{frame_idx:05d}{suffix}.png"
+        saved_path = os.path.join(save_dir, filename)
+        fig.savefig(saved_path, bbox_inches="tight")
+
     plt.show()
+    return saved_path
 
 
 def render_masklet_frame(img, outputs, frame_idx=None, alpha=0.5):
