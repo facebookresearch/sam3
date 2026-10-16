@@ -549,7 +549,7 @@ class TransformerEncoderFusion(TransformerEncoder):
                     else None
                 )
         else:
-            assert all(x.dim == 4 for x in src), (
+            assert all(x.ndim == 4 for x in src), (
                 "expected list of (bs, c, h, w) tensors"
             )
 
