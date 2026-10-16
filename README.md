@@ -355,6 +355,42 @@ We release 2 image benchmarks, [SA-Co/Gold](scripts/eval/gold/README.md) and
 
 ![SA-Co dataset](assets/sa_co_dataset.jpg?raw=true)
 
+
+### Optional COCO evaluation backend
+
+`sam3.eval.coco_eval.CocoEvaluator` and
+`sam3.eval.coco_eval_offline.CocoEvaluatorOfflineWithPredFileEvaluators` accept
+`backend="ultrafast"`. The default is `"pycocotools"`. Install the optional extra
+in your SAM3 evaluation environment:
+
+```bash
+pip install -e ".[ultrafast]"
+```
+
+Add `backend: ultrafast` to the corresponding Hydra evaluator block, or pass the
+argument directly when constructing either evaluator. Existing pycocotools
+utilities and the SAM3 mask encoder remain in use; no process-wide imports are
+replaced. This option applies to COCO evaluation, including SAM3's custom size
+buckets and summaries, rather than the separate Demo/F1 or tracking evaluators.
+
+Online evaluation gathers prepared predictions through the configured collective
+or shared-filesystem transport, keeps the first occurrence of each image ID in
+rank/batch order, and runs matching/accumulation on rank zero. Missing GT images
+still count as images with no detections. SAM3's normalized segmentation areas,
+exhaustive filtering, rarity averages, prediction dumps and optional per-image
+metric dumps are preserved. Each distinct image subset is evaluated separately;
+`reset()` clears epoch state. Per-image detection IDs in metric dumps are assigned
+across the merged predictions instead of restarting at each update batch.
+
+Offline evaluation preserves positive-split filtering and the existing optional
+TIDE analysis. Performance comparisons should include the full evaluation cycle,
+including gathering, subset evaluation and any requested dumps; framework-level
+speed and peak memory have not been benchmarked here.
+
+Run `python -m pytest tests/test_coco_backends.py` with the extra and pytest
+installed to check full arrays, summaries, subset selection, reset, dumps,
+offline positive splits, and two-rank distributed evaluation.
+
 ## Development
 
 To set up the development environment:
