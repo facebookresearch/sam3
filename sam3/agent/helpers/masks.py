@@ -397,6 +397,7 @@ class PolygonMasks:
                 raise ValueError(
                     "Unsupported tensor dtype={} for indexing!".format(item.dtype)
                 )
+            # pyrefly: ignore [not-iterable]
             selected_polygons = [self.polygons[i] for i in item]
         # pyrefly: ignore [bad-argument-type]
         return PolygonMasks(selected_polygons)

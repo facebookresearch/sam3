@@ -307,6 +307,7 @@ class UniversalSegmentationHead(SegmentationHead):
 
         presence_logit = None
         if self.presence_head is not None:
+            # pyrefly: ignore [missing-attribute]
             pooled_enc = encoder_hidden_states.mean(0)
             presence_logit = (
                 self.presence_head(

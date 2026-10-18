@@ -199,7 +199,9 @@ class TransformerDecoderLayer(nn.Module):
 
         presence_token_out = None
         if presence_token is not None:
+            # pyrefly: ignore [unsupported-operation]
             presence_token_out = tgt[:1]
+            # pyrefly: ignore [unsupported-operation]
             tgt = tgt[1:]
 
         return tgt, presence_token_out
@@ -555,6 +557,7 @@ class TransformerDecoder(nn.Module):
                     # pyre-fixme[16]: `Optional` has no attribute `__getitem__`.
                     (spatial_shapes[0, 0], spatial_shapes[0, 1]),
                 )
+                # pyrefly: ignore [missing-attribute]
                 memory_mask = memory_mask.flatten(0, 1)  # (bs*n_heads, nq, H*W)
             if self.training:
                 assert self.use_act_checkpoint, (

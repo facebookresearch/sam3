@@ -704,6 +704,7 @@ def build_sam3_video_model(
 
     # Build Detector components
     visual_neck = _create_vision_backbone()
+    # pyrefly: ignore [bad-argument-type]
     text_encoder = _create_text_encoder(bpe_path)
     backbone = SAM3VLBackbone(scalp=1, visual=visual_neck, text=text_encoder)
     transformer = _create_sam3_transformer(has_presence_token=has_presence_token)
@@ -1142,6 +1143,7 @@ def build_sam3_multiplex_video_predictor(
     tri_neck = _create_multiplex_tri_backbone(
         compile_mode=None, use_fa3=use_fa3, use_rope_real=use_rope_real
     )
+    # pyrefly: ignore [bad-argument-type]
     text_encoder = _create_text_encoder(bpe_path)
     backbone = SAM3VLBackboneTri(scalp=0, visual=tri_neck, text=text_encoder)
     transformer = _create_sam3_transformer(use_fa3=use_fa3)

@@ -2298,7 +2298,9 @@ class VideoTrackingMultiplex(nn.Module):
                 # the point inputs should have been preselected, i.e., the following assertion should hold
 
             if point_inputs is not None:
+                # pyrefly: ignore [bad-argument-type]
                 assert point_inputs["point_coords"].shape[0] == len(objects_to_interact)
+                # pyrefly: ignore [bad-argument-type]
                 assert point_inputs["point_labels"].shape[0] == len(objects_to_interact)
 
             for _ in range(self.num_correction_pt_per_frame):
@@ -2322,6 +2324,7 @@ class VideoTrackingMultiplex(nn.Module):
                     method="uniform" if self.training else self.pt_sampling_for_eval,
                 )
                 point_inputs = concat_points(point_inputs, new_points, new_labels)
+                # pyrefly: ignore [bad-argument-type]
                 assert low_res_masks.shape[0] > max(objects_to_interact), (
                     f"interacting {objects_to_interact} in {low_res_masks.shape}?"
                 )
