@@ -68,7 +68,8 @@ This breakthrough is driven by an innovative data engine that has automatically 
 
 - Python 3.12 or higher
 - PyTorch 2.7 or higher
-- CUDA-compatible GPU with CUDA 12.6 or higher
+- CUDA-compatible GPU with CUDA 12.6 or higher (for Apple Silicon or CPU, see
+  [below](#apple-silicon-mps-and-cpu))
 
 1. **Create a new Conda environment:**
 
@@ -107,6 +108,23 @@ pip install -e ".[train,dev]"
 pip install einops ninja && pip install flash-attn-3 --no-deps --index-url https://download.pytorch.org/whl/cu128
 pip install git+https://github.com/ronghanghu/cc_torch.git
 ```
+
+### Apple Silicon (MPS) and CPU
+
+Inference also runs without a CUDA GPU. The device is picked automatically
+(CUDA, then Apple MPS, then CPU); set `SAM3_DEVICE=mps` or `SAM3_DEVICE=cpu` to
+override it. Install the default PyTorch wheels (they include MPS support on
+macOS) and skip step 5, whose packages are CUDA-only:
+
+```bash
+pip install torch torchvision
+pip install -e ".[notebooks]"
+```
+
+This covers the image API (`build_sam3_image_model`) and the SAM 3.1 video
+predictor (`build_sam3_multiplex_video_predictor`). The SAM 3 video predictor
+(`build_sam3_video_predictor`) still requires CUDA. Expect much lower throughput
+than on a CUDA GPU, especially on CPU.
 
 ## Getting Started
 

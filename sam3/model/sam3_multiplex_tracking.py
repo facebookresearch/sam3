@@ -9,6 +9,7 @@ import torch
 import torch.distributed as dist
 import torch.nn.functional as F
 from sam3 import perflib
+from sam3.device_utils import bf16_autocast, DEVICE
 from sam3.logger import get_logger
 from sam3.model.box_ops import box_xywh_to_cxcywh, box_xyxy_to_xywh
 from sam3.model.data_misc import BatchedDatapoint
@@ -232,7 +233,7 @@ class Sam3MultiplexTracking(Sam3MultiplexBase):
         inference_state = {}
         inference_state["image_size"] = self.image_size
         inference_state["num_frames"] = len(images)
-        inference_state["device"] = torch.device("cuda")
+        inference_state["device"] = DEVICE
         inference_state["orig_height"] = orig_height
         inference_state["orig_width"] = orig_width
         inference_state["constants"] = {}
@@ -1613,7 +1614,7 @@ class Sam3MultiplexTracking(Sam3MultiplexBase):
         return inference_state
 
     @torch.inference_mode()
-    @torch.autocast(device_type="cuda", dtype=torch.bfloat16)
+    @bf16_autocast()
     def warm_up_compilation(self):
         """
         Warm up the model by running a dummy inference to compile the model. This is
@@ -1752,7 +1753,7 @@ class Sam3MultiplexTracking(Sam3MultiplexBase):
         backbone_out.update(text_outputs)
         return backbone_out
 
-    @torch.autocast(device_type="cuda", dtype=torch.bfloat16)
+    @bf16_autocast()
     def forward(self, input: BatchedDatapoint, is_inference: bool = False):
         """This method is only used for benchmark eval (not used in the demo)."""
         # set the model to single GPU for benchmark evaluation (to be compatible with trainer)
@@ -3388,7 +3389,7 @@ class Sam3MultiplexTrackingWithInteractivity(Sam3MultiplexTracking):
         # Create singleton multiplex state and remux extracted tensors
         new_multiplex_state = self.tracker.multiplex_controller.get_state(
             num_valid_entries=1,
-            device=source_state.get("device", "cuda"),
+            device=source_state.get("device", DEVICE),
             dtype=torch.float32,
             random=False,
             object_ids=[obj_id],
