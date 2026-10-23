@@ -2567,9 +2567,43 @@ class VideoTrackingMultiplexDemo(VideoTrackingDynamicMultiplex):
                 if obj_out is not None:
                     obj_output_dict["non_cond_frame_outputs"][frame_idx] = obj_out
 
-            # If all the conditioning frames have been removed, we also clear the tracking outputs
+            # If all conditioning frames have been removed, the bucket would be left
+            # without any conditioning anchor. In the multiplex setting, several
+            # objects may share a single conditioning frame created by one "owner"
+            # object's input, while the others were added on already-tracked frames
+            # and never created their own. Removing the owner must not discard those
+            # other objects' memory, so if any object *other than* the one whose input
+            # was just cleared still has tracked memory, promote the earliest
+            # non-conditioning frame containing such an object to be the new
+            # conditioning anchor (keeping the usual "early anchor + forward memory"
+            # layout). Only fall back to a full reset when no surviving object has any
+            # memory left to anchor on.
             if len(output_dict["cond_frame_outputs"]) == 0:
-                self._reset_tracking_results(inference_state)
+                promoted_frame_idx = None
+                for cand_frame_idx in sorted(output_dict["non_cond_frame_outputs"]):
+                    cand_out = output_dict["non_cond_frame_outputs"][cand_frame_idx]
+                    cand_objs = cand_out.get("local_obj_id_to_idx", {})
+                    if any(other_obj_id != obj_id for other_obj_id in cand_objs):
+                        promoted_frame_idx = cand_frame_idx
+                        break
+                if promoted_frame_idx is not None:
+                    non_cond = output_dict["non_cond_frame_outputs"]
+                    promoted_out = non_cond.pop(promoted_frame_idx)
+                    output_dict["cond_frame_outputs"][promoted_frame_idx] = promoted_out
+                    # Keep the per-object slices consistent with output_dict.
+                    out_per_obj = inference_state["output_dict_per_obj"]
+                    for obj_idx2 in range(batch_size):
+                        if obj_idx2 not in out_per_obj:
+                            continue
+                        obj_output_dict = out_per_obj[obj_idx2]
+                        obj_promoted = obj_output_dict["non_cond_frame_outputs"].pop(
+                            promoted_frame_idx, None
+                        )
+                        if obj_promoted is not None:
+                            obj_cond = obj_output_dict["cond_frame_outputs"]
+                            obj_cond[promoted_frame_idx] = obj_promoted
+                else:
+                    self._reset_tracking_results(inference_state)
 
         if not need_output:
             return
