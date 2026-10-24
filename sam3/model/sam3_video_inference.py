@@ -1843,7 +1843,7 @@ class Sam3VideoInferenceWithInstanceInteractivity(Sam3VideoInference):
 
         # fetch results from states and gather across GPUs
         # Use optimized caching approach to avoid reprocessing unmodified objects
-        if self.rank == obj_rank and len(obj_ids) > 0:
+        if self.rank == obj_rank and video_res_masks is not None and obj_id in obj_ids:
             new_mask_data = (video_res_masks[obj_ids.index(obj_id)] > 0.0).to(
                 torch.bool
             )
@@ -1853,7 +1853,9 @@ class Sam3VideoInferenceWithInstanceInteractivity(Sam3VideoInference):
         if self.world_size > 1:
             data_list = [new_mask_data.cpu() if new_mask_data is not None else None]
             self.broadcast_python_obj_cpu(data_list, src=obj_rank)
-            new_mask_data = data_list[0].to(self.device)
+            new_mask_data = (
+                data_list[0].to(self.device) if data_list[0] is not None else None
+            )
 
         if self.rank == 0:
             obj_id_to_mask = self._build_tracker_output(
