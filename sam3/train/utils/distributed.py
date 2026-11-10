@@ -270,7 +270,7 @@ def all_reduce_max(tensor: torch.Tensor) -> torch.Tensor:
 
 def all_reduce_op(
     tensor: torch.Tensor,
-    op: torch.distributed.ReduceOp,
+    op: torch.distributed.ReduceOp | torch.distributed.ReduceOp.RedOpType,
     # pyrefly: ignore [bad-function-definition]
     after_op_func: Callable[[torch.Tensor], torch.Tensor] = None,
 ) -> torch.Tensor:
