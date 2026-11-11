@@ -87,7 +87,7 @@ include = ["sam3*"]
 exclude = ["build*", "scripts*", "examples*"]
 
 [tool.setuptools.package-data]
-sam3 = ["assets/*.txt.gz"]
+sam3 = ["assets/*.txt.gz", "agent/system_prompts/*.txt"]
 
 [tool.setuptools.dynamic]
 version = {attr = "sam3.__version__"}
