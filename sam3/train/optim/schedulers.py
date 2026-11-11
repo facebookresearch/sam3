@@ -23,12 +23,7 @@ class InverseSquareRootParamScheduler:
 
         if where > 0:
             total_steps = step / where
-            progress = (step - self.warmup_steps) / float(
-                total_steps - self.warmup_steps
-            )
-            progress = max(min(progress, 1), 0)
         else:
-            progress = 0
             total_steps = 1
 
         shift = self.timescale - self.warmup_steps
