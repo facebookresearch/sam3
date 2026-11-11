@@ -73,7 +73,7 @@ class Sam3Processor:
         return state
 
     @torch.inference_mode()
-    def set_image_batch(self, images: List[np.ndarray], state=None):
+    def set_image_batch(self, images: List[PIL.Image.Image], state=None):
         """Sets the image batch on which we want to do predictions."""
         if state is None:
             state = {}
