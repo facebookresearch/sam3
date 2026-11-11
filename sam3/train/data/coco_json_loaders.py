@@ -8,7 +8,7 @@ from typing import Dict, List, Tuple
 
 import torch
 from pycocotools import mask as mask_util
-
+from .serialization_utils import TorchSerializedList
 
 # ============================================================================
 # Utility Functions
@@ -34,7 +34,7 @@ def convert_boxlist_to_normalized_tensor(box_list, image_width, image_height):
     return boxes
 
 
-def load_coco_and_group_by_image(json_path: str) -> Tuple[List[Dict], Dict[int, str]]:
+def load_coco_and_group_by_image(json_path: str, grouped_serialzation: bool = False) -> Tuple[List[Dict], Dict[int, str]]:
     """
     Load COCO JSON file and group annotations by image.
 
@@ -65,6 +65,9 @@ def load_coco_and_group_by_image(json_path: str) -> Tuple[List[Dict], Dict[int, 
         )
 
     cat_id_to_name = {cat["id"]: cat["name"] for cat in coco["categories"]}
+
+    if grouped_serialzation:
+        grouped = TorchSerializedList(grouped)
 
     return grouped, cat_id_to_name
 
@@ -113,6 +116,7 @@ class COCO_FROM_JSON:
         prompts=None,
         include_negatives=True,
         category_chunk_size=None,
+        grouped_serialzation=False,
     ):
         """
         Initialize the COCO training API.
@@ -123,7 +127,8 @@ class COCO_FROM_JSON:
             include_negatives (bool): Whether to include negative examples (categories with no instances)
         """
         self._raw_data, self._cat_idx_to_text = load_coco_and_group_by_image(
-            annotation_file
+            annotation_file,
+            grouped_serialzation=grouped_serialzation,
         )
         self._sorted_cat_ids = sorted(list(self._cat_idx_to_text.keys()))
         self.prompts = None
