@@ -980,7 +980,6 @@ class Trainer:
                 for extra_loss_key, extra_loss in extra_losses.items():
                     if extra_loss_key not in extra_loss_mts:
                         extra_loss_mts[extra_loss_key] = AverageMeter(
-                            # pyre-fixme[16]: `Trainer` has no attribute `device`.
                             extra_loss_key,
                             # pyre-fixme[16]: `Trainer` has no attribute `device`.
                             self.device,

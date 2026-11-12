@@ -613,7 +613,6 @@ class Sam3MultiplexBase(Sam3VideoBase):
                     orig_vid_height=orig_vid_height,
                     orig_vid_width=orig_vid_width,
                     reconditioned_obj_ids=reconditioned_obj_ids,
-                    # pyrefly: ignore [bad-argument-type]
                     det_to_matched_trk_obj_ids=det_to_matched_trk_obj_ids,
                 )
                 obj_id_to_score = tracker_metadata_new["obj_id_to_score"]
@@ -1097,8 +1096,8 @@ class Sam3MultiplexBase(Sam3VideoBase):
             self.reconstruction_bbox_iou_thresh > 0
             and len(
                 adt_result.trk_id_to_max_iou_high_conf_det  # pyrefly: ignore [missing-attribute]
-            )  # pyrefly: ignore [missing-attribute]
-            > 0  # pyrefly: ignore [missing-attribute]
+            )
+            > 0
         ):
             with torch.profiler.record_function(
                 "evaluate_reconstruction_bbox_iou_thresh"
@@ -1143,8 +1142,8 @@ class Sam3MultiplexBase(Sam3VideoBase):
             and frame_idx % self.recondition_every_nth_frame == 0
             and len(
                 adt_result.trk_id_to_max_iou_high_conf_det  # pyrefly: ignore [missing-attribute]
-            )  # pyrefly: ignore [missing-attribute]
-            > 0  # pyrefly: ignore [missing-attribute]
+            )
+            > 0
         )
 
         # Recondition if periodic or IoU condition met
@@ -1773,7 +1772,6 @@ class Sam3MultiplexBase(Sam3VideoBase):
             # only 1 frames should be propagated
             # pyre-fixme[61]: `out_frame_idx` is undefined, or not always defined.
             assert num_frames_propagated == 1 and out_frame_idx == frame_idx, (
-                # pyre-fixme[61]: `out_frame_idx` is undefined, or not always defined.
                 f"num_frames_propagated: {num_frames_propagated}, out_frame_idx: {out_frame_idx}, frame_idx: {frame_idx}"
             )
             # pyre-fixme[61]: `out_obj_ids` is undefined, or not always defined.
@@ -1781,7 +1779,6 @@ class Sam3MultiplexBase(Sam3VideoBase):
             # Optionally filter to a subset of object ids (for partial propagation).
             # We also clamp indices to available rows to avoid CUDA index_select assertions.
             if filter_obj_ids is not None:
-                # pyre-fixme[61]: `out_obj_ids` is undefined, or not always defined.
                 if len(out_obj_ids) > 0:
                     # pyrefly: ignore [unbound-name]
                     max_mask_rows = out_low_res_masks.shape[0]
@@ -1799,7 +1796,6 @@ class Sam3MultiplexBase(Sam3VideoBase):
                     else:
                         keep_indices = [
                             i
-                            # pyre-fixme[61]: `out_obj_ids` is undefined, or not
                             #  always defined.
                             for i, oid in enumerate(out_obj_ids)
                             if oid in filter_obj_ids
@@ -1823,9 +1819,7 @@ class Sam3MultiplexBase(Sam3VideoBase):
                     # no selected objects in this local state; skip appending
                     out_obj_ids = []
 
-            # pyre-fixme[61]: `out_obj_ids` is undefined, or not always defined.
             if len(out_obj_ids) > 0:
-                # pyre-fixme[61]: `out_obj_ids` is undefined, or not always defined.
                 obj_ids_local.extend(out_obj_ids)
                 # pyrefly: ignore [unbound-name]
                 low_res_masks_list.append(out_low_res_masks.squeeze(1))
@@ -2648,7 +2642,7 @@ class Sam3MultiplexBase(Sam3VideoBase):
                                 newly_suppressed_objects
                                 * self.tracker.no_obj_ptr_linear(  # pyrefly: ignore [not-callable]
                                     existing_pointers
-                                )  # pyrefly: ignore [not-callable]
+                                )
                                 + (1 - newly_suppressed_objects) * existing_pointers
                             )
 

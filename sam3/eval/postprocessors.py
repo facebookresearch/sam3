@@ -269,14 +269,14 @@ class PostProcessImage(nn.Module):
                 if self.use_original_sizes_box
                 else torch.ones_like(
                     meta.original_size  # pyrefly: ignore [bad-argument-type]
-                )  # pyrefly: ignore [bad-argument-type]
+                )
             )
             img_size_for_masks = (
                 meta.original_size
                 if self.use_original_sizes_mask
                 else torch.ones_like(
                     meta.original_size  # pyrefly: ignore [bad-argument-type]
-                )  # pyrefly: ignore [bad-argument-type]
+                )
             )
             detection_results = self(
                 outputs,
@@ -473,7 +473,7 @@ class PostProcessAPIVideo(PostProcessImage):
                 tracked_objs_outs_td.unsqueeze(1),
                 (
                     meta_td["original_size"]
-                    if self.use_original_sizes  # pyrefly: ignore [not-callable]
+                    if self.use_original_sizes
                     else torch.ones_like(meta_td["original_size"])
                 ),
                 forced_labels=(

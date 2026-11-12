@@ -545,7 +545,7 @@ class TransformerEncoderFusion(TransformerEncoder):
                     if src_key_padding_mask[  # pyrefly: ignore [unsupported-operation]
                         i
                     ]  # pyrefly: ignore [unsupported-operation]
-                    is not None  # pyrefly: ignore [unsupported-operation]
+                    is not None
                     else None
                 )
         else:

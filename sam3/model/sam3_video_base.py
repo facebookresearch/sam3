@@ -494,7 +494,6 @@ class Sam3VideoBase(nn.Module):
                 tracker_update_plan=tracker_update_plan,
                 orig_vid_height=orig_vid_height,
                 orig_vid_width=orig_vid_width,
-                # pyrefly: ignore [bad-argument-type]
                 reconditioned_obj_ids=reconditioned_obj_ids,
                 # pyrefly: ignore [bad-argument-type]
                 det_to_matched_trk_obj_ids=det_to_matched_trk_obj_ids,
@@ -902,25 +901,17 @@ class Sam3VideoBase(nn.Module):
 
         # `tracker_update_plan` should be identical on all GPUs after broadcasting
         tracker_update_plan = {
-            # pyre-fixme[61]: `new_det_fa_inds` is undefined, or not always defined.
             "new_det_fa_inds": new_det_fa_inds,  # npt.NDArray
-            # pyre-fixme[61]: `new_det_obj_ids` is undefined, or not always defined.
             "new_det_obj_ids": new_det_obj_ids,  # npt.NDArray
-            # pyre-fixme[61]: `new_det_gpu_ids` is undefined, or not always defined.
             "new_det_gpu_ids": new_det_gpu_ids,  # npt.NDArray
-            # pyre-fixme[61]: `unmatched_trk_obj_ids` is undefined, or not always
             #  defined.
             "unmatched_trk_obj_ids": unmatched_trk_obj_ids,  # npt.NDArray
-            # pyre-fixme[61]: `det_to_matched_trk_obj_ids` is undefined, or not
             #  always defined.
             "det_to_matched_trk_obj_ids": det_to_matched_trk_obj_ids,  # dict
-            # pyre-fixme[61]: `obj_ids_newly_removed` is undefined, or not always
             #  defined.
             "obj_ids_newly_removed": obj_ids_newly_removed,  # set
-            # pyre-fixme[61]: `num_obj_dropped_due_to_limit` is undefined, or not
             #  always defined.
             "num_obj_dropped_due_to_limit": num_obj_dropped_due_to_limit,  # int
-            # pyre-fixme[61]: `trk_id_to_max_iou_high_conf_det` is undefined, or not
             #  always defined.
             "trk_id_to_max_iou_high_conf_det": trk_id_to_max_iou_high_conf_det,  # dict
             "reconditioned_obj_ids": reconditioned_obj_ids,  # set
@@ -1049,7 +1040,6 @@ class Sam3VideoBase(nn.Module):
             #  defined.
             if len(obj_ids_newly_removed) > 0:
                 is_removed = np.isin(
-                    # pyre-fixme[61]: `obj_ids_newly_removed` is undefined, or not
                     #  always defined.
                     updated_obj_ids_this_gpu,
                     # pyre-fixme[61]: `obj_ids_newly_removed` is undefined, or not
@@ -1460,12 +1450,10 @@ class Sam3VideoBase(nn.Module):
             # only 1 frames should be propagated
             # pyre-fixme[61]: `out_frame_idx` is undefined, or not always defined.
             assert num_frames_propagated == 1 and out_frame_idx == frame_idx, (
-                # pyre-fixme[61]: `out_frame_idx` is undefined, or not always defined.
                 f"num_frames_propagated: {num_frames_propagated}, out_frame_idx: {out_frame_idx}, frame_idx: {frame_idx}"
             )
             # pyre-fixme[61]: `out_obj_ids` is undefined, or not always defined.
             assert isinstance(out_obj_ids, list)
-            # pyre-fixme[61]: `out_obj_ids` is undefined, or not always defined.
             obj_ids_local.extend(out_obj_ids)
             # pyrefly: ignore [unbound-name]
             low_res_masks_list.append(out_low_res_masks.squeeze(1))

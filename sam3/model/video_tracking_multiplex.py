@@ -310,7 +310,6 @@ class VideoTrackingMultiplex(nn.Module):
         # with memories from past frames
         assert transformer.decoder is None, "transformer should be encoder-only"
         self.transformer = transformer
-        # pyre-fixme[8]: Attribute has type `int`; used as `Union[Module, Tensor]`.
         self.hidden_dim: int = transformer.d_model
 
         # Part 3: memory encoder for the previous frame's outputs
@@ -1612,13 +1611,10 @@ class VideoTrackingMultiplex(nn.Module):
                 # Memory image features were cleared; fall back to current-frame features.
                 pix_feat = vision_feat.permute(1, 2, 0).view(B, C, H, W)
                 return pix_feat
-            # pyre-fixme[61]: `to_cat_image_feat` is undefined, or not always defined.
             image_feat = torch.cat(to_cat_image_feat, dim=0)
-            # pyre-fixme[61]: `to_cat_image_pos_embed` is undefined, or not always
             #  defined.
             image_pos_embed = torch.cat(to_cat_image_pos_embed, dim=0)
 
-            # pyre-fixme[29]: `Union[Module, Tensor]` is not a function.
             encoder_out = self.transformer.encoder(
                 image=current_vision_feats[-1],
                 src=vision_feat,
@@ -1631,7 +1627,6 @@ class VideoTrackingMultiplex(nn.Module):
                 num_obj_ptr_tokens=num_obj_ptr_tokens,
             )
         else:
-            # pyre-fixme[29]: `Union[Module, Tensor]` is not a function.
             encoder_out = self.transformer.encoder(
                 src=vision_feat,
                 src_key_padding_mask=vision_mask,
@@ -1791,7 +1786,6 @@ class VideoTrackingMultiplex(nn.Module):
                 # pyre-fixme[61]: `unconditioning_objects` is undefined, or not
                 #  always defined.
                 obj_merged_embed[unconditioning_objects] = obj_non_cond_embed[
-                    # pyre-fixme[61]: `unconditioning_objects` is undefined, or not
                     #  always defined.
                     unconditioning_objects
                 ]
@@ -2573,7 +2567,6 @@ class VideoTrackingMultiplex(nn.Module):
             if past_out is not None:
                 if (
                     self.use_memory_selection
-                    # pyre-fixme[58]: `<` is not supported for operand types
                     #  `Union[int, Tensor]` and `float`.
                     and past_out.get("eff_iou_score", 0) < self.mf_threshold
                 ) or not self.use_memory_selection:
@@ -3263,9 +3256,7 @@ class VideoTrackingDynamicMultiplex(VideoTrackingMultiplex):
         if "input_masks" in prev_output:
             # pyre-fixme[27]: TypedDict `StageOutput` has no key `input_masks`.
             prev_output["input_masks"] = torch.cat(
-                # pyre-fixme[6]: For 1st argument expected `Union[List[Tensor],
                 #  tuple[Tensor, ...]]` but got `List[Union[Set[int], Tensor]]`.
-                # pyre-fixme[27]: TypedDict `StageOutput` has no key `input_masks`.
                 [prev_output["input_masks"], new_masks],
                 dim=0,
             )
@@ -3275,7 +3266,6 @@ class VideoTrackingDynamicMultiplex(VideoTrackingMultiplex):
             # while those in StageOutput are in the mux space.
             # pyrefly: ignore [unbound-name]
             new_pointers = mask_output["obj_ptr"].to(existing_pointers.dtype)
-            # pyre-fixme[61]: `existing_pointers` is undefined, or not always defined.
             combined_pointers = torch.cat([existing_pointers, new_pointers], dim=0)
             prev_output["obj_ptr"] = multiplex_state.mux(combined_pointers)
 
@@ -3405,9 +3395,7 @@ class VideoTrackingDynamicMultiplex(VideoTrackingMultiplex):
             # while those in StageOutput are in the mux space.
             # pyrefly: ignore [unbound-name]
             new_pointers = mask_output["obj_ptr"].to(existing_pointers.dtype)
-            # pyre-fixme[61]: `existing_pointers` is undefined, or not always defined.
             existing_pointers[obj_idxs_in_mask] = new_pointers
-            # pyre-fixme[61]: `existing_pointers` is undefined, or not always defined.
             prev_output["obj_ptr"] = multiplex_state.mux(existing_pointers)
 
         # Step 3: Update the set of conditioning objects at this frame

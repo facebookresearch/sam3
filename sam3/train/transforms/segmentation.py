@@ -58,7 +58,6 @@ class InstanceToSemantic(object):
                             isinstance(segment, torch.Tensor)
                             and segment.dtype == torch.uint8
                         )
-                        # pyre-fixme[16]: Optional type has no attribute `__ior__`.
                         fquery.semantic_target |= segment
 
         if self.delete_instance:
@@ -121,7 +120,6 @@ class DecodeRle:
                         # segment is uint8 and remains uint8 throughout the transforms
                         obj.segment = torch.tensor(obj.segment).to(torch.uint8)
 
-                    # pyre-fixme[16]: `dict` has no attribute `shape`.
                     if list(obj.segment.shape) != [img_h, img_w]:
                         # Should not happen often, but adding for security
                         if not warning_shown:
@@ -132,7 +130,6 @@ class DecodeRle:
                             warning_shown = True
 
                         obj.segment = F.resize(
-                            # pyre-fixme[6]: For 2nd argument expected `List[int]`
                             #  but got `Tuple[int, int]`.
                             obj.segment[None],
                             # pyre-fixme[6]: For 2nd argument expected `List[int]`
@@ -161,7 +158,6 @@ class DecodeRle:
                         warning_shown = True
 
                     query.semantic_target = F.resize(
-                        # pyrefly: ignore [bad-argument-type]
                         query.semantic_target[None],
                         # pyrefly: ignore [bad-argument-type]
                         imgId2size[query.image_id],

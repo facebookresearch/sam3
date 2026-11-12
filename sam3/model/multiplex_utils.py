@@ -292,7 +292,6 @@ class MultiplexState:
 
         if len(buckets_to_keep) == 0:
             logger.info(f"Removing all buckets: {buckets_to_remove}; state invalidated")
-            # pyrefly: ignore [bad-assignment]
             self.assignments = None
             if self.object_ids is not None:
                 self.object_ids = []
@@ -330,7 +329,6 @@ class MultiplexState:
                 new_object_ids[new_idx] = self.object_ids[old_idx]
 
             assert not any(obj_id is None for obj_id in new_object_ids)
-            # pyrefly: ignore [bad-assignment]
             self.object_ids = new_object_ids
 
         # Reinitialize the state to update all internal structures
@@ -440,7 +438,6 @@ class MultiplexState:
         not the arbitrary object IDs that are passed in during initialization
         """
         all_valid_objects = {
-            # pyrefly: ignore [not-iterable]
             obj_idx
             # pyrefly: ignore [not-iterable]
             for bucket in self.assignments

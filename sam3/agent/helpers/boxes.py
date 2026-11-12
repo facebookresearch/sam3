@@ -73,7 +73,6 @@ class BoxMode(IntEnum):
             if is_numpy:
                 arr = torch.from_numpy(np.asarray(box)).clone()
             else:
-                # pyre-fixme[16]: Item `List` of `List[float] | ndarray | Tensor |
                 #  tuple[float, ...]` has no attribute `clone`.
                 arr = box.clone()
 

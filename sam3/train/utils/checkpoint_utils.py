@@ -182,7 +182,6 @@ class CkptExcludeKernel:
         if len(self.key_pattern) == 0:
             return state_dict
         exclude_keys = unix_pattern_to_parameter_names(
-            # pyrefly: ignore [bad-argument-type]
             self.key_pattern,
             # pyrefly: ignore [bad-argument-type]
             state_dict.keys(),
@@ -321,7 +320,6 @@ def check_load_state_dict_errors(
             ignore_unexpected_keys, unexpected_keys
         )
         unexpected_keys = [
-            # pyrefly: ignore [not-iterable]
             key
             for key in unexpected_keys
             # pyrefly: ignore [not-iterable]

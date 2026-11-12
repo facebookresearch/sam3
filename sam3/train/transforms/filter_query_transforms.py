@@ -37,7 +37,6 @@ class FilterQueryWithText(FilterDataPointQueries):
     """
 
     def __init__(
-        # pyrefly: ignore [bad-function-definition]
         self,
         # pyrefly: ignore [bad-function-definition]
         exclude_find_keys: List[str] = None,

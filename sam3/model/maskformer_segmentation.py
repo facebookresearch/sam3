@@ -153,7 +153,6 @@ class SegmentationHead(nn.Module):
                 pixel_embed = pixel_embed.squeeze(0)
             else:
                 pixel_embed = pixel_embed[image_ids, ...]
-        # pyrefly: ignore [bad-return]
         return pixel_embed
 
     def forward(

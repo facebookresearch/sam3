@@ -609,7 +609,6 @@ class MultiheadAttention(nn.Module):
 
         if not self._qkv_same_embed_dim:
             if self.use_act_checkpoint:
-                # pyrefly: ignore [not-iterable]
                 attn_output, attn_output_weights = torch.utils.checkpoint.checkpoint(
                     multi_head_attention_forward,
                     query,
@@ -671,7 +670,6 @@ class MultiheadAttention(nn.Module):
                 )
         else:
             if self.use_act_checkpoint:
-                # pyrefly: ignore [not-iterable]
                 attn_output, attn_output_weights = torch.utils.checkpoint.checkpoint(
                     multi_head_attention_forward,
                     query,
@@ -880,7 +878,6 @@ class MLP(nn.Module):
         self.residual = residual
         # whether to apply a normalization layer to the output
         assert isinstance(out_norm, nn.Module) or out_norm is None
-        # pyrefly: ignore [not-callable]
         self.out_norm = out_norm or nn.Identity()
 
     def forward(self, x):
@@ -1039,13 +1036,11 @@ class SAM3Output(list):
             # pyrefly: ignore [missing-attribute]
             SAM3Output.IterMode.ALL_STEPS_PER_STAGE: lambda: iter(self_ref().output),
             SAM3Output.IterMode.LAST_STEP_PER_STAGE: lambda: (
-                # pyrefly: ignore [missing-attribute]
                 inner_list[-1]
                 # pyrefly: ignore [missing-attribute]
                 for inner_list in self_ref().output
             ),
             SAM3Output.IterMode.FLATTENED: lambda: (
-                # pyrefly: ignore [missing-attribute]
                 element
                 # pyrefly: ignore [missing-attribute]
                 for inner_list in self_ref().output

@@ -32,7 +32,6 @@ class TorchDataset:
         if enable_distributed_sampler:
             self.sampler = DistributedSampler(self.dataset, shuffle=self.shuffle)
         else:
-            # pyrefly: ignore [bad-assignment]
             self.sampler = None
 
     def get_loader(self, epoch) -> Iterable:

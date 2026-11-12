@@ -429,7 +429,6 @@ class SAM3InteractiveImagePredictor(nn.Module):
 
         # Upscale the masks to the original image resolution
         masks = self._transforms.postprocess_masks(
-            # pyrefly: ignore [unsupported-operation]
             low_res_masks,
             # pyrefly: ignore [unsupported-operation]
             self._orig_hw[img_idx],

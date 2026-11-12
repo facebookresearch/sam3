@@ -265,7 +265,6 @@ def _unix_pattern_to_parameter_names(
         return None
     # pyrefly: ignore [missing-attribute]
     return unix_param_pattern_to_parameter_names(
-        # pyrefly: ignore [bad-argument-type]
         scheduler_cfg.get("param_names"),
         # pyrefly: ignore [bad-argument-type]
         parameter_names,
@@ -277,7 +276,6 @@ def _unix_pattern_to_parameter_names(
 
 
 def get_module_cls_to_param_names(
-    # pyrefly: ignore [bad-function-definition]
     model: nn.Module,
     # pyrefly: ignore [bad-function-definition]
     param_allowlist: Set[str] = None,
@@ -373,7 +371,6 @@ def construct_optimizer(
                 scheduler_cfgs=all_scheduler_cfgs, model=model
             )
     schedulers, param_groups = map_scheduler_cfgs_to_param_groups(
-        # pyrefly: ignore [bad-argument-type]
         all_scheduler_cfgs,
         # pyrefly: ignore [bad-argument-type]
         named_parameters,

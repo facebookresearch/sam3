@@ -477,7 +477,7 @@ class TransformerDecoder(nn.Module):
                     and (
                         tgt.shape[0]
                         == self.instance_query_embed.num_embeddings  # pyrefly: ignore [missing-attribute]
-                    )  # pyrefly: ignore [missing-attribute]
+                    )
                 )
             )
 
@@ -1389,7 +1389,7 @@ class TransformerEncoderDecoupledCrossAttention(nn.Module):
             if memory_image_pos is not None:
                 assert (
                     memory_pos.shape[1]  # pyrefly: ignore [missing-attribute]
-                    - memory_image_pos.shape[1]  # pyrefly: ignore [missing-attribute]
+                    - memory_image_pos.shape[1]
                 ) == num_obj_ptr_tokens, (
                     # pyrefly: ignore [missing-attribute]
                     f"{memory_pos.shape[1]} - {memory_image_pos.shape[1]} != {num_obj_ptr_tokens}"

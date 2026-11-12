@@ -563,7 +563,6 @@ class ROIMasks:
         else:
             paste_func = retry_if_cuda_oom(paste_masks_in_image)
         bitmasks = paste_func(
-            # pyrefly: ignore [missing-attribute]
             self.tensor,
             # pyrefly: ignore [missing-attribute]
             boxes.tensor,

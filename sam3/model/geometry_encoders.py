@@ -441,7 +441,6 @@ class FusedMaskEncoder(MaskEncoder):
         self.fuser = fuser
         self.out_proj = nn.Identity()
         if out_dim != in_dim:
-            # pyrefly: ignore [bad-assignment]
             self.out_proj = nn.Conv2d(in_dim, out_dim, kernel_size=1)
         self.pix_feat_proj = nn.Conv2d(in_dim, in_dim, kernel_size=1)
 
@@ -568,7 +567,6 @@ class SequenceGeometryEncoder(nn.Module):
 
         self.img_pre_norm = nn.Identity()
         if self.points_pool_project is not None or self.boxes_pool_project is not None:
-            # pyrefly: ignore [bad-assignment]
             self.img_pre_norm = nn.LayerNorm(self.d_model)
 
         self.encode = None
@@ -735,7 +733,6 @@ class SequenceGeometryEncoder(nn.Module):
             else torch.zeros_like(seq_first_img_feats)
         )
 
-        # pyrefly: ignore [not-callable]
         if self.points_pool_project or self.boxes_pool_project:
             assert len(img_feats) == len(img_sizes)
             cur_img_feat = img_feats[-1]
@@ -845,7 +842,6 @@ class SequenceGeometryEncoder(nn.Module):
         if masks is not None and self.mask_encoder is not None:
             # pyrefly: ignore [bad-unpacking]
             final_embeds, final_mask = concat_padded_sequences(
-                # pyrefly: ignore [unbound-name]
                 final_embeds,
                 final_mask,
                 # pyrefly: ignore [unbound-name]
