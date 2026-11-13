@@ -36,6 +36,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+ultrafast = [
+    "ultrafast-pycocotools>=0.1.11,<0.2",
+    "pycocotools",
+]
 dev = [
     "pytest",
     "pytest-cov",
