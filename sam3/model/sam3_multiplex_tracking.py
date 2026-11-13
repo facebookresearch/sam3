@@ -280,10 +280,7 @@ class Sam3MultiplexTracking(Sam3MultiplexBase):
             )
         # set start index, end index, and processing order
         if start_frame_idx is None:
-            # default: start from the earliest frame with input points
-            start_frame_idx = min(
-                t for t, out in enumerate(previous_stages_out) if out is not None
-            )
+            start_frame_idx = self._default_start_frame_idx(inference_state)
         if max_frame_num_to_track is None:
             # default: track all the frames in the video
             max_frame_num_to_track = num_frames
@@ -296,6 +293,11 @@ class Sam3MultiplexTracking(Sam3MultiplexBase):
             end_frame_idx = min(end_frame_idx, num_frames - 1)
             processing_order = range(start_frame_idx, end_frame_idx + 1)
         return processing_order, end_frame_idx
+
+    def _default_start_frame_idx(self, inference_state):
+        # default: start from the earliest frame with input points
+        previous_stages_out = inference_state["previous_stages_out"]
+        return min(t for t, out in enumerate(previous_stages_out) if out is not None)
 
     @torch.inference_mode()
     def propagate_in_video(
@@ -327,7 +329,10 @@ class Sam3MultiplexTracking(Sam3MultiplexBase):
             reverse=reverse,
         )
 
-        # Store max_frame_num_to_track in feature_cache for downstream methods
+        # Store max_frame_num_to_track in feature_cache for downstream methods.
+        # Grounding needs the resolved start frame to match `processing_order`.
+        if start_frame_idx is None:
+            start_frame_idx = self._default_start_frame_idx(inference_state)
         inference_state["feature_cache"]["tracking_bounds"] = {
             "max_frame_num_to_track": max_frame_num_to_track,
             "propagate_in_video_start_frame_idx": start_frame_idx,
@@ -1907,7 +1912,10 @@ class Sam3MultiplexTrackingProd(Sam3MultiplexTracking):
             reverse=reverse,
         )
 
-        # Store max_frame_num_to_track in feature_cache for downstream methods
+        # Store max_frame_num_to_track in feature_cache for downstream methods.
+        # Grounding needs the resolved start frame to match `processing_order`.
+        if start_frame_idx is None:
+            start_frame_idx = self._default_start_frame_idx(inference_state)
         inference_state["feature_cache"]["tracking_bounds"] = {
             "max_frame_num_to_track": max_frame_num_to_track,
             "propagate_in_video_start_frame_idx": start_frame_idx,
