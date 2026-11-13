@@ -1117,9 +1117,10 @@ def build_sam3_multiplex_video_predictor(
     )
     from sam3.model.sam3_multiplex_video_predictor import Sam3MultiplexVideoPredictor
 
-    # Build tracker
+    # Build tracker. Its weights come from the merged checkpoint, which is loaded
+    # into the full demo model below (keys are prefixed with "tracker.model.").
     tracker_model = build_sam3_multiplex_video_model(
-        checkpoint_path=checkpoint_path,
+        checkpoint_path=None,
         load_from_HF=False,
         multiplex_count=multiplex_count,
         use_fa3=use_fa3,
