@@ -1241,10 +1241,8 @@ class Sam3MultiplexTracking(Sam3MultiplexBase):
     def _build_sam2_output(
         self, inference_state, frame_idx, refined_obj_id_to_mask=None
     ):
-        if not frame_idx in inference_state["cached_frame_outputs"]:
-            return {}
-
-        cached_outputs = inference_state["cached_frame_outputs"][frame_idx]
+        # Interactive refinement can precede cached detector output for this frame.
+        cached_outputs = inference_state["cached_frame_outputs"].get(frame_idx, {})
         obj_id_to_mask = cached_outputs.copy()
 
         # Update with refined masks if provided
