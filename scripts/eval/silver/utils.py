@@ -50,7 +50,7 @@ def save_json(content, filename):
 
 def run_command(cmd):
     """Run a shell command and raise if it fails."""
-    result = subprocess.run(cmd, shell=True)
+    result = subprocess.run(cmd, shell=False)
     if result.returncode != 0:
         raise RuntimeError(f"Command failed: {cmd}")
 
