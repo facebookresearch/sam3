@@ -15,6 +15,7 @@ import uuid
 from typing import Dict, List, Optional
 
 import torch
+from sam3.device_utils import bf16_autocast, empty_cache
 from sam3.logger import get_logger
 
 logger = get_logger(__name__)
@@ -154,6 +155,12 @@ class Sam3BasePredictor:
             init_kwargs["async_loading_frames"] = self.async_loading_frames
         if hasattr(self, "video_loader_type"):
             init_kwargs["video_loader_type"] = self.video_loader_type
+        # Filter to params the model accepts: the SAM 3.1 multiplex init_state()
+        # has no offload_state_to_cpu
+        import inspect
+
+        sig = inspect.signature(self.model.init_state)
+        init_kwargs = {k: v for k, v in init_kwargs.items() if k in sig.parameters}
         inference_state = self.model.init_state(**init_kwargs)
 
         if not session_id:
@@ -223,7 +230,7 @@ class Sam3BasePredictor:
         valid_params = set(sig.parameters.keys())
         filtered_kwargs = {k: v for k, v in kwargs.items() if k in valid_params}
 
-        with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+        with bf16_autocast():
             frame_idx, outputs = self.model.add_prompt(**filtered_kwargs)
         return {"frame_index": frame_idx, "outputs": outputs}
 
@@ -243,7 +250,7 @@ class Sam3BasePredictor:
                 "no `add_tracker_new_mask`. Use a point or box prompt instead."
             )
         mask_tensor = torch.as_tensor(mask, dtype=torch.bool)
-        with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+        with bf16_autocast():
             result_frame, outputs = self.model.add_tracker_new_mask(
                 inference_state=inference_state,
                 frame_idx=frame_idx,
@@ -451,7 +458,7 @@ class Sam3BasePredictor:
                     and gpu_mem["total_bytes"] > 0
                     and (100.0 - gpu_mem["free_pct"]) >= clear_cache_threshold
                 ):
-                    torch.cuda.empty_cache()
+                    empty_cache()
                     post_gpu_mem = self._gpu_mem_snapshot()
                     logger.info(
                         f"empty_cache freed "
@@ -495,8 +502,9 @@ class Sam3BasePredictor:
         active_count = len(self._all_inference_states)
         try:
             free_bytes, total_bytes = torch.cuda.mem_get_info()
-        except RuntimeError:
-            # No active CUDA context (e.g., CPU-only test env).
+        except (RuntimeError, AssertionError):
+            # No active CUDA context (e.g., CPU-only test env), or a torch
+            # build without CUDA (macOS), which raises AssertionError.
             return {
                 "free_bytes": 0,
                 "total_bytes": 0,

@@ -8,6 +8,7 @@ from typing import Tuple, Type
 
 import torch
 import torch.nn.functional as F
+from sam3.device_utils import DEVICE
 from sam3.sam.rope import apply_rotary_enc, apply_rotary_enc_real, compute_axial_cis
 from torch import nn, Tensor
 
@@ -284,7 +285,7 @@ class RoPEAttention(Attention):
         self.compute_cis = partial(
             compute_axial_cis, dim=self.internal_dim // self.num_heads, theta=rope_theta
         )
-        device = torch.device("cuda") if torch.cuda.is_available() else None
+        device = DEVICE
         self.freqs_cis = self.compute_cis(
             end_x=feat_sizes[0], end_y=feat_sizes[1], device=device
         )

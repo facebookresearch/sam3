@@ -10,6 +10,10 @@ addmm_act_op = torch.ops.aten._addmm_activation
 def addmm_act(activation, linear, mat1):
     if torch.is_grad_enabled():
         raise ValueError("Expected grad to be disabled.")
+    if mat1.device.type != "cuda":
+        # The fused bf16 kernel is CUDA-only (_addmm_activation has no MPS
+        # kernel); elsewhere compute unfused, letting autocast pick the dtype
+        return _linear_act(activation, linear, mat1)
     self = linear.bias.detach()
     mat2 = linear.weight.detach()
     self = self.to(torch.bfloat16)
@@ -22,4 +26,14 @@ def addmm_act(activation, linear, mat1):
     if activation in [torch.nn.functional.gelu, torch.nn.GELU]:
         y = addmm_act_op(self, mat1_flat, mat2.t(), beta=1, alpha=1, use_gelu=True)
         return y.view(mat1.shape[:-1] + (y.shape[-1],))
+    raise ValueError(f"Unexpected activation {activation}")
+
+
+def _linear_act(activation, linear, mat1):
+    y = torch.nn.functional.linear(mat1, linear.weight, linear.bias)
+    if activation in [torch.nn.functional.relu, torch.nn.ReLU]:
+        return torch.nn.functional.relu(y)
+    if activation in [torch.nn.functional.gelu, torch.nn.GELU]:
+        # exact (erf) GELU, matching the reference _addmm_activation kernel
+        return torch.nn.functional.gelu(y)
     raise ValueError(f"Unexpected activation {activation}")
