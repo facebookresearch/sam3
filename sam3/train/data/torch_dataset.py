@@ -50,6 +50,7 @@ class TorchDataset:
             pin_memory=self.pin_memory,
             drop_last=self.drop_last,
             sampler=self.sampler,
+            shuffle=self.shuffle if self.sampler is None else False,
             collate_fn=self.collate_fn,
             worker_init_fn=self.worker_init_fn,
         )
