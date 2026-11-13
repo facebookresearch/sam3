@@ -1,0 +1,33 @@
+#!/bin/bash
+#PBS -N sam3_mask_area
+#PBS -l select=1:ncpus=8:ngpus=1:mem=64gb
+#PBS -l walltime=02:00:00
+#PBS -j oe
+
+cd /home/users/ntu/gwang016/worldmodel/sam3
+
+module load miniforge3
+source "$(conda info --base)/etc/profile.d/conda.sh"
+conda activate sam3
+
+export HF_HOME=/scratch/users/ntu/gwang016/hf_cache
+export HF_HUB_CACHE=/scratch/users/ntu/gwang016/hf_cache/hub
+mkdir -p $HF_HOME
+
+echo "Host:"
+hostname
+
+echo "GPU:"
+nvidia-smi
+
+echo "Torch check:"
+python - <<'PY'
+import torch
+print("torch:", torch.__version__)
+print("torch cuda:", torch.version.cuda)
+print("cuda available:", torch.cuda.is_available())
+if torch.cuda.is_available():
+    print("gpu:", torch.cuda.get_device_name(0))
+PY
+
+python sam3_mask_area_from_gemini.py
