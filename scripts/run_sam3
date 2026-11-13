@@ -1,0 +1,330 @@
+#!/usr/bin/env python3
+"""Run SAM 3 text-prompted segmentation on an arbitrary video and write an
+overlay result video.
+
+Usage:
+    scripts/run_sam3 --prompt "powerline wire" \
+        --input-video /home/mas/data/sensyn/wire_sag/202606/powerline_sag.MOV
+
+This is a single self-bootstrapping script: when run directly it re-executes
+itself via ``uv run`` inside the project environment, adding opencv-python
+(video I/O) and pycocotools (required by the sam3 detector) as ephemeral
+dependencies. No separate launcher is needed -- just ``scripts/run_sam3 ...``.
+
+The whole video is processed by default (``--sample-fps`` controls temporal
+resolution). To keep GPU/CPU memory bounded on long clips, frames are handled in
+independent chunks of ``--chunk-size`` frames: each chunk re-applies the text
+prompt on its first frame and propagates through the chunk, and overlay frames
+are written to the output video as they are produced. The result is saved to
+``--result-dir/<video-stem>_<prompt>.mp4`` (default dir: ``result/``).
+"""
+
+import argparse
+import getpass
+import os
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+REPO = Path(__file__).resolve().parent.parent
+
+
+def _bootstrap() -> None:
+    """Re-exec once inside the project's uv env with the runtime extras."""
+    if os.environ.get("_RUN_SAM3_BOOTSTRAPPED"):
+        return
+    os.environ["_RUN_SAM3_BOOTSTRAPPED"] = "1"
+    try:
+        os.execvp(
+            "uv",
+            [
+                "uv",
+                "run",
+                "--project",
+                str(REPO),
+                "--with",
+                "opencv-python",
+                "--with",
+                "pycocotools",
+                "python",
+                str(Path(__file__).resolve()),
+                *sys.argv[1:],
+            ],
+        )
+    except FileNotFoundError:
+        raise SystemExit(
+            "`uv` was not found on PATH. Install it first: "
+            "https://github.com/astral-sh/uv"
+        )
+
+
+_bootstrap()
+
+# --- Everything below runs inside the bootstrapped uv environment. ---
+
+# Keep torch.compile artifacts off shared /tmp roots, and reduce CUDA
+# fragmentation OOMs on smaller (e.g. 12 GB laptop) GPUs.
+os.environ.setdefault(
+    "TORCHINDUCTOR_CACHE_DIR",
+    os.path.join(tempfile.gettempdir(), f"torchinductor_{getpass.getuser()}"),
+)
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+
+import cv2  # noqa: E402
+import numpy as np  # noqa: E402
+import torch  # noqa: E402
+
+# BGR colors (OpenCV order), one per tracked object id within a chunk.
+MASK_COLORS = [
+    (0, 0, 255),
+    (0, 255, 0),
+    (255, 0, 0),
+    (0, 255, 255),
+    (255, 0, 255),
+    (255, 255, 0),
+    (0, 128, 255),
+    (255, 0, 128),
+    (255, 128, 0),
+    (128, 0, 255),
+]
+
+
+def slugify(text: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "_", text.lower()).strip("_")
+
+
+def extract_frames(
+    video_path: str, frame_dir: str, sample_fps: float, max_frames: int, start: float
+) -> list[str]:
+    """Sample frames from the video into frame_dir as zero-padded JPEGs."""
+    cmd = ["ffmpeg", "-y", "-loglevel", "error"]
+    if start > 0:
+        cmd += ["-ss", str(start)]
+    cmd += ["-i", video_path, "-vf", f"fps={sample_fps}"]
+    if max_frames > 0:
+        cmd += ["-frames:v", str(max_frames)]
+    cmd += ["-qscale:v", "2", os.path.join(frame_dir, "%06d.jpg")]
+    subprocess.run(cmd, check=True)
+    frames = sorted(Path(frame_dir).glob("*.jpg"))
+    if not frames:
+        raise RuntimeError(f"ffmpeg extracted no frames from {video_path}")
+    return [str(p) for p in frames]
+
+
+def masks_from_response(response: dict) -> dict[int, np.ndarray]:
+    """Extract {obj_id: HxW bool mask} from a propagate_in_video response."""
+    outputs = response.get("outputs", {})
+    obj_ids = outputs.get("out_obj_ids", [])
+    binary_masks = outputs.get("out_binary_masks")
+    if binary_masks is None:
+        return {}
+    if isinstance(obj_ids, torch.Tensor):
+        obj_ids = obj_ids.cpu().numpy()
+    if isinstance(binary_masks, torch.Tensor):
+        binary_masks = binary_masks.cpu().numpy()
+    masks = {}
+    for i, oid in enumerate(obj_ids):
+        m = binary_masks[i]
+        if m.ndim == 3:
+            m = m[0]
+        masks[int(oid)] = m.astype(bool)
+    return masks
+
+
+def draw_overlay(
+    frame_bgr: np.ndarray, masks: dict[int, np.ndarray], title: str, alpha: float = 0.5
+) -> np.ndarray:
+    out = frame_bgr.copy()
+    for obj_id, mask in sorted(masks.items()):
+        color = MASK_COLORS[obj_id % len(MASK_COLORS)]
+        out[mask] = (out[mask] * (1 - alpha) + np.array(color) * alpha).astype(np.uint8)
+        # Outline improves visibility of thin structures like wires.
+        contours, _ = cv2.findContours(
+            mask.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+        )
+        cv2.drawContours(out, contours, -1, color, 2)
+    cv2.putText(
+        out,
+        title,
+        (12, 32),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.9,
+        (255, 255, 255),
+        2,
+        cv2.LINE_AA,
+    )
+    return out
+
+
+def segment_chunk(model, frame_paths: list[str], prompt: str) -> dict[int, dict]:
+    """Detect + propagate the prompt over one chunk of frames.
+
+    Each chunk is an independent session (re-detects the prompt on its first
+    frame), which bounds GPU/CPU memory so arbitrarily long videos can be
+    processed. Returns {local_frame_idx: {obj_id: bool mask}}.
+    """
+    chunk_dir = tempfile.mkdtemp(prefix="sam3_chunk_")
+    try:
+        for i, src in enumerate(frame_paths):
+            os.symlink(os.path.abspath(src), os.path.join(chunk_dir, f"{i:06d}.jpg"))
+        session_id = model.handle_request(
+            {
+                "type": "start_session",
+                "resource_path": chunk_dir,
+                # Offload frames and tracking state to CPU to bound GPU memory.
+                "offload_video_to_cpu": True,
+                "offload_state_to_cpu": True,
+            }
+        )["session_id"]
+        model.handle_request(
+            {
+                "type": "add_prompt",
+                "session_id": session_id,
+                "frame_index": 0,
+                "text": prompt,
+            }
+        )
+        masks_by_frame: dict[int, dict] = {}
+        for response in model.handle_stream_request(
+            {"type": "propagate_in_video", "session_id": session_id}
+        ):
+            frame_idx = response.get("frame_index")
+            if frame_idx is not None:
+                masks_by_frame[frame_idx] = masks_from_response(response)
+        model.handle_request({"type": "close_session", "session_id": session_id})
+        torch.cuda.synchronize()
+        return masks_by_frame
+    finally:
+        shutil.rmtree(chunk_dir, ignore_errors=True)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Run SAM 3 text-prompted segmentation on a video."
+    )
+    parser.add_argument(
+        "--prompt", required=True, help="Text prompt, e.g. 'powerline wire'"
+    )
+    parser.add_argument(
+        "--input-video", required=True, help="Path to the input video file"
+    )
+    parser.add_argument(
+        "--result-dir", default="result", help="Output directory (default: result/)"
+    )
+    parser.add_argument(
+        "--output",
+        default=None,
+        help="Explicit output video path (overrides --result-dir)",
+    )
+    # Default "sam3": its init_state is compatible with the start_session API.
+    # "sam3.1" (multiplex) currently rejects start_session's offload_state_to_cpu.
+    parser.add_argument("--version", default="sam3", choices=["sam3", "sam3.1"])
+    parser.add_argument(
+        "--sample-fps", type=float, default=5.0, help="Frames sampled per second"
+    )
+    parser.add_argument(
+        "--max-frames",
+        type=int,
+        default=0,
+        help="Cap on frames processed (0 = whole video)",
+    )
+    parser.add_argument(
+        "--chunk-size",
+        type=int,
+        default=60,
+        help="Frames per session (bounds GPU memory)",
+    )
+    parser.add_argument(
+        "--start", type=float, default=0.0, help="Start offset in seconds"
+    )
+    parser.add_argument("--alpha", type=float, default=0.5, help="Mask overlay opacity")
+    parser.add_argument(
+        "--use-fa3",
+        action="store_true",
+        help="Use Flash Attention 3 (must be installed)",
+    )
+    args = parser.parse_args()
+
+    if not os.path.isfile(args.input_video):
+        raise SystemExit(f"Input video not found: {args.input_video}")
+    if args.chunk_size < 1:
+        raise SystemExit("--chunk-size must be >= 1")
+    if args.sample_fps <= 0:
+        raise SystemExit("--sample-fps must be > 0")
+    if not torch.cuda.is_available():
+        raise SystemExit("SAM 3 requires a CUDA GPU, but none is available.")
+
+    if args.output:
+        out_path = args.output
+    else:
+        stem = Path(args.input_video).stem
+        out_path = os.path.join(args.result_dir, f"{stem}_{slugify(args.prompt)}.mp4")
+    os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
+
+    frame_dir = tempfile.mkdtemp(prefix="sam3_frames_")
+    try:
+        print(
+            f"[1/3] Sampling frames from {args.input_video} "
+            f"(fps={args.sample_fps}, max={args.max_frames or 'all'}, start={args.start}s)"
+        )
+        frame_paths = extract_frames(
+            args.input_video, frame_dir, args.sample_fps, args.max_frames, args.start
+        )
+        h, w = cv2.imread(frame_paths[0]).shape[:2]
+        n = len(frame_paths)
+        n_chunks = (n + args.chunk_size - 1) // args.chunk_size
+        print(
+            f"      {n} frames at {w}x{h} -> {n_chunks} chunk(s) of {args.chunk_size}"
+        )
+
+        torch.autocast(device_type="cuda", dtype=torch.bfloat16).__enter__()
+        from sam3 import build_sam3_predictor
+
+        print(f"[2/3] Building {args.version} predictor (auto-downloads checkpoint)")
+        model = build_sam3_predictor(
+            version=args.version,
+            compile=False,
+            async_loading_frames=False,
+            use_fa3=args.use_fa3,
+        )
+
+        print(f"[3/3] Segmenting '{args.prompt}' and writing {out_path}")
+        writer = cv2.VideoWriter(
+            out_path, cv2.VideoWriter_fourcc(*"mp4v"), args.sample_fps, (w, h)
+        )
+        if not writer.isOpened():
+            raise SystemExit(
+                f"Could not open a video writer for {out_path} "
+                "(mp4v codec unavailable or path not writable)."
+            )
+        title = f"SAM3 [{args.version}] | {args.prompt}"
+        frames_with_obj = 0
+        max_objs = 0
+        for c in range(n_chunks):
+            chunk = frame_paths[c * args.chunk_size : (c + 1) * args.chunk_size]
+            masks = segment_chunk(model, chunk, args.prompt)
+            for local_idx, fp in enumerate(chunk):
+                fmasks = masks.get(local_idx, {})
+                frames_with_obj += 1 if fmasks else 0
+                max_objs = max(max_objs, len(fmasks))
+                writer.write(draw_overlay(cv2.imread(fp), fmasks, title, args.alpha))
+            torch.cuda.empty_cache()
+            done = min((c + 1) * args.chunk_size, n)
+            print(f"      chunk {c + 1}/{n_chunks} done ({done}/{n} frames)")
+        writer.release()
+        print(
+            f"      objects on >=1 frame in {frames_with_obj}/{n} frames "
+            f"(max {max_objs} simultaneous)"
+        )
+    finally:
+        cv2.destroyAllWindows()
+        shutil.rmtree(frame_dir, ignore_errors=True)
+
+    print(f"Done. Result video: {out_path}")
+
+
+if __name__ == "__main__":
+    main()

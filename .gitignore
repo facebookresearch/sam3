@@ -151,3 +151,13 @@ Thumbs.db
 # BPE vocabulary files
 *.bpe
 *.vocab
+
+# Generated images and visualization artifacts
+# (curated inputs/figures under assets/ are kept via the negation below)
+*.png
+!assets/**
+outputs/
+output/
+result/
+results/
+artifacts/
