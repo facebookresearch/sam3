@@ -105,7 +105,7 @@ pip install -e ".[train,dev]"
 5. **Optional dependencies for faster inference**
 ```bash
 pip install einops ninja && pip install flash-attn-3 --no-deps --index-url https://download.pytorch.org/whl/cu128
-pip install git+https://github.com/ronghanghu/cc_torch.git
+pip install --no-build-isolation git+https://github.com/ronghanghu/cc_torch.git
 ```
 
 ## Getting Started
