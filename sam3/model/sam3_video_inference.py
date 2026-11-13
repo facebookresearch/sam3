@@ -192,11 +192,29 @@ class Sam3VideoInference(Sam3VideoBase):
             and inference_state["previous_stages_out"][frame_idx] is None
         )
         if is_new_visual_prompt:
-            if boxes_cxcywh.size(0) != 1:
-                raise RuntimeError(
-                    "visual prompts (box as an initial prompt) should only have one box, "
-                    f"but got {boxes_cxcywh.shape=}"
+            if boxes_cxcywh.size(0) > 1:
+                if (box_labels == 0).any().item():
+                    logging.warning("A negative box is added as a visual prompt.")
+
+                batch_size = 1
+                device = self.device
+                new_visual_prompt = Prompt(
+                    box_embeddings=torch.zeros(0, batch_size, 4, device=device),
+                    box_mask=torch.zeros(
+                        batch_size, 0, device=device, dtype=torch.bool
+                    ),
+                    point_embeddings=None,
+                    point_mask=None,
                 )
+                new_visual_prompt.append_boxes(
+                    boxes=boxes_cxcywh.view(-1, batch_size, 4).to(device),
+                    labels=box_labels.view(-1, batch_size).to(device),
+                )
+                inference_state["per_frame_visual_prompt"][frame_idx] = (
+                    new_visual_prompt
+                )
+                return boxes_cxcywh[:0], box_labels[:0], new_visual_prompt
+
             if not box_labels.item():
                 logging.warning("A negative box is added as a visual prompt.")
             # take the first box prompt as a visual prompt
@@ -563,9 +581,9 @@ class Sam3VideoInference(Sam3VideoBase):
 
         if refined_obj_id_to_mask is not None:
             for obj_id, refined_mask in refined_obj_id_to_mask.items():
-                assert refined_mask is not None, (
-                    f"Refined mask data must be provided for obj_id {obj_id}"
-                )
+                assert (
+                    refined_mask is not None
+                ), f"Refined mask data must be provided for obj_id {obj_id}"
                 obj_id_to_mask[obj_id] = refined_mask
 
         return obj_id_to_mask
@@ -855,12 +873,12 @@ class Sam3VideoInference(Sam3VideoBase):
         logger.debug("Running add_prompt on frame %d", frame_idx)
 
         num_frames = inference_state["num_frames"]
-        assert text_str is not None or boxes_xywh is not None, (
-            "at least one type of prompt (text, boxes) must be provided"
-        )
-        assert 0 <= frame_idx < num_frames, (
-            f"{frame_idx=} is out of range for a total of {num_frames} frames"
-        )
+        assert (
+            text_str is not None or boxes_xywh is not None
+        ), "at least one type of prompt (text, boxes) must be provided"
+        assert (
+            0 <= frame_idx < num_frames
+        ), f"{frame_idx=} is out of range for a total of {num_frames} frames"
 
         # since it's a semantic prompt, we start over
         self.reset_state(inference_state)
@@ -1319,9 +1337,9 @@ class Sam3VideoInferenceWithInstanceInteractivity(Sam3VideoInference):
             "propagation_partial",
             "propagation_fetch",
         ]
-        assert action_type in instance_actions + propagation_actions, (
-            f"Invalid action type: {action_type}, must be one of {instance_actions + propagation_actions}"
-        )
+        assert (
+            action_type in instance_actions + propagation_actions
+        ), f"Invalid action type: {action_type}, must be one of {instance_actions + propagation_actions}"
         action = {
             "type": action_type,
             "frame_idx": frame_idx,
@@ -1489,12 +1507,12 @@ class Sam3VideoInferenceWithInstanceInteractivity(Sam3VideoInference):
     ):
         if points is not None:
             # Tracker instance prompts
-            assert text_str is None and boxes_xywh is None, (
-                "When points are provided, text_str and boxes_xywh must be None."
-            )
-            assert obj_id is not None, (
-                "When points are provided, obj_id must be provided."
-            )
+            assert (
+                text_str is None and boxes_xywh is None
+            ), "When points are provided, text_str and boxes_xywh must be None."
+            assert (
+                obj_id is not None
+            ), "When points are provided, obj_id must be provided."
             return self.add_tracker_new_points(
                 inference_state,
                 frame_idx,
@@ -1770,9 +1788,9 @@ class Sam3VideoInferenceWithInstanceInteractivity(Sam3VideoInference):
                 tracker_states = self._get_tracker_inference_states_by_obj_ids(
                     inference_state, [obj_id]
                 )
-                assert len(tracker_states) == 1, (
-                    f"[rank={self.rank}] Multiple Tracker inference states found for the same object id."
-                )
+                assert (
+                    len(tracker_states) == 1
+                ), f"[rank={self.rank}] Multiple Tracker inference states found for the same object id."
                 tracker_state = tracker_states[0]
 
             # log
