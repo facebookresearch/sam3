@@ -124,7 +124,9 @@ class TransformerEncoderLayer(nn.Module):
 
         # Cross attention to image
         tgt2 = self.cross_attn_image(
+            # pyrefly: ignore [unsupported-operation]
             query=tgt + query_pos if self.pos_enc_at_cross_attn_queries else tgt,
+            # pyrefly: ignore [unsupported-operation]
             key=memory + pos if self.pos_enc_at_cross_attn_keys else memory,
             value=memory,
             attn_mask=memory_mask,
@@ -192,6 +194,7 @@ class TransformerEncoderLayer(nn.Module):
         tgt2 = self.norm2(tgt)
         tgt2 = self.cross_attn_image(
             query=tgt2 + query_pos if self.pos_enc_at_cross_attn_queries else tgt2,
+            # pyrefly: ignore [unsupported-operation]
             key=memory + pos if self.pos_enc_at_cross_attn_keys else memory,
             value=memory,
             attn_mask=memory_mask,

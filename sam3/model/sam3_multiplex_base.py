@@ -1806,11 +1806,16 @@ class Sam3MultiplexBase(Sam3VideoBase):
                     keep_indices = []
                 if len(keep_indices) > 0:
                     idx_tensor = torch.as_tensor(
-                        keep_indices, device=out_low_res_masks.device, dtype=torch.long
+                        # pyrefly: ignore [unbound-name]
+                        keep_indices,
+                        # pyrefly: ignore [unbound-name]
+                        device=out_low_res_masks.device,
+                        dtype=torch.long,
                     )
                     out_low_res_masks = out_low_res_masks.index_select(
                         dim=0, index=idx_tensor
                     )
+                    # pyrefly: ignore [unbound-name]
                     out_obj_scores = out_obj_scores.index_select(
                         dim=0, index=idx_tensor
                     )
