@@ -328,6 +328,16 @@ def collate_fn_api(
 
     # Pad input points to equal sequence lengths
     for i in range(len(stages)):
+        # Queries without points get an empty (0, input_points_embedding_dim)
+        # placeholder; match its last dim to the queries that do have points
+        # (e.g. raw (x, y, label) points) so the batch can be stacked.
+        point_dims = {p.shape[-1] for p in stages[i].input_points if p.shape[0] > 0}
+        if len(point_dims) == 1:
+            point_dim = point_dims.pop()
+            stages[i].input_points = [
+                p if p.shape[0] > 0 else p.new_empty(0, point_dim)
+                for p in stages[i].input_points
+            ]
         stages[i].input_points = pad_tensor_list_to_longest(
             # pyrefly: ignore [bad-argument-type]
             stages[i].input_points,
