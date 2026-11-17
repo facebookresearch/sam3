@@ -314,6 +314,7 @@ class Boxes:
         return cat_boxes
 
     @property
+    # pyrefly: ignore [not-a-type]
     def device(self) -> device:
         return self.tensor.device
 

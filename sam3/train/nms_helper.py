@@ -239,7 +239,7 @@ def compute_frame_ious(bbox: np.ndarray, bboxes: np.ndarray) -> np.ndarray:
 
 
 if HAS_NUMBA:
-
+    # pyrefly: ignore [unbound-name]
     @nb.jit(nopython=True, parallel=True)
     def _compute_frame_ious_numba(bbox, bboxes):
         """Numba-optimized IoU computation"""
@@ -287,7 +287,7 @@ def apply_frame_nms(
 
 
 if HAS_NUMBA:
-
+    # pyrefly: ignore [unbound-name]
     @nb.jit(nopython=True)
     def _apply_frame_nms_numba(bboxes, scores, nms_threshold):
         """Numba-optimized NMS implementation"""
