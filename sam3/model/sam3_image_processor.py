@@ -40,13 +40,15 @@ class Sam3Processor:
 
     @torch.inference_mode()
     def set_image(self, image, state=None):
-        """Sets the image on which we want to do predictions."""
+        """Set a PIL image, HWC NumPy array, or CHW tensor for prediction."""
         if state is None:
             state = {}
 
         if isinstance(image, PIL.Image.Image):
             width, height = image.size
-        elif isinstance(image, (torch.Tensor, np.ndarray)):
+        elif isinstance(image, np.ndarray):
+            height, width = image.shape[:2]
+        elif isinstance(image, torch.Tensor):
             height, width = image.shape[-2:]
         else:
             raise ValueError("Image must be a PIL image or a tensor")
@@ -81,9 +83,9 @@ class Sam3Processor:
         if not isinstance(images, list):
             raise ValueError("Images must be a list of PIL images or tensors")
         assert len(images) > 0, "Images list must not be empty"
-        assert isinstance(images[0], PIL.Image.Image), (
-            "Images must be a list of PIL images"
-        )
+        assert isinstance(
+            images[0], PIL.Image.Image
+        ), "Images must be a list of PIL images"
 
         state["original_heights"] = [image.height for image in images]
         state["original_widths"] = [image.width for image in images]
