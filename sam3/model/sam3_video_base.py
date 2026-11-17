@@ -901,18 +901,26 @@ class Sam3VideoBase(nn.Module):
 
         # `tracker_update_plan` should be identical on all GPUs after broadcasting
         tracker_update_plan = {
+            # pyrefly: ignore [unbound-name]
             "new_det_fa_inds": new_det_fa_inds,  # npt.NDArray
+            # pyrefly: ignore [unbound-name]
             "new_det_obj_ids": new_det_obj_ids,  # npt.NDArray
+            # pyrefly: ignore [unbound-name]
             "new_det_gpu_ids": new_det_gpu_ids,  # npt.NDArray
             #  defined.
+            # pyrefly: ignore [unbound-name]
             "unmatched_trk_obj_ids": unmatched_trk_obj_ids,  # npt.NDArray
             #  always defined.
+            # pyrefly: ignore [unbound-name]
             "det_to_matched_trk_obj_ids": det_to_matched_trk_obj_ids,  # dict
             #  defined.
+            # pyrefly: ignore [unbound-name]
             "obj_ids_newly_removed": obj_ids_newly_removed,  # set
             #  always defined.
+            # pyrefly: ignore [unbound-name]
             "num_obj_dropped_due_to_limit": num_obj_dropped_due_to_limit,  # int
             #  always defined.
+            # pyrefly: ignore [unbound-name]
             "trk_id_to_max_iou_high_conf_det": trk_id_to_max_iou_high_conf_det,  # dict
             "reconditioned_obj_ids": reconditioned_obj_ids,  # set
         }

@@ -511,6 +511,7 @@ class ROIMasks:
         return ROIMasks(self.tensor.to(device))
 
     @property
+    # pyrefly: ignore [not-a-type]
     def device(self) -> device:
         return self.tensor.device
 
