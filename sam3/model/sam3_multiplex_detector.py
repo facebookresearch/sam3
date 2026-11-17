@@ -382,7 +382,9 @@ class Sam3MultiplexDetector(Sam3MultiplexImageBase):
         a chunk of frames (equal to the number of GPUs) at once and store them in cache.
         """
         # Calculate valid frame range based on max_frame_num_to_track
-        # We prevent pre-fetching beyond the tracking window relative to current frame
+        # We prevent pre-fetching beyond the tracking window relative to current frame.
+        # The window must match `_get_processing_order`, which tracks up to and including
+        # frame `start +/- max_frame_num_to_track`.
         if max_frame_num_to_track is not None:
             if propagate_in_video_start_frame_idx is None:
                 propagate_in_video_start_frame_idx = 0
@@ -390,7 +392,7 @@ class Sam3MultiplexDetector(Sam3MultiplexImageBase):
                 # When going backwards, limit how far back we can go from current frame
                 valid_frame_start = max(
                     0,
-                    propagate_in_video_start_frame_idx - max_frame_num_to_track + 1,
+                    propagate_in_video_start_frame_idx - max_frame_num_to_track,
                 )
                 valid_frame_end = num_frames
             else:
@@ -398,7 +400,7 @@ class Sam3MultiplexDetector(Sam3MultiplexImageBase):
                 valid_frame_start = 0
                 valid_frame_end = min(
                     num_frames,
-                    propagate_in_video_start_frame_idx + max_frame_num_to_track,
+                    propagate_in_video_start_frame_idx + max_frame_num_to_track + 1,
                 )
         else:
             # No tracking limit specified, use full video range
@@ -715,19 +717,22 @@ class Sam3MultiplexDetector(Sam3MultiplexImageBase):
         Returns:
             Tuple of (out, backbone_out) where out contains detection results for frame_idx.
         """
-        # Calculate valid frame range based on max_frame_num_to_track
+        # Calculate valid frame range based on max_frame_num_to_track. The range must
+        # match `_get_processing_order`, which tracks up to and including frame
+        # `start +/- max_frame_num_to_track`.
         if max_frame_num_to_track is not None:
             if propagate_in_video_start_frame_idx is None:
                 propagate_in_video_start_frame_idx = 0
             if track_in_reverse:
-                valid_frame_start = (
-                    propagate_in_video_start_frame_idx - max_frame_num_to_track + 1
+                valid_frame_start = max(
+                    0, propagate_in_video_start_frame_idx - max_frame_num_to_track
                 )
                 valid_frame_end = propagate_in_video_start_frame_idx
             else:
                 valid_frame_start = propagate_in_video_start_frame_idx
-                valid_frame_end = (
-                    propagate_in_video_start_frame_idx + max_frame_num_to_track
+                valid_frame_end = min(
+                    num_frames,
+                    propagate_in_video_start_frame_idx + max_frame_num_to_track + 1,
                 )
         else:
             valid_frame_start = 0
