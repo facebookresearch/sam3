@@ -3381,6 +3381,9 @@ class Sam3VideoTrackingMultiplexDemo(VideoTrackingMultiplexDemo):
         pixel_level_non_overlapping_masks = super()._apply_non_overlapping_constraints(
             pred_masks_single_score
         )
+        # Keep binary masks boolean instead of promoting them in the clamp below.
+        if pred_masks.dtype == torch.bool and background_value == 0:
+            return pred_masks & (pixel_level_non_overlapping_masks > 0)
         # Replace object scores with pixel scores. Note, that now only one object can claim the overlapping region
         pred_masks = torch.where(
             pixel_level_non_overlapping_masks > 0,
