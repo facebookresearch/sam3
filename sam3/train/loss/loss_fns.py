@@ -147,9 +147,10 @@ def sigmoid_focal_loss(
     Returns:
         Loss tensor
     """
-    if not (0 <= alpha <= 1) and triton:
+    use_triton = triton and gamma != 0
+    if not (0 <= alpha <= 1) and use_triton:
         raise RuntimeError(f"Alpha should be in [0,1], got {alpha}")
-    if triton:
+    if use_triton:
         if reduce and not loss_on_multimask:
             loss = triton_sigmoid_focal_loss_reduce(inputs, targets, alpha, gamma)
             return loss / (num_boxes * inputs.shape[1])
