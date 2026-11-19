@@ -51,8 +51,9 @@ class PositionEmbeddingSine(nn.Module):
                 (int(precompute_resolution // 28), int(precompute_resolution // 28)),
                 (precompute_resolution // 32, precompute_resolution // 32),
             ]
+            device = "cuda" if torch.cuda.is_available() else "cpu"
             for size in precompute_sizes:
-                tensors = torch.zeros((1, 1) + size, device="cuda")
+                tensors = torch.zeros((1, 1) + size, device=device)
                 self.forward(tensors)
                 # further clone and detach it in the cache (just to be safe)
                 self.cache[size] = self.cache[size].clone().detach()
@@ -98,6 +99,7 @@ class PositionEmbeddingSine(nn.Module):
         cache_key = None
         cache_key = (x.shape[-2], x.shape[-1])
         if cache_key in self.cache:
+            self.cache[cache_key] = self.cache[cache_key].to(x.device)
             return self.cache[cache_key][None].repeat(x.shape[0], 1, 1, 1)
         y_embed = (
             torch.arange(1, x.shape[-2] + 1, dtype=torch.float32, device=x.device)
