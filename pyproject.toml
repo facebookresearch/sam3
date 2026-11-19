@@ -133,3 +133,9 @@ testpaths = ["tests"]
 python_files = "test_*.py"
 python_classes = "Test*"
 python_functions = "test_*"
+filterwarnings = [
+    "ignore::UserWarning:torch.amp.autocast_mode",
+    "ignore::UserWarning:torch.functional",
+    "ignore:.*CUDA is not available.*:UserWarning",
+    "ignore:.*torch.meshgrid.*indexing argument.*:UserWarning",
+]
