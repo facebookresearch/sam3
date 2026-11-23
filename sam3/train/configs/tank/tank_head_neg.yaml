@@ -1,0 +1,22 @@
+# @package _global_
+defaults:
+  - /configs/tank/tank_head_ft
+  - _self_
+
+# Continue the head-only checkpoint on the Tank split that now includes
+# unlabeled negative images. Five epochs at half the previous learning rate.
+paths:
+  experiment_log_dir: /home/ygz/Projects/sam3/outputs/tank_head_neg
+
+scratch:
+  lr_scale: 0.05
+
+trainer:
+  max_epochs: 5
+  val_epoch_freq: 1
+  skip_first_val: false
+  model:
+    checkpoint_path: /home/ygz/Projects/sam3/outputs/tank_head_ft/sam3_tank_head.pt
+    load_from_HF: false
+  checkpoint:
+    save_freq: 1

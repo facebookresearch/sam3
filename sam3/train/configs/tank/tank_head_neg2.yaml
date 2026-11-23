@@ -1,0 +1,13 @@
+# @package _global_
+defaults:
+  - /configs/tank/tank_head_neg
+  - _self_
+
+# More unlabeled negatives. Continue from the previous negative-sample head.
+paths:
+  experiment_log_dir: /home/ygz/Projects/sam3/outputs/tank_head_neg2
+
+trainer:
+  model:
+    checkpoint_path: /home/ygz/Projects/sam3/outputs/tank_head_neg/sam3_tank_head.pt
+    load_from_HF: false

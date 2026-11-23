@@ -1,0 +1,32 @@
+# @package _global_
+defaults:
+  - /configs/tank/tank_head_ft
+  - _self_
+
+# Add the shelf divider to the tank head. Continue from the negative-sample
+# head so Tank body / Tank handle stay in place. The empty parent category
+# "Tank" is not in this split.
+paths:
+  roboflow_vl_100_root: /home/ygz/Projects/sam3/data
+  experiment_log_dir: /home/ygz/Projects/sam3/outputs/tank_head_shelf
+
+roboflow_train:
+  supercategory: tank_shelf
+
+scratch:
+  lr_scale: 0.05
+
+trainer:
+  max_epochs: 10
+  val_epoch_freq: 1
+  skip_first_val: true
+  model:
+    checkpoint_path: /home/ygz/Projects/sam3/outputs/tank_head_neg/sam3_tank_head.pt
+    load_from_HF: false
+  checkpoint:
+    save_freq: 1
+  data:
+    val:
+      dataset:
+        coco_json_loader:
+          category_chunk_size: 3

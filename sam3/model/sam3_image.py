@@ -2,6 +2,7 @@
 
 # pyre-unsafe
 
+import contextlib
 import os
 from copy import deepcopy
 from typing import Dict, List, Optional, Tuple
@@ -554,13 +555,20 @@ class Sam3Image(torch.nn.Module):
 
     def forward(self, input: BatchedDatapoint):
         device = self.device
-        backbone_out = {"img_batch_all_stages": input.img_batch}
-        backbone_out.update(self.backbone.forward_image(input.img_batch))
+        # The ViT MLP kernel only runs when grad is disabled. A frozen backbone
+        # has nothing to differentiate, so run it under no_grad and let the
+        # detector and mask head build the autograd graph from its features.
+        backbone_frozen = all(not p.requires_grad for p in self.backbone.parameters())
+        grad_ctx = torch.no_grad() if backbone_frozen else contextlib.nullcontext()
+        with grad_ctx:
+            backbone_out = {"img_batch_all_stages": input.img_batch}
+            backbone_out.update(self.backbone.forward_image(input.img_batch))
+            text_outputs = self.backbone.forward_text(
+                input.find_text_batch, device=device
+            )
+            backbone_out.update(text_outputs)
         num_frames = len(input.find_inputs)
         assert num_frames == 1
-
-        text_outputs = self.backbone.forward_text(input.find_text_batch, device=device)
-        backbone_out.update(text_outputs)
 
         previous_stages_out = SAM3Output(
             iter_mode=SAM3Output.IterMode.LAST_STEP_PER_STAGE

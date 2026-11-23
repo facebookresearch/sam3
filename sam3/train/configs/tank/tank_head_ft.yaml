@@ -1,0 +1,97 @@
+# @package _global_
+defaults:
+  - /configs/roboflow_v100/roboflow_v100_full_ft_100_images
+  - _self_
+
+# Freeze the vision and text backbone. Train the detector, the mask head,
+# and the text-to-image scorer on the Tank COCO split.
+paths:
+  roboflow_vl_100_root: /home/ygz/Projects/sam3/data
+  experiment_log_dir: /home/ygz/Projects/sam3/outputs/tank_head_ft
+  bpe_path: /home/ygz/Projects/sam3/sam3/assets/bpe_simple_vocab_16e6.txt.gz
+
+roboflow_train:
+  num_images: null
+  supercategory: tank
+  val_transforms:
+    - _target_: sam3.train.transforms.basic_for_api.ComposeAPI
+      transforms:
+        - _target_: sam3.train.transforms.segmentation.DecodeRle
+        - _target_: sam3.train.transforms.basic_for_api.RandomResizeAPI
+          sizes: ${scratch.resolution}
+          max_size:
+            _target_: sam3.train.transforms.basic.get_random_resize_max_size
+            size: ${scratch.resolution}
+          square: true
+          consistent_transform: false
+        - _target_: sam3.train.transforms.basic_for_api.ToTensorAPI
+        - _target_: sam3.train.transforms.basic_for_api.NormalizeAPI
+          mean: ${scratch.train_norm_mean}
+          std: ${scratch.train_norm_std}
+  loss:
+    _target_: sam3.train.loss.sam3_loss.Sam3LossWrapper
+    matcher: ${scratch.matcher}
+    o2m_weight: 2.0
+    o2m_matcher:
+      _target_: sam3.train.matcher.BinaryOneToManyMatcher
+      alpha: 0.3
+      threshold: 0.4
+      topk: 4
+    use_o2m_matcher_on_o2m_aux: false
+    loss_fns_find:
+      - _target_: sam3.train.loss.loss_fns.Boxes
+        weight_dict:
+          loss_bbox: 5.0
+          loss_giou: 2.0
+      - _target_: sam3.train.loss.loss_fns.IABCEMdetr
+        weak_loss: False
+        weight_dict:
+          loss_ce: 20.0
+          presence_loss: 20.0
+        pos_weight: 10.0
+        alpha: 0.25
+        gamma: 2
+        use_presence: True
+        pos_focal: false
+        pad_n_queries: 200
+        pad_scale_pos: 1.0
+      - _target_: sam3.train.loss.loss_fns.Masks
+        focal_alpha: 0.25
+        focal_gamma: 2.0
+        # Point loss avoids a full 1008x1008 mask backward on an 8GB GPU.
+        num_sample_points: 12544
+        oversample_ratio: 3.0
+        importance_sample_ratio: 0.75
+        weight_dict:
+          loss_mask: 200.0
+          loss_dice: 10.0
+        compute_aux: false
+    loss_fn_semantic_seg: null
+    scale_by_find_batch_size: ${scratch.scale_by_find_batch_size}
+
+scratch:
+  enable_segmentation: true
+  num_train_workers: 2
+  lr_vision_backbone: 0.0
+  lr_language_backbone: 0.0
+
+trainer:
+  skip_saving_ckpts: false
+  val_epoch_freq: 5
+  freeze_modules:
+    - backbone
+    - geometry_encoder
+  frozen_param_dtype: bfloat16
+  env_variables:
+    PYTORCH_CUDA_ALLOC_CONF: expandable_segments:True
+  model:
+    checkpoint_path: /home/ygz/Projects/sam3/sam3.pt
+    load_from_HF: false
+  checkpoint:
+    save_freq: 5
+
+launcher:
+  gpus_per_node: 1
+
+submitit:
+  use_cluster: false
