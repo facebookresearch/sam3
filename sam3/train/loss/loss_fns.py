@@ -679,6 +679,17 @@ class Masks(LossWithWeights):
         src_masks = src_masks[keep]
         target_masks = target_masks[keep]
 
+        # A negative image has no matched masks. Point sampling needs a
+        # [N, H, W] tensor, so skip it and let the presence loss supervise.
+        if (
+            src_masks.ndim != 3
+            or target_masks.ndim != 3
+            or src_masks.shape[0] == 0
+            or target_masks.shape[0] == 0
+        ):
+            zero = outputs["pred_masks"].sum() * 0.0
+            return {"loss_mask": zero, "loss_dice": zero}
+
         if self.num_sample_points is not None:
             # Compute loss on sampled points for the Mask
             losses = self._sampled_loss(src_masks, target_masks, num_boxes)

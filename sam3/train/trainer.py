@@ -172,6 +172,8 @@ class Trainer:
         skip_saving_ckpts: bool = False,
         empty_gpu_mem_cache_after_eval: bool = True,
         gradient_accumulation_steps: int = 1,
+        freeze_modules: Optional[List[str]] = None,
+        frozen_param_dtype: Optional[str] = None,
     ):
         self._setup_env_variables(env_variables)
         self._setup_timers()
@@ -199,6 +201,8 @@ class Trainer:
         self.skip_first_val = skip_first_val
         self.skip_saving_ckpts = skip_saving_ckpts
         self.empty_gpu_mem_cache_after_eval = empty_gpu_mem_cache_after_eval
+        self.freeze_modules = list(freeze_modules or [])
+        self.frozen_param_dtype = frozen_param_dtype
 
         self._infer_distributed_backend_if_none(distributed, accelerator)
 
@@ -223,6 +227,7 @@ class Trainer:
         )
 
         self._setup_components()  # Except Optimizer everything is setup here.
+        self._freeze_configured_modules()
         self._move_to_device()
         self._construct_optimizers()
         self._setup_dataloaders()
@@ -308,6 +313,10 @@ class Trainer:
 
     def _setup_ddp_distributed_training(self, distributed_conf, accelerator):
         assert isinstance(self.model, torch.nn.Module)
+        if dist.get_world_size() == 1:
+            # One GPU does not need DDP. Wrapping it still tracks every parameter
+            # and crashes when a frozen run leaves some of them out of the loss.
+            return
 
         self.model = nn.parallel.DistributedDataParallel(
             self.model,
@@ -328,6 +337,51 @@ class Trainer:
                 logging.info("Enabling fp16 grad communication")
             process_group = None
             self.model.register_comm_hook(process_group, hook)
+
+    def _freeze_configured_modules(self) -> None:
+        """Stop gradients through named submodules and optionally store them in a lower dtype.
+
+        Learning-rate 0 is not enough: Adam still allocates state for every parameter
+        that requires grad. These modules are the pretrained backbone; only the
+        detection transformer and segmentation head should update.
+        """
+        if not self.freeze_modules:
+            return
+        root = unwrap_ddp_if_wrapped(self.model)
+        dtype = None
+        if self.frozen_param_dtype:
+            if not hasattr(torch, self.frozen_param_dtype):
+                raise ValueError(
+                    f"Unknown frozen_param_dtype {self.frozen_param_dtype}"
+                )
+            dtype = getattr(torch, self.frozen_param_dtype)
+        frozen = 0
+        for name in self.freeze_modules:
+            module = root.get_submodule(name)
+            for param in module.parameters():
+                if (
+                    dtype is not None
+                    and param.is_floating_point()
+                    and param.dtype != dtype
+                ):
+                    param.data = param.data.to(dtype=dtype)
+                param.requires_grad_(False)
+                frozen += param.numel()
+            module.eval()
+        trainable = sum(p.numel() for p in root.parameters() if p.requires_grad)
+        logging.info(
+            "Head-only finetune froze %d params in %s; %d params remain trainable.",
+            frozen,
+            self.freeze_modules,
+            trainable,
+        )
+
+    def _eval_frozen_modules(self) -> None:
+        if not self.freeze_modules:
+            return
+        root = unwrap_ddp_if_wrapped(self.model)
+        for name in self.freeze_modules:
+            root.get_submodule(name).eval()
 
     def _move_to_device(self):
         logging.info(
@@ -802,8 +856,10 @@ class Trainer:
             prefix="Train Epoch: [{}]".format(self.epoch),
         )
 
-        # Model training loop
+        # Model training loop. Frozen modules stay in eval so dropout and
+        # drop-path do not change features the head is trying to fit.
         self.model.train()
+        self._eval_frozen_modules()
         end = time.time()
 
         for data_iter, batch in enumerate(train_loader):
