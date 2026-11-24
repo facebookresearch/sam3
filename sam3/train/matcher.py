@@ -568,6 +568,15 @@ class BinaryHungarianMatcherV2(nn.Module):
         assert out_bbox.shape[0] == tgt_bbox.shape[0]
         assert out_bbox.shape[0] == num_boxes.shape[0]
 
+        # Promote before converting box centers to corners: a narrow box can
+        # collapse when the two corners round to the same BF16 value.
+        box_dtype = torch.promote_types(
+            torch.float32, torch.promote_types(out_bbox.dtype, tgt_bbox.dtype)
+        )
+        out_bbox = out_bbox.to(box_dtype)
+        tgt_bbox = tgt_bbox.to(box_dtype)
+        out_score = out_score.to(torch.promote_types(torch.float32, out_score.dtype))
+
         # Compute the L1 cost between boxes
         cost_bbox = torch.cdist(out_bbox, tgt_bbox, p=1)
 

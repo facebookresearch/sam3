@@ -65,6 +65,10 @@ class OptimAMPConf:
     enabled: bool = False
     amp_dtype: str = "float16"
 
+    @property
+    def use_grad_scaler(self) -> bool:
+        return self.enabled and self.amp_dtype == "float16"
+
 
 @dataclass
 class OptimConf:
@@ -374,7 +378,7 @@ class Trainer:
             "time_elapsed": self.time_elapsed_meter.val,
             "best_meter_values": self.best_meter_values,
         }
-        if self.optim_conf.amp.enabled:
+        if self.scaler.is_enabled():
             checkpoint["scaler"] = self.scaler.state_dict()
 
         # DDP checkpoints are only saved on rank 0 (all workers are identical)
@@ -460,9 +464,9 @@ class Trainer:
         self.steps = checkpoint["steps"]
         self.ckpt_time_elapsed = checkpoint.get("time_elapsed")
 
-        # pyre-fixme[16]: `Optional` has no attribute `enabled`.
-        if self.optim_conf.amp.enabled and "scaler" in checkpoint:
-            self.scaler.load_state_dict(checkpoint["scaler"])
+        scaler_state = checkpoint.get("scaler")
+        if self.scaler.is_enabled() and scaler_state:
+            self.scaler.load_state_dict(scaler_state)
 
         self.best_meter_values = checkpoint.get("best_meter_values", {})
 
@@ -845,20 +849,7 @@ class Trainer:
                                 self.steps[phase],
                             )
 
-                # Clipping gradients and detecting diverging gradients
-                if self.gradient_clipper is not None:
-                    self.scaler.unscale_(self.optim.optimizer)
-                    self.gradient_clipper(model=self.model)
-
-                if self.gradient_logger is not None:
-                    self.gradient_logger(
-                        self.model, rank=self.distributed_rank, where=self.where
-                    )
-
-                # Optimizer step: the scaler will make sure gradients are not
-                # applied if the gradients are infinite
-                self.scaler.step(self.optim.optimizer)
-                self.scaler.update()
+                self._step_optimizer()
 
                 # measure elapsed time
                 batch_time_meter.update(time.time() - end)
@@ -910,6 +901,37 @@ class Trainer:
                     data_time,
                     step,
                 )
+
+    def _step_optimizer(self):
+        optimizer = self.optim.optimizer
+        grad_norm = None
+        if self.gradient_clipper is not None:
+            self.scaler.unscale_(optimizer)
+            grad_norm = self.gradient_clipper(model=self.model)
+
+        if self.optim_conf.amp.enabled and self.optim_conf.amp.amp_dtype == "bfloat16":
+            # BF16 uses unscaled gradients. Check them before updating the optimizer.
+            if not isinstance(grad_norm, torch.Tensor):
+                grads = [p.grad for p in self.model.parameters() if p.grad is not None]
+                grad_norm = torch.nn.utils.get_total_norm(grads)
+            nonfinite = (~grad_norm.isfinite()).to(
+                device=self.device, dtype=torch.int32
+            )
+            if all_reduce_max(nonfinite).item():
+                optimizer.zero_grad(set_to_none=True)
+                logging.warning(
+                    "Skipping optimizer update at step %d due to non-finite gradients.",
+                    self.steps[Phase.TRAIN],
+                )
+                return
+
+        if self.gradient_logger is not None:
+            self.gradient_logger(
+                self.model, rank=self.distributed_rank, where=self.where
+            )
+
+        self.scaler.step(optimizer)
+        self.scaler.update()
 
     def _run_step(
         self,
@@ -1107,8 +1129,8 @@ class Trainer:
             self.meters = instantiate(self.meters_conf, _convert_="all")
 
         self.scaler = torch.amp.GradScaler(
-            self.device,
-            enabled=self.optim_conf.amp.enabled if self.optim_conf else False,
+            self.device.type,
+            enabled=self.optim_conf.amp.use_grad_scaler if self.optim_conf else False,
         )
 
         self.gradient_clipper = (

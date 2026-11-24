@@ -114,7 +114,8 @@ def box_iou(boxes1, boxes2):
 
     union = area1[..., None] + area2[..., None, :] - inter
 
-    iou = inter / union
+    # Empty or zero-area boxes have zero intersection.
+    iou = inter / union.masked_fill(union == 0, 1)
     return iou, union
 
 
@@ -141,7 +142,7 @@ def generalized_box_iou(boxes1, boxes2):
     wh = (rb - lt).clamp(min=0)  # (..., N, M, 2)
     area = wh[..., 0] * wh[..., 1]  # (..., N, M)
 
-    return iou - (area - union) / area
+    return iou - (area - union) / area.masked_fill(area == 0, 1)
 
 
 @torch.jit.script
