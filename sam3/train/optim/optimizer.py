@@ -401,7 +401,7 @@ class GradientClipper:
         if self.max_norm is None:
             return  # no-op
 
-        nn.utils.clip_grad_norm_(
+        return nn.utils.clip_grad_norm_(
             model.parameters(), max_norm=self.max_norm, norm_type=self.norm_type
         )
 
