@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 import torch
 from PIL import Image
+from sam3.perflib import fused
 from sam3.perflib.masks_ops import masks_to_boxes
 
 
@@ -59,3 +60,30 @@ class TestMasksToBoxes:
             )
             masks = _create_masks(image, masks)
             masks_box_check(masks, expected)
+
+
+class TestAddmmAct:
+    def test_follows_fp16_autocast(self, monkeypatch):
+        # On CPU, autocast would recast _addmm_activation itself, so record
+        # the dtypes addmm_act passes to the kernel instead.
+        dtypes = []
+
+        def fake_addmm_act_op(bias, mat1, mat2, **kwargs):
+            dtypes.append((bias.dtype, mat1.dtype, mat2.dtype))
+            return torch.zeros(mat1.shape[0], mat2.shape[1], dtype=mat1.dtype)
+
+        monkeypatch.setattr(fused, "addmm_act_op", fake_addmm_act_op)
+        linear = torch.nn.Linear(8, 16)
+        x = torch.randn(2, 3, 8)
+        with torch.no_grad():
+            with torch.autocast("cpu", dtype=torch.float16):
+                fused.addmm_act(torch.nn.GELU, linear, x)
+            fused.addmm_act(torch.nn.GELU, linear, x)
+            with torch.autocast("cpu", dtype=torch.bfloat16):
+                fused.addmm_act(torch.nn.GELU, linear, x)
+
+        assert dtypes == [
+            (torch.float16,) * 3,
+            (torch.bfloat16,) * 3,
+            (torch.bfloat16,) * 3,
+        ]
